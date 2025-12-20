@@ -147,14 +147,27 @@ func (b *BootloaderInstaller) Install() error {
 		return fmt.Errorf("failed to copy kernel from modules: %w", err)
 	}
 
+	var err error
 	switch b.Type {
 	case BootloaderGRUB2:
-		return b.installGRUB2()
+		err = b.installGRUB2()
 	case BootloaderSystemdBoot:
-		return b.installSystemdBoot()
+		err = b.installSystemdBoot()
 	default:
 		return fmt.Errorf("unsupported bootloader type: %s", b.Type)
 	}
+
+	if err != nil {
+		return err
+	}
+
+	// Register EFI boot entry using efibootmgr if available
+	if regErr := b.registerEFIBootEntry(); regErr != nil {
+		// Not fatal - the removable media fallback path should still work
+		fmt.Printf("  Warning: failed to register EFI boot entry: %v\n", regErr)
+	}
+
+	return nil
 }
 
 // installGRUB2 installs GRUB2 bootloader
@@ -789,4 +802,113 @@ func DetectBootloader(targetDir string) BootloaderType {
 
 	// Default to GRUB2
 	return BootloaderGRUB2
+}
+
+// registerEFIBootEntry uses efibootmgr to register a boot entry in UEFI firmware
+// This ensures the system is bootable even if the firmware doesn't auto-detect the bootloader
+func (b *BootloaderInstaller) registerEFIBootEntry() error {
+	// Check if efibootmgr is available
+	efibootmgrPath, err := exec.LookPath("efibootmgr")
+	if err != nil {
+		fmt.Println("  efibootmgr not found, skipping EFI boot entry registration")
+		return nil
+	}
+
+	// Check if we're running on an EFI system (efivars must be accessible)
+	if _, err := os.Stat("/sys/firmware/efi/efivars"); os.IsNotExist(err) {
+		fmt.Println("  Not running on EFI system, skipping boot entry registration")
+		return nil
+	}
+
+	// Get the ESP partition device
+	espPartition := b.Scheme.BootPartition
+	if espPartition == "" {
+		return fmt.Errorf("ESP partition not set in scheme")
+	}
+
+	// Parse device and partition number from the ESP partition path
+	// e.g., /dev/sda1 -> disk=/dev/sda, part=1
+	// e.g., /dev/nvme0n1p1 -> disk=/dev/nvme0n1, part=1
+	disk, partNum, err := parsePartitionDevice(espPartition)
+	if err != nil {
+		return fmt.Errorf("failed to parse ESP partition device: %w", err)
+	}
+
+	// Determine the EFI bootloader path (relative to ESP root, using backslashes)
+	var efiPath string
+	switch b.Type {
+	case BootloaderGRUB2:
+		efiPath = "\\EFI\\BOOT\\BOOTX64.EFI"
+	case BootloaderSystemdBoot:
+		efiPath = "\\EFI\\BOOT\\BOOTX64.EFI"
+	}
+
+	// Create the boot entry
+	// Use the OS name as the label
+	label := b.OSName
+	if label == "" {
+		label = "Linux"
+	}
+
+	fmt.Printf("  Registering EFI boot entry: %s\n", label)
+
+	args := []string{
+		"--create",
+		"--disk", disk,
+		"--part", partNum,
+		"--loader", efiPath,
+		"--label", label,
+	}
+
+	if b.Verbose {
+		args = append(args, "--verbose")
+	}
+
+	cmd := exec.Command(efibootmgrPath, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("efibootmgr failed: %w\nOutput: %s", err, string(output))
+	}
+
+	fmt.Printf("  Registered EFI boot entry successfully\n")
+	return nil
+}
+
+// parsePartitionDevice parses a partition device path into disk and partition number
+// Handles both traditional naming (/dev/sda1) and NVMe naming (/dev/nvme0n1p1)
+func parsePartitionDevice(partition string) (disk string, partNum string, err error) {
+	// Handle NVMe devices: /dev/nvme0n1p1 -> /dev/nvme0n1, 1
+	if strings.Contains(partition, "nvme") || strings.Contains(partition, "mmcblk") {
+		// Find the last 'p' followed by digits
+		for i := len(partition) - 1; i >= 0; i-- {
+			if partition[i] == 'p' && i < len(partition)-1 {
+				// Check if everything after 'p' is digits
+				suffix := partition[i+1:]
+				isNum := true
+				for _, c := range suffix {
+					if c < '0' || c > '9' {
+						isNum = false
+						break
+					}
+				}
+				if isNum {
+					return partition[:i], suffix, nil
+				}
+			}
+		}
+		return "", "", fmt.Errorf("cannot parse NVMe/MMC partition: %s", partition)
+	}
+
+	// Handle traditional devices: /dev/sda1 -> /dev/sda, 1
+	// Find where the partition number starts (first digit at the end)
+	for i := len(partition) - 1; i >= 0; i-- {
+		if partition[i] < '0' || partition[i] > '9' {
+			if i == len(partition)-1 {
+				return "", "", fmt.Errorf("no partition number found: %s", partition)
+			}
+			return partition[:i+1], partition[i+1:], nil
+		}
+	}
+
+	return "", "", fmt.Errorf("cannot parse partition device: %s", partition)
 }

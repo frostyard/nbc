@@ -51,6 +51,6 @@ jobs:
 
           These binaries are automatically replaced on every push to main." \
             --prerelease \
-            dist/*.tar.gz dist/*.zip dist/*.deb dist/*.rpm dist/*.apk dist/checksums.txt
+            dist/*.tar.gz dist/*.deb dist/*.rpm dist/*.apk dist/checksums.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

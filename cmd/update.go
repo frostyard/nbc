@@ -1,12 +1,24 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/frostyard/nbc/pkg"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
+
+// UpdateCheckOutput represents the JSON output structure for the update --check command
+type UpdateCheckOutput struct {
+	UpdateNeeded  bool   `json:"update_needed"`
+	Image         string `json:"image"`
+	Device        string `json:"device"`
+	CurrentDigest string `json:"current_digest,omitempty"`
+	NewDigest     string `json:"new_digest,omitempty"`
+	Message       string `json:"message,omitempty"`
+}
 
 var (
 	updateImage      string
@@ -35,13 +47,16 @@ Use --check to only check if an update is available without installing.
 After update, reboot to activate the new system. The previous system remains
 available in the boot menu for rollback if needed.
 
+With --json flag, outputs streaming JSON Lines for progress updates.
+
 Example:
   nbc update
   nbc update --check              # Just check if update available
   nbc update --image quay.io/example/myimage:v2.0
   nbc update --skip-pull
   nbc update --device /dev/sda    # Override auto-detection
-  nbc update --force              # Reinstall even if up-to-date`,
+  nbc update --force              # Reinstall even if up-to-date
+  nbc update --json               # Machine-readable streaming output`,
 	RunE: runUpdate,
 }
 
@@ -59,6 +74,10 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	verbose := viper.GetBool("verbose")
 	dryRun := viper.GetBool("dry-run")
 	force := viper.GetBool("force")
+	jsonOutput := viper.GetBool("json")
+
+	// Create progress reporter for early error output
+	progress := pkg.NewProgressReporter(jsonOutput, 7)
 
 	var device string
 	var err error
@@ -67,18 +86,24 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	if updateDevice != "" {
 		device, err = pkg.GetDiskByPath(updateDevice)
 		if err != nil {
+			if jsonOutput {
+				progress.Error(err, "Invalid device")
+			}
 			return fmt.Errorf("invalid device: %w", err)
 		}
-		if verbose {
+		if verbose && !jsonOutput {
 			fmt.Printf("Using specified device: %s\n", device)
 		}
 	} else {
 		// Auto-detect boot device
-		device, err = pkg.GetCurrentBootDeviceInfo(verbose)
+		device, err = pkg.GetCurrentBootDeviceInfo(verbose && !jsonOutput)
 		if err != nil {
+			if jsonOutput {
+				progress.Error(err, "Failed to auto-detect boot device")
+			}
 			return fmt.Errorf("failed to auto-detect boot device: %w (use --device to specify manually)", err)
 		}
-		if !verbose {
+		if !verbose && !jsonOutput {
 			fmt.Printf("Auto-detected boot device: %s\n", device)
 		}
 	}
@@ -88,10 +113,15 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	if imageRef == "" {
 		config, err := pkg.ReadSystemConfig()
 		if err != nil {
+			if jsonOutput {
+				progress.Error(err, "No image specified and failed to read system config")
+			}
 			return fmt.Errorf("no image specified and failed to read system config: %w", err)
 		}
 		imageRef = config.ImageRef
-		fmt.Printf("Using image from system config: %s\n", imageRef)
+		if !jsonOutput {
+			fmt.Printf("Using image from system config: %s\n", imageRef)
+		}
 	}
 
 	// Create updater
@@ -99,18 +129,46 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	updater.SetVerbose(verbose)
 	updater.SetDryRun(dryRun)
 	updater.SetForce(force)
+	updater.SetJSONOutput(jsonOutput)
 
 	// If --check flag, only check if update is needed
 	if updateCheckOnly {
 		needed, digest, err := updater.IsUpdateNeeded()
 		if err != nil {
+			if jsonOutput {
+				progress.Error(err, "Failed to check for updates")
+			}
 			return fmt.Errorf("failed to check for updates: %w", err)
 		}
+
+		if jsonOutput {
+			// Get current digest for JSON output
+			config, _ := pkg.ReadSystemConfig()
+			currentDigest := ""
+			if config != nil {
+				currentDigest = config.ImageDigest
+			}
+			output := UpdateCheckOutput{
+				UpdateNeeded:  needed,
+				Image:         imageRef,
+				Device:        device,
+				CurrentDigest: currentDigest,
+				NewDigest:     digest,
+			}
+			if needed {
+				output.Message = "Update available"
+			} else {
+				output.Message = "System is up-to-date"
+			}
+			encoder := json.NewEncoder(os.Stdout)
+			encoder.SetIndent("", "  ")
+			return encoder.Encode(output)
+		}
+
 		if needed {
 			fmt.Println()
 			fmt.Printf("Update available: %s\n", digest)
 			fmt.Println("Run 'nbc update' to install the update.")
-			// Exit with code 0 (update available)
 			return nil
 		}
 		// System is up-to-date
@@ -124,16 +182,10 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	// Run update
 	if err := updater.PerformUpdate(updateSkipPull); err != nil {
+		if jsonOutput {
+			progress.Error(err, "Update failed")
+		}
 		return err
-	}
-
-	if !dryRun {
-		fmt.Println()
-		fmt.Println("=================================================================")
-		fmt.Println("System update complete!")
-		fmt.Println("Reboot your system to activate the new version.")
-		fmt.Println("The previous version is available in the boot menu for rollback.")
-		fmt.Println("=================================================================")
 	}
 
 	return nil

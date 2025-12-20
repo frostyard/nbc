@@ -34,10 +34,13 @@ The dual root partitions enable A/B updates for system resilience.
 
 Supported filesystems: ext4 (default), btrfs
 
+With --json flag, outputs streaming JSON Lines for progress updates.
+
 Example:
   nbc install --image quay.io/example/myimage:latest --device /dev/sda
   nbc install --image localhost/myimage --device /dev/nvme0n1 --filesystem btrfs
-  nbc install --image localhost/myimage --device /dev/nvme0n1 --karg console=ttyS0`,
+  nbc install --image localhost/myimage --device /dev/nvme0n1 --karg console=ttyS0
+  nbc install --image localhost/myimage --device /dev/sda --json`,
 	RunE: runInstall,
 }
 
@@ -57,19 +60,30 @@ func init() {
 func runInstall(cmd *cobra.Command, args []string) error {
 	verbose := viper.GetBool("verbose")
 	dryRun := viper.GetBool("dry-run")
+	jsonOutput := viper.GetBool("json")
+
+	// Create progress reporter for early error output
+	progress := pkg.NewProgressReporter(jsonOutput, 6)
 
 	// Validate filesystem type
 	if installFilesystem != "ext4" && installFilesystem != "btrfs" {
-		return fmt.Errorf("unsupported filesystem type: %s (supported: ext4, btrfs)", installFilesystem)
+		err := fmt.Errorf("unsupported filesystem type: %s (supported: ext4, btrfs)", installFilesystem)
+		if jsonOutput {
+			progress.Error(err, "Invalid filesystem type")
+		}
+		return err
 	}
 
 	// Resolve device path
 	device, err := pkg.GetDiskByPath(installDevice)
 	if err != nil {
+		if jsonOutput {
+			progress.Error(err, "Invalid device")
+		}
 		return fmt.Errorf("invalid device: %w", err)
 	}
 
-	if verbose {
+	if verbose && !jsonOutput {
 		fmt.Printf("Resolved device: %s\n", device)
 	}
 
@@ -78,6 +92,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	installer.SetVerbose(verbose)
 	installer.SetDryRun(dryRun)
 	installer.SetFilesystemType(installFilesystem)
+	installer.SetJSONOutput(jsonOutput)
 
 	// Add kernel arguments
 	for _, arg := range installKernelArgs {
@@ -86,15 +101,10 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	// Run installation
 	if err := installer.InstallComplete(installSkipPull); err != nil {
+		if jsonOutput {
+			progress.Error(err, "Installation failed")
+		}
 		return err
-	}
-
-	if !dryRun {
-		fmt.Println()
-		fmt.Println("=================================================================")
-		fmt.Println("Installation complete! You can now boot from this disk.")
-		fmt.Println("Make sure to configure your system's boot order if needed.")
-		fmt.Println("=================================================================")
 	}
 
 	return nil

@@ -55,6 +55,41 @@ func (b *BootloaderInstaller) SetVerbose(verbose bool) {
 	b.Verbose = verbose
 }
 
+// ensureUppercaseEFIDirectory ensures the EFI directory structure uses proper uppercase naming
+// This is important because FAT32 is case-insensitive but case-preserving. If the container
+// image was extracted with a lowercase "efi" directory, we need to rename it to "EFI".
+func ensureUppercaseEFIDirectory(espPath string) error {
+	// Check for lowercase "efi" directory
+	lowercaseEFI := filepath.Join(espPath, "efi")
+	uppercaseEFI := filepath.Join(espPath, "EFI")
+
+	if info, err := os.Stat(lowercaseEFI); err == nil && info.IsDir() {
+		// Check if uppercase EFI also exists (shouldn't on FAT32, but check anyway)
+		if _, err := os.Stat(uppercaseEFI); os.IsNotExist(err) {
+			// Rename lowercase to uppercase
+			if err := os.Rename(lowercaseEFI, uppercaseEFI); err != nil {
+				return fmt.Errorf("failed to rename efi to EFI: %w", err)
+			}
+			fmt.Println("  Renamed efi/ to EFI/ for UEFI compatibility")
+		}
+	}
+
+	// Also check for lowercase "boot" inside EFI
+	lowercaseBoot := filepath.Join(uppercaseEFI, "boot")
+	uppercaseBoot := filepath.Join(uppercaseEFI, "BOOT")
+
+	if info, err := os.Stat(lowercaseBoot); err == nil && info.IsDir() {
+		if _, err := os.Stat(uppercaseBoot); os.IsNotExist(err) {
+			if err := os.Rename(lowercaseBoot, uppercaseBoot); err != nil {
+				return fmt.Errorf("failed to rename boot to BOOT: %w", err)
+			}
+			fmt.Println("  Renamed EFI/boot/ to EFI/BOOT/ for UEFI compatibility")
+		}
+	}
+
+	return nil
+}
+
 // copyKernelFromModules copies kernel and initramfs from /usr/lib/modules/$KERNEL_VERSION/ to /boot
 // Since boot partition is now a combined EFI/boot partition, all files go to /boot
 func (b *BootloaderInstaller) copyKernelFromModules() error {
@@ -141,6 +176,12 @@ func (b *BootloaderInstaller) copyKernelFromModules() error {
 // Install installs the bootloader
 func (b *BootloaderInstaller) Install() error {
 	fmt.Printf("Installing %s bootloader...\n", b.Type)
+
+	// Ensure EFI directory structure uses proper uppercase naming (UEFI spec requirement)
+	espPath := filepath.Join(b.TargetDir, "boot")
+	if err := ensureUppercaseEFIDirectory(espPath); err != nil {
+		fmt.Printf("  Warning: %v\n", err)
+	}
 
 	// Copy kernel and initramfs from /usr/lib/modules to /boot
 	if err := b.copyKernelFromModules(); err != nil {

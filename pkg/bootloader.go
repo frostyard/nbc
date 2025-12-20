@@ -501,6 +501,9 @@ func findShimEFI(targetDir string) string {
 		filepath.Join(targetDir, "boot", "efi", "EFI", "fedora", "shimx64.efi"),
 		filepath.Join(targetDir, "boot", "efi", "EFI", "centos", "shimx64.efi"),
 		filepath.Join(targetDir, "boot", "efi", "EFI", "redhat", "shimx64.efi"),
+		// Debian/Ubuntu locations
+		filepath.Join(targetDir, "boot", "efi", "EFI", "debian", "shimx64.efi"),
+		filepath.Join(targetDir, "boot", "efi", "EFI", "ubuntu", "shimx64.efi"),
 		// Signed shim from shim-signed package
 		filepath.Join(targetDir, "usr", "lib", "shim", "shimx64.efi.signed"),
 		filepath.Join(targetDir, "usr", "lib64", "shim", "shimx64.efi.signed"),
@@ -526,6 +529,9 @@ func findMokManager(targetDir string) string {
 		filepath.Join(targetDir, "boot", "efi", "EFI", "fedora", "mmx64.efi"),
 		filepath.Join(targetDir, "boot", "efi", "EFI", "centos", "mmx64.efi"),
 		filepath.Join(targetDir, "boot", "efi", "EFI", "redhat", "mmx64.efi"),
+		// Debian/Ubuntu locations
+		filepath.Join(targetDir, "boot", "efi", "EFI", "debian", "mmx64.efi"),
+		filepath.Join(targetDir, "boot", "efi", "EFI", "ubuntu", "mmx64.efi"),
 		// From shim package
 		filepath.Join(targetDir, "usr", "lib", "shim", "mmx64.efi.signed"),
 		filepath.Join(targetDir, "usr", "lib64", "shim", "mmx64.efi.signed"),
@@ -542,16 +548,85 @@ func findMokManager(targetDir string) string {
 	return ""
 }
 
+// findSignedGrubEFI looks for the signed grubx64.efi binary in the container image
+// This is essential for Secure Boot - shim will only chain-load a properly signed GRUB
+func findSignedGrubEFI(targetDir string) string {
+	// Common locations for signed GRUB EFI binary
+	grubPaths := []string{
+		// Fedora/RHEL/CentOS locations
+		filepath.Join(targetDir, "boot", "efi", "EFI", "fedora", "grubx64.efi"),
+		filepath.Join(targetDir, "boot", "efi", "EFI", "centos", "grubx64.efi"),
+		filepath.Join(targetDir, "boot", "efi", "EFI", "redhat", "grubx64.efi"),
+		// From grub2-efi-x64 package
+		filepath.Join(targetDir, "usr", "lib", "grub", "x86_64-efi-signed", "grubx64.efi.signed"),
+		filepath.Join(targetDir, "usr", "lib64", "grub", "x86_64-efi-signed", "grubx64.efi.signed"),
+		// Debian/Ubuntu locations
+		filepath.Join(targetDir, "usr", "lib", "grub", "x86_64-efi-signed", "grubx64.efi"),
+		filepath.Join(targetDir, "usr", "share", "grub", "x86_64-efi-signed", "grubx64.efi"),
+	}
+
+	for _, path := range grubPaths {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return ""
+}
+
+// findSignedSystemdBootEFI looks for a signed systemd-boot binary in the container
+// On Debian/Ubuntu, systemd-boot is signed and can be chain-loaded via shim's fallback
+func findSignedSystemdBootEFI(targetDir string) string {
+	paths := []string{
+		// Debian/Ubuntu signed systemd-boot
+		filepath.Join(targetDir, "usr", "lib", "systemd", "boot", "efi", "systemd-bootx64.efi.signed"),
+		filepath.Join(targetDir, "boot", "efi", "EFI", "systemd", "systemd-bootx64.efi"),
+		filepath.Join(targetDir, "boot", "efi", "EFI", "debian", "systemd-bootx64.efi"),
+		filepath.Join(targetDir, "boot", "efi", "EFI", "ubuntu", "systemd-bootx64.efi"),
+		// Fedora locations (though Fedora typically uses GRUB)
+		filepath.Join(targetDir, "usr", "lib64", "systemd", "boot", "efi", "systemd-bootx64.efi.signed"),
+	}
+
+	for _, path := range paths {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return ""
+}
+
+// findFallbackEFI looks for the shim fallback EFI binary (fbx64.efi)
+// This is used to boot via BOOTX64.CSV on Debian/Ubuntu
+func findFallbackEFI(targetDir string) string {
+	fbPaths := []string{
+		// Debian/Ubuntu locations
+		filepath.Join(targetDir, "boot", "efi", "EFI", "debian", "fbx64.efi"),
+		filepath.Join(targetDir, "boot", "efi", "EFI", "ubuntu", "fbx64.efi"),
+		filepath.Join(targetDir, "usr", "lib", "shim", "fbx64.efi.signed"),
+		filepath.Join(targetDir, "usr", "lib", "shim", "fbx64.efi"),
+		// Fedora/RHEL locations
+		filepath.Join(targetDir, "boot", "efi", "EFI", "fedora", "fbx64.efi"),
+		filepath.Join(targetDir, "boot", "efi", "EFI", "BOOT", "fbx64.efi"),
+		filepath.Join(targetDir, "usr", "lib64", "shim", "fbx64.efi"),
+	}
+
+	for _, path := range fbPaths {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return ""
+}
+
 // setupSecureBootChain sets up the Secure Boot chain with shim
-// The chain is: BOOTX64.EFI (shim) → grubx64.efi/systemd-bootx64.efi
 // Returns true if secure boot chain was set up, false if shim not available
+//
+// For GRUB2: shimx64.efi → grubx64.efi (signed)
+// For systemd-boot: shimx64.efi → fbx64.efi → (BOOTX64.CSV) → systemd-bootx64.efi
 func (b *BootloaderInstaller) setupSecureBootChain(bootloaderEFI string) (bool, error) {
 	shimPath := findShimEFI(b.TargetDir)
 	if shimPath == "" {
 		return false, nil // No shim available, will use direct boot
 	}
-
-	fmt.Println("  Setting up Secure Boot chain with shim...")
 
 	espPath := filepath.Join(b.TargetDir, "boot")
 	efiBootDir := filepath.Join(espPath, "EFI", "BOOT")
@@ -560,6 +635,25 @@ func (b *BootloaderInstaller) setupSecureBootChain(bootloaderEFI string) (bool, 
 		return false, fmt.Errorf("failed to create EFI/BOOT directory: %w", err)
 	}
 
+	// For systemd-boot, use the fallback mechanism
+	if b.Type == BootloaderSystemdBoot {
+		return b.setupSystemdBootSecureBootChain(shimPath, efiBootDir)
+	}
+
+	// For GRUB2, find the signed grubx64.efi from the container image
+	// We must use the signed binary, not the output from grub-install
+	signedGrubPath := findSignedGrubEFI(b.TargetDir)
+	if signedGrubPath == "" {
+		fmt.Println("  Warning: No signed grubx64.efi found in container image")
+		fmt.Println("  Secure Boot may fail - using unsigned GRUB from grub-install")
+		// Fall back to the provided bootloaderEFI (likely unsigned)
+		signedGrubPath = bootloaderEFI
+	} else {
+		fmt.Printf("  Found signed GRUB: %s\n", signedGrubPath)
+	}
+
+	fmt.Println("  Setting up Secure Boot chain with shim...")
+
 	// Copy shim as BOOTX64.EFI (the UEFI default bootloader path)
 	shimDest := filepath.Join(efiBootDir, "BOOTX64.EFI")
 	if err := copyEFIFile(shimPath, shimDest); err != nil {
@@ -567,13 +661,13 @@ func (b *BootloaderInstaller) setupSecureBootChain(bootloaderEFI string) (bool, 
 	}
 	fmt.Printf("  Installed shim as BOOTX64.EFI (Secure Boot entry point)\n")
 
-	// Copy the actual bootloader as grubx64.efi (what shim expects to chain-load)
-	// Shim by default looks for grubx64.efi in the same directory
+	// Copy the signed grubx64.efi (what shim expects to chain-load)
+	// Shim is compiled to look for grubx64.efi in the same directory
 	bootloaderDest := filepath.Join(efiBootDir, "grubx64.efi")
-	if err := copyEFIFile(bootloaderEFI, bootloaderDest); err != nil {
-		return false, fmt.Errorf("failed to copy bootloader as grubx64.efi: %w", err)
+	if err := copyEFIFile(signedGrubPath, bootloaderDest); err != nil {
+		return false, fmt.Errorf("failed to copy signed grubx64.efi: %w", err)
 	}
-	fmt.Printf("  Installed bootloader as grubx64.efi (chain-loaded by shim)\n")
+	fmt.Printf("  Installed signed grubx64.efi (chain-loaded by shim)\n")
 
 	// Copy MOK manager if available (for key enrollment)
 	mokPath := findMokManager(b.TargetDir)
@@ -603,6 +697,85 @@ func (b *BootloaderInstaller) setupSecureBootChain(bootloaderEFI string) (bool, 
 			break
 		}
 	}
+
+	return true, nil
+}
+
+// setupSystemdBootSecureBootChain sets up Secure Boot for systemd-boot
+// Uses shim's fallback mechanism: shimx64.efi → fbx64.efi → (BOOTX64.CSV) → systemd-bootx64.efi
+// This is the standard approach on Debian/Ubuntu where systemd-boot is signed by the distro key
+func (b *BootloaderInstaller) setupSystemdBootSecureBootChain(shimPath, efiBootDir string) (bool, error) {
+	// Find the fallback EFI binary
+	fbPath := findFallbackEFI(b.TargetDir)
+	if fbPath == "" {
+		fmt.Println("  Warning: No fallback EFI (fbx64.efi) found for systemd-boot Secure Boot")
+		fmt.Println("  Secure Boot may not work with systemd-boot on this image")
+		return false, nil
+	}
+
+	// Find signed systemd-boot
+	signedSystemdBoot := findSignedSystemdBootEFI(b.TargetDir)
+	if signedSystemdBoot == "" {
+		fmt.Println("  Warning: No signed systemd-boot found in container image")
+		fmt.Println("  Secure Boot may fail - using potentially unsigned systemd-boot")
+	} else {
+		fmt.Printf("  Found signed systemd-boot: %s\n", signedSystemdBoot)
+	}
+
+	fmt.Println("  Setting up Secure Boot chain for systemd-boot...")
+
+	// Copy shim as BOOTX64.EFI
+	shimDest := filepath.Join(efiBootDir, "BOOTX64.EFI")
+	if err := copyEFIFile(shimPath, shimDest); err != nil {
+		return false, fmt.Errorf("failed to copy shim to BOOTX64.EFI: %w", err)
+	}
+	fmt.Printf("  Installed shim as BOOTX64.EFI (Secure Boot entry point)\n")
+
+	// Copy fallback EFI (fbx64.efi) - this reads BOOTX64.CSV to find the real bootloader
+	fbDest := filepath.Join(efiBootDir, "fbx64.efi")
+	if err := copyEFIFile(fbPath, fbDest); err != nil {
+		return false, fmt.Errorf("failed to copy fbx64.efi: %w", err)
+	}
+	fmt.Println("  Installed fallback bootloader (fbx64.efi)")
+
+	// Copy MOK manager
+	mokPath := findMokManager(b.TargetDir)
+	if mokPath != "" {
+		mokDest := filepath.Join(efiBootDir, "mmx64.efi")
+		if err := copyEFIFile(mokPath, mokDest); err == nil {
+			fmt.Println("  Installed MOK manager (mmx64.efi)")
+		}
+	}
+
+	// Copy systemd-boot to EFI/systemd/ (where the CSV will point)
+	espPath := filepath.Join(b.TargetDir, "boot")
+	efiSystemdDir := filepath.Join(espPath, "EFI", "systemd")
+	if err := os.MkdirAll(efiSystemdDir, 0755); err != nil {
+		return false, fmt.Errorf("failed to create EFI/systemd directory: %w", err)
+	}
+
+	// Use signed systemd-boot if available
+	systemdBootSrc := signedSystemdBoot
+	if systemdBootSrc == "" {
+		// Fall back to the unsigned one (already found by installSystemdBoot)
+		systemdBootSrc = filepath.Join(b.TargetDir, "usr", "lib", "systemd", "boot", "efi", "systemd-bootx64.efi")
+	}
+
+	systemdBootDest := filepath.Join(efiSystemdDir, "systemd-bootx64.efi")
+	if err := copyEFIFile(systemdBootSrc, systemdBootDest); err != nil {
+		return false, fmt.Errorf("failed to copy systemd-boot: %w", err)
+	}
+	fmt.Println("  Installed systemd-boot EFI binary")
+
+	// Create BOOTX64.CSV - this tells fbx64.efi where to find the bootloader
+	// Format: shimx64.efi,label,options (but we're using systemd-boot directly)
+	// The CSV format is: path,title,options (where path is relative to EFI/)
+	csvContent := "systemd\\systemd-bootx64.efi,systemd-boot,\n"
+	csvPath := filepath.Join(efiBootDir, "BOOTX64.CSV")
+	if err := os.WriteFile(csvPath, []byte(csvContent), 0644); err != nil {
+		return false, fmt.Errorf("failed to write BOOTX64.CSV: %w", err)
+	}
+	fmt.Println("  Created BOOTX64.CSV for fallback boot")
 
 	return true, nil
 }

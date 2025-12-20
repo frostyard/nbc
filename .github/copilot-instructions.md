@@ -65,21 +65,41 @@ if err != nil {
 
 ### Secure Boot Chain
 
-When `shimx64.efi.signed` is detected in the container image, the EFI boot chain is set up as:
+**IMPORTANT**: Shim is compiled to trust specific bootloader binaries signed by the distro's key.
+You must use the **signed** binaries from the container image, not unsigned binaries from `grub-install`.
+
+**For GRUB2**: shimx64.efi → grubx64.efi (must be signed by distro key)
 
 ```
 EFI/BOOT/
 ├── BOOTX64.EFI   ← shimx64.efi (Secure Boot entry point)
-├── grubx64.efi   ← actual bootloader (chain-loaded by shim)
+├── grubx64.efi   ← signed GRUB from container (chain-loaded by shim)
 ├── mmx64.efi     ← MOK manager (optional)
 └── fbx64.efi     ← fallback (optional)
 ```
 
+**For systemd-boot (Debian/Ubuntu)**: shimx64.efi → fbx64.efi → BOOTX64.CSV → systemd-bootx64.efi
+
+```
+EFI/BOOT/
+├── BOOTX64.EFI   ← shimx64.efi (Secure Boot entry point)
+├── fbx64.efi     ← fallback loader (reads BOOTX64.CSV)
+├── BOOTX64.CSV   ← points to EFI/systemd/systemd-bootx64.efi
+├── mmx64.efi     ← MOK manager (optional)
+EFI/systemd/
+└── systemd-bootx64.efi  ← signed systemd-boot
+```
+
 Shim locations searched:
 
-- `/boot/efi/EFI/{fedora,centos,redhat}/shimx64.efi`
+- `/boot/efi/EFI/{fedora,centos,redhat,debian,ubuntu}/shimx64.efi`
 - `/usr/lib{,64}/shim/shimx64.efi.signed`
 - `/usr/share/shim/shimx64.efi.signed`
+
+Signed bootloader locations:
+
+- GRUB: `/boot/efi/EFI/{fedora,centos,redhat}/grubx64.efi`
+- systemd-boot: `/usr/lib/systemd/boot/efi/systemd-bootx64.efi.signed`
 
 ### Container Extraction
 

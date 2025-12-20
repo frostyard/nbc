@@ -44,9 +44,11 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.nbc.yaml)")
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")
 	rootCmd.PersistentFlags().BoolP("dry-run", "n", false, "dry run mode (no actual changes)")
+	rootCmd.PersistentFlags().Bool("json", false, "output in JSON format for machine-readable output")
 
 	_ = viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 	_ = viper.BindPFlag("dry-run", rootCmd.PersistentFlags().Lookup("dry-run"))
+	_ = viper.BindPFlag("json", rootCmd.PersistentFlags().Lookup("json"))
 }
 
 func initConfig() {

@@ -391,7 +391,7 @@ func (b *BootloaderInstaller) installSystemdBoot() error {
 	return nil
 }
 
-// copyEFIFile copies a file from src to dst
+// copyEFIFile copies a file from src to dst, ensuring data is synced to disk
 func copyEFIFile(src, dst string) error {
 	source, err := os.Open(src)
 	if err != nil {
@@ -399,14 +399,40 @@ func copyEFIFile(src, dst string) error {
 	}
 	defer func() { _ = source.Close() }()
 
+	// Get source file info for size validation
+	srcInfo, err := source.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to stat source: %w", err)
+	}
+
 	dest, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = dest.Close() }()
 
-	_, err = io.Copy(dest, source)
-	return err
+	written, err := io.Copy(dest, source)
+	if err != nil {
+		_ = dest.Close()
+		return fmt.Errorf("failed to copy data: %w", err)
+	}
+
+	// Verify we copied the expected amount
+	if written != srcInfo.Size() {
+		_ = dest.Close()
+		return fmt.Errorf("incomplete copy: wrote %d bytes, expected %d", written, srcInfo.Size())
+	}
+
+	// Sync to ensure data is on disk
+	if err := dest.Sync(); err != nil {
+		_ = dest.Close()
+		return fmt.Errorf("failed to sync: %w", err)
+	}
+
+	if err := dest.Close(); err != nil {
+		return fmt.Errorf("failed to close: %w", err)
+	}
+
+	return nil
 }
 
 // generateSystemdBootConfig generates systemd-boot configuration
@@ -715,26 +741,22 @@ func (b *BootloaderInstaller) setupSecureBootChain(bootloaderEFI string) (bool, 
 }
 
 // setupSystemdBootSecureBootChain sets up Secure Boot for systemd-boot
-// Uses shim's fallback mechanism: shimx64.efi → fbx64.efi → (BOOTX64.CSV) → systemd-bootx64.efi
-// This is the standard approach on Debian/Ubuntu where systemd-boot is signed by the distro key
+// On Debian/Ubuntu, shimx64.efi is compiled to load grubx64.efi by default.
+// However, shim will verify the signature of whatever it loads - and Debian's
+// signed systemd-boot is signed by the same Debian key that shim trusts.
+// So we can copy the signed systemd-boot as grubx64.efi, and shim will load it.
+//
+// Boot chain: shimx64.efi (BOOTX64.EFI) → grubx64.efi (actually systemd-boot, signed by Debian)
 func (b *BootloaderInstaller) setupSystemdBootSecureBootChain(shimPath, efiBootDir string) (bool, error) {
-	// Find the fallback EFI binary
-	fbPath := findFallbackEFI(b.TargetDir)
-	if fbPath == "" {
-		fmt.Println("  Warning: No fallback EFI (fbx64.efi) found for systemd-boot Secure Boot")
-		fmt.Println("  Secure Boot may not work with systemd-boot on this image")
-		return false, nil
-	}
-
 	// Find signed systemd-boot
 	signedSystemdBoot := findSignedSystemdBootEFI(b.TargetDir)
 	if signedSystemdBoot == "" {
 		fmt.Println("  Warning: No signed systemd-boot found in container image")
-		fmt.Println("  Secure Boot may fail - using potentially unsigned systemd-boot")
-	} else {
-		fmt.Printf("  Found signed systemd-boot: %s\n", signedSystemdBoot)
+		fmt.Println("  Secure Boot may fail with systemd-boot")
+		return false, nil
 	}
 
+	fmt.Printf("  Found signed systemd-boot: %s\n", signedSystemdBoot)
 	fmt.Println("  Setting up Secure Boot chain for systemd-boot...")
 
 	// Copy shim as BOOTX64.EFI
@@ -744,14 +766,17 @@ func (b *BootloaderInstaller) setupSystemdBootSecureBootChain(shimPath, efiBootD
 	}
 	fmt.Printf("  Installed shim as BOOTX64.EFI (Secure Boot entry point)\n")
 
-	// Copy fallback EFI (fbx64.efi) - this reads BOOTX64.CSV to find the real bootloader
-	fbDest := filepath.Join(efiBootDir, "fbx64.efi")
-	if err := copyEFIFile(fbPath, fbDest); err != nil {
-		return false, fmt.Errorf("failed to copy fbx64.efi: %w", err)
+	// Copy signed systemd-boot as grubx64.efi - shim will load it
+	// Shim is compiled to look for grubx64.efi, but it verifies the signature
+	// using the Debian/Ubuntu key embedded in shim. Since the signed systemd-boot
+	// is signed by the same key, shim will trust and load it.
+	bootloaderDest := filepath.Join(efiBootDir, "grubx64.efi")
+	if err := copyEFIFile(signedSystemdBoot, bootloaderDest); err != nil {
+		return false, fmt.Errorf("failed to copy systemd-boot as grubx64.efi: %w", err)
 	}
-	fmt.Println("  Installed fallback bootloader (fbx64.efi)")
+	fmt.Printf("  Installed signed systemd-boot as grubx64.efi (chain-loaded by shim)\n")
 
-	// Copy MOK manager
+	// Copy MOK manager if available (for future key enrollment needs)
 	mokPath := findMokManager(b.TargetDir)
 	if mokPath != "" {
 		mokDest := filepath.Join(efiBootDir, "mmx64.efi")
@@ -760,35 +785,22 @@ func (b *BootloaderInstaller) setupSystemdBootSecureBootChain(shimPath, efiBootD
 		}
 	}
 
-	// Copy systemd-boot to EFI/systemd/ (where the CSV will point)
+	// Also copy fbx64.efi (fallback) if available - useful for recovery
+	fbPath := findFallbackEFI(b.TargetDir)
+	if fbPath != "" {
+		fbDest := filepath.Join(efiBootDir, "fbx64.efi")
+		if err := copyEFIFile(fbPath, fbDest); err == nil {
+			fmt.Println("  Installed fallback bootloader (fbx64.efi)")
+		}
+	}
+
+	// Also copy systemd-boot to EFI/systemd/ for discoverability
 	espPath := filepath.Join(b.TargetDir, "boot")
 	efiSystemdDir := filepath.Join(espPath, "EFI", "systemd")
-	if err := os.MkdirAll(efiSystemdDir, 0755); err != nil {
-		return false, fmt.Errorf("failed to create EFI/systemd directory: %w", err)
+	if err := os.MkdirAll(efiSystemdDir, 0755); err == nil {
+		systemdBootDest := filepath.Join(efiSystemdDir, "systemd-bootx64.efi")
+		_ = copyEFIFile(signedSystemdBoot, systemdBootDest)
 	}
-
-	// Use signed systemd-boot if available
-	systemdBootSrc := signedSystemdBoot
-	if systemdBootSrc == "" {
-		// Fall back to the unsigned one (already found by installSystemdBoot)
-		systemdBootSrc = filepath.Join(b.TargetDir, "usr", "lib", "systemd", "boot", "efi", "systemd-bootx64.efi")
-	}
-
-	systemdBootDest := filepath.Join(efiSystemdDir, "systemd-bootx64.efi")
-	if err := copyEFIFile(systemdBootSrc, systemdBootDest); err != nil {
-		return false, fmt.Errorf("failed to copy systemd-boot: %w", err)
-	}
-	fmt.Println("  Installed systemd-boot EFI binary")
-
-	// Create BOOTX64.CSV - this tells fbx64.efi where to find the bootloader
-	// Format: shimx64.efi,label,options (but we're using systemd-boot directly)
-	// The CSV format is: path,title,options (where path is relative to EFI/)
-	csvContent := "systemd\\systemd-bootx64.efi,systemd-boot,\n"
-	csvPath := filepath.Join(efiBootDir, "BOOTX64.CSV")
-	if err := os.WriteFile(csvPath, []byte(csvContent), 0644); err != nil {
-		return false, fmt.Errorf("failed to write BOOTX64.CSV: %w", err)
-	}
-	fmt.Println("  Created BOOTX64.CSV for fallback boot")
 
 	return true, nil
 }

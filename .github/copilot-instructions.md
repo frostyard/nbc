@@ -68,7 +68,10 @@ if err != nil {
 **IMPORTANT**: Shim is compiled to trust specific bootloader binaries signed by the distro's key.
 You must use the **signed** binaries from the container image, not unsigned binaries from `grub-install`.
 
-**For GRUB2**: shimx64.efi → grubx64.efi (must be signed by distro key)
+Shim is hardcoded to look for `grubx64.efi` in the same directory. However, shim verifies signatures
+using the distro key embedded in it. Any binary signed by that key will be trusted and loaded.
+
+**For GRUB2**: shimx64.efi → grubx64.efi (signed GRUB from container)
 
 ```
 EFI/BOOT/
@@ -78,16 +81,20 @@ EFI/BOOT/
 └── fbx64.efi     ← fallback (optional)
 ```
 
-**For systemd-boot (Debian/Ubuntu)**: shimx64.efi → fbx64.efi → BOOTX64.CSV → systemd-bootx64.efi
+**For systemd-boot (Debian/Ubuntu)**: shimx64.efi → grubx64.efi (actually signed systemd-boot!)
+
+Since shim looks for `grubx64.efi` but only verifies the signature (not the actual content),
+we copy the **signed systemd-boot** as `grubx64.efi`. Shim loads it because it's signed by
+the same distro key that shim trusts.
 
 ```
 EFI/BOOT/
 ├── BOOTX64.EFI   ← shimx64.efi (Secure Boot entry point)
-├── fbx64.efi     ← fallback loader (reads BOOTX64.CSV)
-├── BOOTX64.CSV   ← points to EFI/systemd/systemd-bootx64.efi
+├── grubx64.efi   ← signed systemd-boot (renamed! chain-loaded by shim)
 ├── mmx64.efi     ← MOK manager (optional)
+└── fbx64.efi     ← fallback (optional)
 EFI/systemd/
-└── systemd-bootx64.efi  ← signed systemd-boot
+└── systemd-bootx64.efi  ← copy of signed systemd-boot (for discoverability)
 ```
 
 Shim locations searched:

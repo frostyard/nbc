@@ -1,0 +1,335 @@
+package pkg
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/frostyard/nbc/pkg/testutil"
+)
+
+func TestSystemUpdater_Update(t *testing.T) {
+	testutil.RequireRoot(t)
+	testutil.RequireTools(t, "losetup", "sgdisk", "mkfs.vfat", "mkfs.ext4", "podman", "mount", "umount", "rsync")
+
+	// Step 1: Install initial system
+	t.Log("Step 1: Installing initial system")
+	disk, scheme, _ := installTestSystem(t, "v1")
+
+	// Step 2: Modify /etc to simulate user changes
+	t.Log("Step 2: Modifying /etc to simulate user changes")
+	modifyEtcOnRoot1(t, scheme)
+
+	// Step 3: Create updated container image
+	t.Log("Step 3: Creating updated container image")
+	updatedImageName := "localhost/nbc-test-update:v2"
+	if err := createUpdatedMockContainer(t, updatedImageName); err != nil {
+		t.Fatalf("Failed to create updated container: %v", err)
+	}
+
+	// Step 4: Perform update
+	t.Log("Step 4: Performing system update")
+	updater := NewSystemUpdater(disk.GetDevice(), updatedImageName)
+	updater.SetVerbose(true)
+	updater.SetDryRun(false)
+	updater.SetForce(true)
+
+	// Skip pull since we're using a local test image
+	if err := updater.PerformUpdate(true); err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+
+	// Step 5: Verify update
+	t.Log("Step 5: Verifying update")
+	verifyUpdate(t, scheme, updatedImageName)
+
+	// Step 6: Verify /etc persistence
+	t.Log("Step 6: Verifying /etc persistence")
+	verifyEtcPersistence(t, scheme)
+
+	t.Log("Update test completed successfully")
+}
+
+func TestSystemUpdater_EtcPersistence(t *testing.T) {
+	testutil.RequireRoot(t)
+	testutil.RequireTools(t, "losetup", "sgdisk", "mkfs.vfat", "mkfs.ext4", "podman", "mount", "umount", "rsync")
+
+	// Install initial system
+	t.Log("Installing initial system")
+	disk, scheme, _ := installTestSystem(t, "v1")
+
+	// Mount root1 and modify /etc
+	t.Log("Modifying /etc configuration")
+	mountPoint := filepath.Join(t.TempDir(), "root1")
+	if err := os.MkdirAll(mountPoint, 0755); err != nil {
+		t.Fatalf("Failed to create mount point: %v", err)
+	}
+	defer testutil.CleanupMounts(t, mountPoint)
+
+	if err := mountSinglePartition(scheme.Root1Partition, mountPoint); err != nil {
+		t.Fatalf("Failed to mount root1: %v", err)
+	}
+	defer func() { _ = unmountSinglePartition(mountPoint) }()
+
+	// Create a custom config file
+	customConfigPath := filepath.Join(mountPoint, "etc", "custom.conf")
+	customContent := "# Custom configuration\ntest=value\n"
+	if err := os.WriteFile(customConfigPath, []byte(customContent), 0644); err != nil {
+		t.Fatalf("Failed to write custom config: %v", err)
+	}
+
+	// Modify existing file
+	hostnameOverride := "my-custom-hostname\n"
+	hostnamePath := filepath.Join(mountPoint, "etc", "hostname")
+	if err := os.WriteFile(hostnamePath, []byte(hostnameOverride), 0644); err != nil {
+		t.Fatalf("Failed to modify hostname: %v", err)
+	}
+
+	_ = unmountSinglePartition(mountPoint)
+
+	// Create new container image
+	t.Log("Creating updated container")
+	newImageName := "localhost/nbc-test-etc:v2"
+	if err := createUpdatedMockContainer(t, newImageName); err != nil {
+		t.Fatalf("Failed to create new container: %v", err)
+	}
+
+	// Perform update
+	t.Log("Performing update")
+	updater := NewSystemUpdater(disk.GetDevice(), newImageName)
+	updater.SetVerbose(true)
+	updater.SetDryRun(false)
+	updater.SetForce(true)
+
+	// Skip pull since we're using a local test image
+	if err := updater.PerformUpdate(true); err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+
+	// Verify custom config persisted to root2
+	t.Log("Verifying /etc persistence")
+	verifyMount := filepath.Join(t.TempDir(), "root2")
+	if err := os.MkdirAll(verifyMount, 0755); err != nil {
+		t.Fatalf("Failed to create verify mount: %v", err)
+	}
+	defer testutil.CleanupMounts(t, verifyMount)
+
+	if err := mountSinglePartition(scheme.Root2Partition, verifyMount); err != nil {
+		t.Fatalf("Failed to mount root2: %v", err)
+	}
+	defer func() { _ = unmountSinglePartition(verifyMount) }()
+
+	// Check custom config exists
+	customConfigPath2 := filepath.Join(verifyMount, "etc", "custom.conf")
+	content, err := os.ReadFile(customConfigPath2)
+	if err != nil {
+		t.Errorf("Custom config not found in root2: %v", err)
+	} else if string(content) != customContent {
+		t.Errorf("Custom config content mismatch: got %q, want %q", string(content), customContent)
+	} else {
+		t.Logf("✓ Custom config persisted: %s", customConfigPath2)
+	}
+
+	// Check hostname override
+	hostnamePath2 := filepath.Join(verifyMount, "etc", "hostname")
+	content, err = os.ReadFile(hostnamePath2)
+	if err != nil {
+		t.Errorf("Hostname not found in root2: %v", err)
+	} else if string(content) != hostnameOverride {
+		t.Errorf("Hostname content mismatch: got %q, want %q", string(content), hostnameOverride)
+	} else {
+		t.Logf("✓ Hostname override persisted")
+	}
+
+	t.Log("/etc persistence test completed successfully")
+}
+
+// Helper functions
+
+func installTestSystem(t *testing.T, version string) (*testutil.TestDisk, *PartitionScheme, string) {
+	t.Helper()
+
+	// Create test disk
+	disk, err := testutil.CreateTestDisk(t, 50)
+	if err != nil {
+		t.Fatalf("Failed to create test disk: %v", err)
+	}
+
+	// Create mock container
+	imageName := "localhost/nbc-test:" + version
+	if err := testutil.CreateMockContainer(t, imageName); err != nil {
+		t.Fatalf("Failed to create mock container: %v", err)
+	}
+
+	// Install
+	mountPoint := filepath.Join(t.TempDir(), "install")
+	installer := NewBootcInstaller(imageName, disk.GetDevice())
+	installer.SetMountPoint(mountPoint)
+	installer.SetVerbose(true)
+	installer.SetDryRun(false)
+
+	defer testutil.CleanupMounts(t, mountPoint)
+
+	if err := installer.Install(); err != nil {
+		t.Fatalf("Install failed: %v", err)
+	}
+
+	_ = testutil.WaitForDevice(disk.GetDevice())
+	scheme, err := DetectExistingPartitionScheme(disk.GetDevice())
+	if err != nil {
+		t.Fatalf("Failed to detect partition scheme: %v", err)
+	}
+
+	return disk, scheme, imageName
+}
+
+func modifyEtcOnRoot1(t *testing.T, scheme *PartitionScheme) {
+	t.Helper()
+
+	mountPoint := filepath.Join(t.TempDir(), "modify")
+	if err := os.MkdirAll(mountPoint, 0755); err != nil {
+		t.Fatalf("Failed to create mount point: %v", err)
+	}
+	defer testutil.CleanupMounts(t, mountPoint)
+
+	if err := mountSinglePartition(scheme.Root1Partition, mountPoint); err != nil {
+		t.Fatalf("Failed to mount root1: %v", err)
+	}
+	defer func() { _ = unmountSinglePartition(mountPoint) }()
+
+	// Modify a file
+	testFile := filepath.Join(mountPoint, "etc", "test-modified.conf")
+	if err := os.WriteFile(testFile, []byte("modified=true\n"), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	t.Logf("Modified /etc on root1")
+}
+
+func createUpdatedMockContainer(t *testing.T, imageName string) error {
+	t.Helper()
+
+	// Create a temporary directory with minimal root filesystem
+	tmpDir := t.TempDir()
+	rootDir := filepath.Join(tmpDir, "rootfs")
+
+	// Create basic directory structure
+	dirs := []string{
+		"etc", "var", "boot", "usr/bin", "usr/lib", "usr/share",
+		"usr/lib/modules/6.6.0-test",
+		"usr/lib/systemd/boot/efi",
+		"dev", "proc", "sys", "tmp", "run", "home", "root",
+	}
+	for _, dir := range dirs {
+		if err := os.MkdirAll(filepath.Join(rootDir, dir), 0755); err != nil {
+			return err
+		}
+	}
+
+	// Create /etc files with updated content
+	etcFiles := map[string]string{
+		"etc/hostname":     "updated-container\n",
+		"etc/os-release":   "ID=test\nNAME=\"Updated Test OS\"\nVERSION_ID=2.0\nPRETTY_NAME=\"Updated Test OS 2.0\"\n",
+		"etc/passwd":       "root:x:0:0:root:/root:/bin/sh\n",
+		"etc/group":        "root:x:0:\n",
+		"etc/shells":       "/bin/sh\n/bin/bash\n",
+		"etc/updated.conf": "# This file is new in the update\nupdated=true\n",
+	}
+
+	for path, content := range etcFiles {
+		fullPath := filepath.Join(rootDir, path)
+		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+			return err
+		}
+	}
+
+	// Create mock kernel and initramfs in /usr/lib/modules (new bootc layout)
+	kernelFiles := map[string]string{
+		"usr/lib/modules/6.6.0-test/vmlinuz":       "MOCK_KERNEL_IMAGE_V2\n",
+		"usr/lib/modules/6.6.0-test/initramfs.img": "MOCK_INITRAMFS_V2\n",
+	}
+
+	for path, content := range kernelFiles {
+		fullPath := filepath.Join(rootDir, path)
+		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+			return err
+		}
+	}
+
+	// Create mock systemd-boot EFI binary
+	efiPath := filepath.Join(rootDir, "usr/lib/systemd/boot/efi/systemd-bootx64.efi")
+	if err := os.WriteFile(efiPath, []byte("MOCK_SYSTEMD_BOOT_EFI_V2\n"), 0644); err != nil {
+		return err
+	}
+
+	// Build container
+	return testutil.BuildContainerFromDir(t, rootDir, imageName)
+}
+
+func verifyUpdate(t *testing.T, scheme *PartitionScheme, expectedImage string) {
+	t.Helper()
+
+	mountPoint := filepath.Join(t.TempDir(), "verify-update")
+	if err := os.MkdirAll(mountPoint, 0755); err != nil {
+		t.Fatalf("Failed to create mount point: %v", err)
+	}
+	defer testutil.CleanupMounts(t, mountPoint)
+
+	// Mount root2 (target of update)
+	if err := mountSinglePartition(scheme.Root2Partition, mountPoint); err != nil {
+		t.Fatalf("Failed to mount root2: %v", err)
+	}
+	defer func() { _ = unmountSinglePartition(mountPoint) }()
+
+	// Check for updated file
+	updatedFile := filepath.Join(mountPoint, "etc", "updated.conf")
+	if _, err := os.Stat(updatedFile); os.IsNotExist(err) {
+		t.Errorf("Updated file not found: %s", updatedFile)
+	} else {
+		t.Logf("✓ Updated file exists: %s", updatedFile)
+	}
+}
+
+func verifyEtcPersistence(t *testing.T, scheme *PartitionScheme) {
+	t.Helper()
+
+	mountPoint := filepath.Join(t.TempDir(), "verify-etc")
+	if err := os.MkdirAll(mountPoint, 0755); err != nil {
+		t.Fatalf("Failed to create mount point: %v", err)
+	}
+	defer testutil.CleanupMounts(t, mountPoint)
+
+	// Mount root2
+	if err := mountSinglePartition(scheme.Root2Partition, mountPoint); err != nil {
+		t.Fatalf("Failed to mount root2: %v", err)
+	}
+	defer func() { _ = unmountSinglePartition(mountPoint) }()
+
+	// Check that modified file persisted
+	modifiedFile := filepath.Join(mountPoint, "etc", "test-modified.conf")
+	if content, err := os.ReadFile(modifiedFile); os.IsNotExist(err) {
+		t.Errorf("Modified file not found in root2: %s", modifiedFile)
+	} else if err != nil {
+		t.Errorf("Error reading modified file: %v", err)
+	} else if !strings.Contains(string(content), "modified=true") {
+		t.Errorf("Modified file content incorrect: %s", string(content))
+	} else {
+		t.Logf("✓ User-modified /etc file persisted")
+	}
+}
+
+func mountSinglePartition(partition, mountPoint string) error {
+	cmd := exec.Command("mount", partition, mountPoint)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("mount failed: %w\nOutput: %s", err, string(output))
+	}
+	return nil
+}
+
+func unmountSinglePartition(mountPoint string) error {
+	_ = exec.Command("umount", mountPoint).Run()
+	return nil
+}

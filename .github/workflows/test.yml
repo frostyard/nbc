@@ -1,0 +1,88 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.24"
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+
+  unit-test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.24"
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run unit tests
+        run: make test-unit
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux]
+        goarch: [amd64, arm64]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.24"
+
+      - name: Build binary
+        run: |
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} make build
+          ls -lh nbc
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: nbc-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: nbc
+          retention-days: 7
+
+  integration-test:
+    name: Integration Tests (Info Only)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Note about integration tests
+        run: |
+          echo "⚠️  Integration tests require root privileges and loop device support."
+          echo "These tests cannot run in standard GitHub Actions runners."
+          echo ""
+          echo "To run integration tests locally:"
+          echo "  sudo make test-integration"
+          echo "  sudo make test-install"
+          echo "  sudo make test-update"
+          echo ""
+          echo "These tests create loop devices, partition them, and perform full"
+          echo "system installations and updates."

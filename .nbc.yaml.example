@@ -1,0 +1,20 @@
+# Example configuration file for nbc
+# Save as ~/.nbc.yaml
+
+# Enable verbose output by default
+verbose: false
+
+# Enable dry-run mode by default (safe mode)
+dry-run: false
+
+# Default image to use (can be overridden with --image flag)
+# default-image: "quay.io/example/bootc-image:latest"
+
+# Default kernel arguments to add
+# kernel-args:
+#   - console=ttyS0
+#   - quiet
+#   - splash
+
+# Minimum disk size in bytes (default: 10GB)
+# min-disk-size: 10737418240

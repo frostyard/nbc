@@ -65,39 +65,156 @@ if err != nil {
 
 ### Secure Boot Chain
 
-**IMPORTANT**: Shim is compiled to trust specific bootloader binaries signed by the distro's key.
-You must use the **signed** binaries from the container image, not unsigned binaries from `grub-install`.
+**IMPORTANT**: This section documents extensive debugging that was required to get Secure Boot
+working correctly with systemd-boot. Read this carefully before making changes.
 
-Shim is hardcoded to look for `grubx64.efi` in the same directory. However, shim verifies signatures
-using the distro key embedded in it. Any binary signed by that key will be trusted and loaded.
+#### How Shim Works
 
-**For GRUB2**: shimx64.efi → grubx64.efi (signed GRUB from container)
+Shim is the first-stage bootloader signed by Microsoft's UEFI CA. It's trusted by all Secure Boot
+firmware. Shim then loads and verifies a second-stage bootloader using the **distro's key**
+embedded in shim (not Microsoft's key).
 
-```
-EFI/BOOT/
-├── BOOTX64.EFI   ← shimx64.efi (Secure Boot entry point)
-├── grubx64.efi   ← signed GRUB from container (chain-loaded by shim)
-├── mmx64.efi     ← MOK manager (optional)
-└── fbx64.efi     ← fallback (optional)
-```
+Key facts about shim:
 
-**For systemd-boot (Debian/Ubuntu)**: shimx64.efi → grubx64.efi (actually signed systemd-boot!)
+1. Shim is **hardcoded** to look for `grubx64.efi` in the same directory
+2. Shim **only verifies the signature**, not the binary type - it doesn't care if grubx64.efi is actually GRUB
+3. Any binary signed by the distro's key (embedded in shim) will be trusted and loaded
+4. Shim is signed by Microsoft, so UEFI firmware trusts it
+5. Signed bootloaders (GRUB, systemd-boot) are signed by the distro, so shim trusts them
 
-Since shim looks for `grubx64.efi` but only verifies the signature (not the actual content),
-we copy the **signed systemd-boot** as `grubx64.efi`. Shim loads it because it's signed by
-the same distro key that shim trusts.
+#### Working Configuration for systemd-boot
 
 ```
 EFI/BOOT/
-├── BOOTX64.EFI   ← shimx64.efi (Secure Boot entry point)
-├── grubx64.efi   ← signed systemd-boot (renamed! chain-loaded by shim)
-├── mmx64.efi     ← MOK manager (optional)
-└── fbx64.efi     ← fallback (optional)
+├── BOOTX64.EFI   ← shimx64.efi.signed (957KB, Secure Boot entry point)
+├── grubx64.efi   ← systemd-bootx64.efi.signed (125KB, chain-loaded by shim)
+└── mmx64.efi     ← mmx64.efi.signed (850KB, MOK manager, optional)
+
 EFI/systemd/
-└── systemd-bootx64.efi  ← copy of signed systemd-boot (for discoverability)
+└── systemd-bootx64.efi  ← copy of signed systemd-boot (for bootctl discoverability)
 ```
 
-Shim locations searched:
+**CRITICAL: Do NOT include fbx64.efi** - see "Failed Attempts" below.
+
+#### Working Configuration for GRUB2
+
+```
+EFI/BOOT/
+├── BOOTX64.EFI   ← shimx64.efi.signed (Secure Boot entry point)
+├── grubx64.efi   ← signed grubx64.efi from container (chain-loaded by shim)
+├── mmx64.efi     ← MOK manager (optional)
+└── fbx64.efi     ← fallback (optional, but generally avoid)
+```
+
+#### File Locations in Container Images
+
+**Debian/Ubuntu:**
+
+- Shim: `/usr/lib/shim/shimx64.efi.signed`
+- MOK manager: `/usr/lib/shim/mmx64.efi.signed`
+- Fallback: `/usr/lib/shim/fbx64.efi.signed` (DO NOT USE)
+- Signed systemd-boot: `/usr/lib/systemd/boot/efi/systemd-bootx64.efi.signed`
+- CSV file: `/usr/lib/shim/BOOTX64.CSV` (for fbx64.efi, not needed)
+
+**Fedora/RHEL/CentOS:**
+
+- Shim: `/boot/efi/EFI/{fedora,centos,redhat}/shimx64.efi`
+- Signed GRUB: `/boot/efi/EFI/{fedora,centos,redhat}/grubx64.efi`
+
+#### Failed Attempts (DO NOT REPEAT)
+
+1. **Using unsigned systemd-boot directly as BOOTX64.EFI**
+
+   - Result: "Access Denied" - UEFI Secure Boot rejected unsigned binary
+   - Lesson: UEFI firmware only trusts Microsoft-signed binaries (like shim)
+
+2. **Using signed systemd-boot directly as BOOTX64.EFI (no shim)**
+
+   - Result: "Access Denied" - Debian's key is not in QEMU/OVMF's default trust store
+   - Lesson: Distro keys are trusted by shim, not by firmware directly
+
+3. **Shim + systemd-boot as grubx64.efi + fbx64.efi (fallback)**
+
+   - Result: "Restore Boot Option" blue screen from fbx64.efi
+   - Lesson: fbx64.efi looks for `EFI/<distro>/BOOTX64.CSV` but we use `EFI/BOOT/`
+   - The fallback mechanism expects the distro-specific directory structure
+
+4. **Shim + fbx64.efi fallback mechanism with BOOTX64.CSV**
+
+   - Result: Still "Restore Boot Option" blue screen
+   - Lesson: fbx64.efi is designed for distro installers, not custom boot setups
+
+5. **Wrong assumption: "systemd-boot needs to know its path"**
+   - We initially thought systemd-boot couldn't be loaded as grubx64.efi
+   - Actually works fine - systemd-boot finds loader.conf relative to ESP root
+
+#### Why fbx64.efi Causes Problems
+
+fbx64.efi (fallback bootloader) is designed for a very specific use case:
+
+1. Distro installer copies files to `EFI/<distro>/` directory
+2. Installer creates `EFI/<distro>/BOOTX64.CSV` with boot entry info
+3. fbx64.efi reads CSV and registers the boot entry in UEFI NVRAM
+
+Our setup uses `EFI/BOOT/` (the removable media fallback path), not `EFI/<distro>/`.
+When fbx64.efi can't find the CSV file, it shows the "Restore Boot Option" blue screen.
+
+**Solution**: Simply don't install fbx64.efi. We use efibootmgr to register boot entries instead.
+
+#### FAT32 Case Sensitivity
+
+FAT32 is case-insensitive but case-preserving. This causes issues:
+
+- Container extraction may create lowercase `efi` directory
+- UEFI specification requires uppercase `EFI`
+- `os.Stat("EFI")` succeeds even when stored as `efi` (case-insensitive match)
+- Direct `os.Rename("efi", "EFI")` is a no-op on FAT32
+
+**Solution**: Use two-step rename to force case change:
+
+```go
+os.Rename("efi", "efi_rename_tmp")
+os.Rename("efi_rename_tmp", "EFI")
+```
+
+This is implemented in `ensureUppercaseEFIDirectory()`.
+
+#### Testing Secure Boot
+
+1. Create Incus VM with Secure Boot enabled:
+
+   ```bash
+   incus launch images:debian/trixie titanoboa --vm \
+     -c security.secureboot=true
+   ```
+
+2. Check Secure Boot status inside VM:
+
+   ```bash
+   mokutil --sb-state
+   ```
+
+3. After installation, verify boot chain:
+   ```bash
+   bootctl status  # Shows "Secure Boot: enabled"
+   ```
+
+#### Debugging Boot Failures
+
+If you get a blue screen with "Restore Boot Option":
+
+1. **fbx64.efi is being executed** - remove it from EFI/BOOT/
+2. Check that grubx64.efi exists and is the signed bootloader
+
+If you get "Access Denied":
+
+1. **Secure Boot rejected the binary** - use signed binaries
+2. For systemd-boot: must go through shim, not directly as BOOTX64.EFI
+
+If the system boots to ISO instead of installed OS:
+
+1. Check boot order: `efibootmgr -v`
+2. Set correct order: `efibootmgr -o 0008,0002,...` (your boot entry first)
 
 - `/boot/efi/EFI/{fedora,centos,redhat,debian,ubuntu}/shimx64.efi`
 - `/usr/lib{,64}/shim/shimx64.efi.signed`

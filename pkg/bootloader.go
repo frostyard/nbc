@@ -58,35 +58,91 @@ func (b *BootloaderInstaller) SetVerbose(verbose bool) {
 // ensureUppercaseEFIDirectory ensures the EFI directory structure uses proper uppercase naming
 // This is important because FAT32 is case-insensitive but case-preserving. If the container
 // image was extracted with a lowercase "efi" directory, we need to rename it to "EFI".
+// On FAT32, we must use a two-step rename (efi → efi_tmp → EFI) to actually change the
+// stored case, since direct rename is a no-op on case-insensitive filesystems.
 func ensureUppercaseEFIDirectory(espPath string) error {
-	// Check for lowercase "efi" directory
-	lowercaseEFI := filepath.Join(espPath, "efi")
+	// Check for lowercase "efi" directory by listing the parent directory
+	// and looking for the actual case used
+	entries, err := os.ReadDir(espPath)
+	if err != nil {
+		return nil // ESP might not exist yet, that's fine
+	}
+
+	var efiDirName string
+	for _, entry := range entries {
+		if entry.IsDir() && strings.EqualFold(entry.Name(), "efi") {
+			efiDirName = entry.Name()
+			break
+		}
+	}
+
+	if efiDirName == "" {
+		return nil // No EFI directory exists yet
+	}
+
+	// If it's already uppercase, we're done
+	if efiDirName == "EFI" {
+		// But still check for lowercase "boot" inside
+		return ensureUppercaseBOOTDirectory(filepath.Join(espPath, "EFI"))
+	}
+
+	// Need to rename to uppercase using two-step rename for FAT32
+	lowercaseEFI := filepath.Join(espPath, efiDirName)
+	tempEFI := filepath.Join(espPath, "efi_rename_tmp")
 	uppercaseEFI := filepath.Join(espPath, "EFI")
 
-	if info, err := os.Stat(lowercaseEFI); err == nil && info.IsDir() {
-		// Check if uppercase EFI also exists (shouldn't on FAT32, but check anyway)
-		if _, err := os.Stat(uppercaseEFI); os.IsNotExist(err) {
-			// Rename lowercase to uppercase
-			if err := os.Rename(lowercaseEFI, uppercaseEFI); err != nil {
-				return fmt.Errorf("failed to rename efi to EFI: %w", err)
-			}
-			fmt.Println("  Renamed efi/ to EFI/ for UEFI compatibility")
+	// Step 1: Rename to temp name
+	if err := os.Rename(lowercaseEFI, tempEFI); err != nil {
+		return fmt.Errorf("failed to rename %s to temp: %w", efiDirName, err)
+	}
+
+	// Step 2: Rename to uppercase
+	if err := os.Rename(tempEFI, uppercaseEFI); err != nil {
+		// Try to restore original name
+		_ = os.Rename(tempEFI, lowercaseEFI)
+		return fmt.Errorf("failed to rename temp to EFI: %w", err)
+	}
+
+	fmt.Printf("  Renamed %s/ to EFI/ for UEFI compatibility\n", efiDirName)
+
+	// Also fix BOOT subdirectory
+	return ensureUppercaseBOOTDirectory(uppercaseEFI)
+}
+
+// ensureUppercaseBOOTDirectory ensures the BOOT subdirectory inside EFI uses uppercase
+func ensureUppercaseBOOTDirectory(efiPath string) error {
+	entries, err := os.ReadDir(efiPath)
+	if err != nil {
+		return nil
+	}
+
+	var bootDirName string
+	for _, entry := range entries {
+		if entry.IsDir() && strings.EqualFold(entry.Name(), "boot") {
+			bootDirName = entry.Name()
+			break
 		}
 	}
 
-	// Also check for lowercase "boot" inside EFI
-	lowercaseBoot := filepath.Join(uppercaseEFI, "boot")
-	uppercaseBoot := filepath.Join(uppercaseEFI, "BOOT")
-
-	if info, err := os.Stat(lowercaseBoot); err == nil && info.IsDir() {
-		if _, err := os.Stat(uppercaseBoot); os.IsNotExist(err) {
-			if err := os.Rename(lowercaseBoot, uppercaseBoot); err != nil {
-				return fmt.Errorf("failed to rename boot to BOOT: %w", err)
-			}
-			fmt.Println("  Renamed EFI/boot/ to EFI/BOOT/ for UEFI compatibility")
-		}
+	if bootDirName == "" || bootDirName == "BOOT" {
+		return nil // No BOOT directory or already uppercase
 	}
 
+	// Two-step rename for FAT32
+	lowercaseBoot := filepath.Join(efiPath, bootDirName)
+	tempBoot := filepath.Join(efiPath, "boot_rename_tmp")
+	uppercaseBoot := filepath.Join(efiPath, "BOOT")
+
+	if err := os.Rename(lowercaseBoot, tempBoot); err != nil {
+		return fmt.Errorf("failed to rename %s to temp: %w", bootDirName, err)
+	}
+
+	if err := os.Rename(tempBoot, uppercaseBoot); err != nil {
+		_ = os.Rename(tempBoot, lowercaseBoot)
+		return fmt.Errorf("failed to rename temp to BOOT: %w", err)
+	}
+
+	fmt.Printf("  Renamed EFI/%s/ to EFI/BOOT/ for UEFI compatibility\n", bootDirName)
 	return nil
 }
 
@@ -674,34 +730,11 @@ func findSignedSystemdBootEFI(targetDir string) string {
 	return ""
 }
 
-// findFallbackEFI looks for the shim fallback EFI binary (fbx64.efi)
-// This is used to boot via BOOTX64.CSV on Debian/Ubuntu
-func findFallbackEFI(targetDir string) string {
-	fbPaths := []string{
-		// Debian/Ubuntu locations
-		filepath.Join(targetDir, "boot", "efi", "EFI", "debian", "fbx64.efi"),
-		filepath.Join(targetDir, "boot", "efi", "EFI", "ubuntu", "fbx64.efi"),
-		filepath.Join(targetDir, "usr", "lib", "shim", "fbx64.efi.signed"),
-		filepath.Join(targetDir, "usr", "lib", "shim", "fbx64.efi"),
-		// Fedora/RHEL locations
-		filepath.Join(targetDir, "boot", "efi", "EFI", "fedora", "fbx64.efi"),
-		filepath.Join(targetDir, "boot", "efi", "EFI", "BOOT", "fbx64.efi"),
-		filepath.Join(targetDir, "usr", "lib64", "shim", "fbx64.efi"),
-	}
-
-	for _, path := range fbPaths {
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-	}
-	return ""
-}
-
 // setupSecureBootChain sets up the Secure Boot chain with shim
 // Returns true if secure boot chain was set up, false if shim not available
 //
 // For GRUB2: shimx64.efi → grubx64.efi (signed)
-// For systemd-boot: shimx64.efi → fbx64.efi → (BOOTX64.CSV) → systemd-bootx64.efi
+// For systemd-boot: shimx64.efi → grubx64.efi (actually signed systemd-boot)
 func (b *BootloaderInstaller) setupSecureBootChain(bootloaderEFI string) (bool, error) {
 	shimPath := findShimEFI(b.TargetDir)
 	if shimPath == "" {
@@ -782,12 +815,16 @@ func (b *BootloaderInstaller) setupSecureBootChain(bootloaderEFI string) (bool, 
 }
 
 // setupSystemdBootSecureBootChain sets up Secure Boot for systemd-boot
-// On Debian/Ubuntu, shimx64.efi is compiled to load grubx64.efi by default.
-// However, shim will verify the signature of whatever it loads - and Debian's
-// signed systemd-boot is signed by the same Debian key that shim trusts.
-// So we can copy the signed systemd-boot as grubx64.efi, and shim will load it.
+// We use shim as BOOTX64.EFI and copy the signed systemd-boot as grubx64.efi.
+// Shim is compiled to look for grubx64.efi in the same directory, and it verifies
+// the signature using the distro key embedded in shim. Since systemd-boot is signed
+// by the same distro key (e.g., Debian), shim will trust and load it.
 //
-// Boot chain: shimx64.efi (BOOTX64.EFI) → grubx64.efi (actually systemd-boot, signed by Debian)
+// IMPORTANT: We do NOT install fbx64.efi (fallback bootloader) because it causes
+// a "Restore Boot Option" blue screen when it can't find BOOTX64.CSV in the
+// expected distro-specific location.
+//
+// Boot chain: shimx64.efi (BOOTX64.EFI) → grubx64.efi (actually signed systemd-boot)
 func (b *BootloaderInstaller) setupSystemdBootSecureBootChain(shimPath, efiBootDir string) (bool, error) {
 	// Find signed systemd-boot
 	signedSystemdBoot := findSignedSystemdBootEFI(b.TargetDir)
@@ -800,7 +837,7 @@ func (b *BootloaderInstaller) setupSystemdBootSecureBootChain(shimPath, efiBootD
 	fmt.Printf("  Found signed systemd-boot: %s\n", signedSystemdBoot)
 	fmt.Println("  Setting up Secure Boot chain for systemd-boot...")
 
-	// Copy shim as BOOTX64.EFI
+	// Copy shim as BOOTX64.EFI (the UEFI default bootloader path)
 	shimDest := filepath.Join(efiBootDir, "BOOTX64.EFI")
 	if err := copyEFIFile(shimPath, shimDest); err != nil {
 		return false, fmt.Errorf("failed to copy shim to BOOTX64.EFI: %w", err)
@@ -808,16 +845,16 @@ func (b *BootloaderInstaller) setupSystemdBootSecureBootChain(shimPath, efiBootD
 	fmt.Printf("  Installed shim as BOOTX64.EFI (Secure Boot entry point)\n")
 
 	// Copy signed systemd-boot as grubx64.efi - shim will load it
-	// Shim is compiled to look for grubx64.efi, but it verifies the signature
-	// using the Debian/Ubuntu key embedded in shim. Since the signed systemd-boot
-	// is signed by the same key, shim will trust and load it.
+	// Shim is compiled to look for grubx64.efi, but it only verifies the signature.
+	// Since systemd-boot is signed by the same distro key that shim trusts,
+	// shim will load it successfully.
 	bootloaderDest := filepath.Join(efiBootDir, "grubx64.efi")
 	if err := copyEFIFile(signedSystemdBoot, bootloaderDest); err != nil {
-		return false, fmt.Errorf("failed to copy systemd-boot as grubx64.efi: %w", err)
+		return false, fmt.Errorf("failed to copy signed systemd-boot as grubx64.efi: %w", err)
 	}
 	fmt.Printf("  Installed signed systemd-boot as grubx64.efi (chain-loaded by shim)\n")
 
-	// Copy MOK manager if available (for future key enrollment needs)
+	// Copy MOK manager if available (for key enrollment if needed)
 	mokPath := findMokManager(b.TargetDir)
 	if mokPath != "" {
 		mokDest := filepath.Join(efiBootDir, "mmx64.efi")
@@ -826,16 +863,12 @@ func (b *BootloaderInstaller) setupSystemdBootSecureBootChain(shimPath, efiBootD
 		}
 	}
 
-	// Also copy fbx64.efi (fallback) if available - useful for recovery
-	fbPath := findFallbackEFI(b.TargetDir)
-	if fbPath != "" {
-		fbDest := filepath.Join(efiBootDir, "fbx64.efi")
-		if err := copyEFIFile(fbPath, fbDest); err == nil {
-			fmt.Println("  Installed fallback bootloader (fbx64.efi)")
-		}
-	}
+	// NOTE: We intentionally do NOT copy fbx64.efi (fallback bootloader)
+	// fbx64.efi looks for EFI/<distro>/BOOTX64.CSV to restore boot entries,
+	// but our setup uses EFI/BOOT/ directly, causing fbx64.efi to fail with
+	// a "Restore Boot Option" blue screen.
 
-	// Also copy systemd-boot to EFI/systemd/ for discoverability
+	// Also copy systemd-boot to EFI/systemd/ for discoverability by bootctl
 	espPath := filepath.Join(b.TargetDir, "boot")
 	efiSystemdDir := filepath.Join(espPath, "EFI", "systemd")
 	if err := os.MkdirAll(efiSystemdDir, 0755); err == nil {

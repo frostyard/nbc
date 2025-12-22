@@ -31,7 +31,7 @@ The ESP (EFI System Partition) and Boot partitions are **not encrypted** to allo
 1. **Partition Creation**: Standard GPT partitions are created
 2. **LUKS Setup**: Each partition (root1, root2, var) is formatted with LUKS2
 3. **LUKS Open**: Encrypted containers are opened to `/dev/mapper/<name>`
-4. **Filesystem Creation**: ext4 (or xfs) filesystem is created on the mapper device
+4. **Filesystem Creation**: ext4 (or btrfs) filesystem is created on the mapper device
 5. **Container Extraction**: OS is extracted to the mounted filesystems
 6. **Crypttab Generation**: `/etc/crypttab` is generated for boot-time unlock
 7. **Bootloader Config**: Kernel arguments are configured for LUKS unlock

@@ -166,6 +166,9 @@ func (b *BootcInstaller) Install() error {
 		if err := SetupLUKS(scheme, b.Encryption.Passphrase, b.DryRun); err != nil {
 			return fmt.Errorf("failed to setup LUKS encryption: %w", err)
 		}
+
+		// Ensure LUKS devices are always cleaned up, even if later steps fail
+		defer CleanupLUKS(scheme, b.DryRun)
 	}
 
 	// Step 2: Format partitions

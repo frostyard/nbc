@@ -43,10 +43,32 @@ func GetBootDeviceFromPartition(partition string) (string, error) {
 
 // GetCurrentBootDevice determines the disk device that the system booted from
 func GetCurrentBootDevice() (string, error) {
+	// First, try to read the device from the system config
+	// This is the most reliable method, especially for encrypted systems
+	config, err := ReadSystemConfig()
+	if err == nil && config.Device != "" {
+		// Verify the device exists
+		if _, err := os.Stat(config.Device); err == nil {
+			return config.Device, nil
+		}
+	}
+
+	// Fall back to parsing kernel command line
 	// Get the active root partition
 	rootPartition, err := GetActiveRootPartition()
 	if err != nil {
 		return "", fmt.Errorf("failed to determine active root partition: %w", err)
+	}
+
+	// Handle device mapper paths (encrypted systems)
+	// For /dev/mapper/root1 or /dev/mapper/root2, we need to find the underlying device
+	if strings.HasPrefix(rootPartition, "/dev/mapper/") {
+		// Try to get device from system config (already tried above, but let's be explicit)
+		if config != nil && config.Device != "" {
+			return config.Device, nil
+		}
+		// Cannot determine underlying device without config
+		return "", fmt.Errorf("encrypted root detected (%s) but no system config found - use --device to specify", rootPartition)
 	}
 
 	// Extract the parent device

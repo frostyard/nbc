@@ -158,11 +158,12 @@ type UpdaterConfig struct {
 
 // SystemUpdater handles A/B system updates
 type SystemUpdater struct {
-	Config   UpdaterConfig
-	Scheme   *PartitionScheme
-	Active   bool // true if root1 is active, false if root2 is active
-	Target   string
-	Progress *ProgressReporter
+	Config     UpdaterConfig
+	Scheme     *PartitionScheme
+	Active     bool // true if root1 is active, false if root2 is active
+	Target     string
+	Progress   *ProgressReporter
+	Encryption *EncryptionConfig // Encryption configuration (loaded from system config)
 }
 
 // NewSystemUpdater creates a new SystemUpdater
@@ -204,10 +205,93 @@ func (u *SystemUpdater) AddKernelArg(arg string) {
 	u.Config.KernelArgs = append(u.Config.KernelArgs, arg)
 }
 
+// buildKernelCmdline builds the kernel command line with proper LUKS support if encrypted
+// isTarget indicates if this is for the target (new) root or the active (previous) root
+func (u *SystemUpdater) buildKernelCmdline(rootUUID, varUUID, fsType string, isTarget bool) []string {
+	var kernelCmdline []string
+
+	if u.Encryption != nil && u.Encryption.Enabled {
+		// LUKS encrypted system - determine which root LUKS UUID to use
+		var rootLUKSUUID string
+		var rootMapperName string
+
+		if isTarget {
+			// Building cmdline for the target (new) root
+			if u.Active {
+				// root1 is active, so target is root2
+				rootLUKSUUID = u.Encryption.Root2LUKSUUID
+				rootMapperName = "root2"
+			} else {
+				// root2 is active, so target is root1
+				rootLUKSUUID = u.Encryption.Root1LUKSUUID
+				rootMapperName = "root1"
+			}
+		} else {
+			// Building cmdline for the active (previous) root
+			if u.Active {
+				// root1 is active
+				rootLUKSUUID = u.Encryption.Root1LUKSUUID
+				rootMapperName = "root1"
+			} else {
+				// root2 is active
+				rootLUKSUUID = u.Encryption.Root2LUKSUUID
+				rootMapperName = "root2"
+			}
+		}
+
+		// Root via device mapper
+		kernelCmdline = append(kernelCmdline, "root=/dev/mapper/"+rootMapperName)
+		kernelCmdline = append(kernelCmdline, "rw")
+
+		// LUKS UUIDs for initramfs to discover and unlock
+		kernelCmdline = append(kernelCmdline, "rd.luks.uuid="+rootLUKSUUID)
+		kernelCmdline = append(kernelCmdline, "rd.luks.name="+rootLUKSUUID+"="+rootMapperName)
+
+		// Var partition via device mapper
+		kernelCmdline = append(kernelCmdline, "rd.luks.uuid="+u.Encryption.VarLUKSUUID)
+		kernelCmdline = append(kernelCmdline, "rd.luks.name="+u.Encryption.VarLUKSUUID+"=var")
+
+		// TPM2 auto-unlock if enabled
+		if u.Encryption.TPM2 {
+			kernelCmdline = append(kernelCmdline, "rd.luks.options="+rootLUKSUUID+"=tpm2-device=auto")
+			kernelCmdline = append(kernelCmdline, "rd.luks.options="+u.Encryption.VarLUKSUUID+"=tpm2-device=auto")
+		}
+
+		// Mount /var via systemd.mount-extra using mapper device
+		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=/dev/mapper/var:/var:"+fsType+":defaults")
+	} else {
+		// Non-encrypted system - use UUID
+		kernelCmdline = append(kernelCmdline, "root=UUID="+rootUUID)
+		kernelCmdline = append(kernelCmdline, "rw")
+		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=UUID="+varUUID+":/var:"+fsType+":defaults")
+	}
+
+	// Add user-specified kernel arguments
+	kernelCmdline = append(kernelCmdline, u.Config.KernelArgs...)
+
+	return kernelCmdline
+}
+
 // PrepareUpdate prepares for an update by detecting partitions and determining target
 func (u *SystemUpdater) PrepareUpdate() error {
 	p := u.Progress
 	p.MessagePlain("Preparing for system update...")
+
+	// Read system config to get encryption settings and other config
+	sysConfig, err := ReadSystemConfig()
+	if err != nil {
+		p.Warning("could not read system config: %v", err)
+	} else {
+		// Load encryption config if present
+		if sysConfig.Encryption != nil && sysConfig.Encryption.Enabled {
+			u.Encryption = sysConfig.Encryption
+			p.Message("Detected LUKS encryption configuration")
+		}
+		// Load filesystem type if not already set
+		if u.Config.FilesystemType == "" && sysConfig.FilesystemType != "" {
+			u.Config.FilesystemType = sysConfig.FilesystemType
+		}
+	}
 
 	// Detect existing partition scheme
 	scheme, err := DetectExistingPartitionScheme(u.Config.Device)
@@ -658,13 +742,7 @@ func (u *SystemUpdater) updateGRUBBootloader() error {
 	}
 
 	// Build kernel command line
-	kernelCmdline := []string{
-		"root=UUID=" + targetUUID,
-		"rw",
-		// Mount /var via kernel command line (systemd.mount-extra)
-		"systemd.mount-extra=UUID=" + varUUID + ":/var:" + fsType + ":defaults",
-	}
-	kernelCmdline = append(kernelCmdline, u.Config.KernelArgs...)
+	kernelCmdline := u.buildKernelCmdline(targetUUID, varUUID, fsType, true)
 
 	// Get OS name from the updated system
 	osName := ParseOSRelease(u.Config.MountPoint)
@@ -695,12 +773,8 @@ func (u *SystemUpdater) updateGRUBBootloader() error {
 
 	activeUUID, _ := GetPartitionUUID(activeRoot)
 
-	// Build previous kernel command line
-	previousCmdline := []string{
-		"root=UUID=" + activeUUID,
-		"rw",
-		"systemd.mount-extra=UUID=" + varUUID + ":/var:" + fsType + ":defaults",
-	}
+	// Build previous kernel command line (for the currently active root)
+	previousCmdline := u.buildKernelCmdline(activeUUID, varUUID, fsType, false)
 
 	grubCfg := fmt.Sprintf(`set timeout=5
 set default=0
@@ -774,13 +848,7 @@ func (u *SystemUpdater) updateSystemdBootBootloader() error {
 	}
 
 	// Build kernel command line
-	kernelCmdline := []string{
-		"root=UUID=" + targetUUID,
-		"rw",
-		// Mount /var via kernel command line (systemd.mount-extra)
-		"systemd.mount-extra=UUID=" + varUUID + ":/var:" + fsType + ":defaults",
-	}
-	kernelCmdline = append(kernelCmdline, u.Config.KernelArgs...)
+	kernelCmdline := u.buildKernelCmdline(targetUUID, varUUID, fsType, true)
 
 	// Get OS name from the updated system
 	osName := ParseOSRelease(u.Config.MountPoint)
@@ -805,12 +873,8 @@ options %s
 		return fmt.Errorf("failed to write main boot entry: %w", err)
 	}
 
-	// Build previous kernel command line
-	previousCmdline := []string{
-		"root=UUID=" + activeUUID,
-		"rw",
-		"systemd.mount-extra=UUID=" + varUUID + ":/var:" + fsType + ":defaults",
-	}
+	// Build previous kernel command line (for the currently active root)
+	previousCmdline := u.buildKernelCmdline(activeUUID, varUUID, fsType, false)
 
 	// Create/update rollback boot entry (points to previous system)
 	previousEntry := fmt.Sprintf(`title   %s (Previous)

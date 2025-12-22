@@ -22,15 +22,25 @@ const (
 	FilesystemBtrfs FilesystemType = "btrfs"
 )
 
+// EncryptionConfig stores LUKS encryption configuration for A/B updates
+type EncryptionConfig struct {
+	Enabled       bool   `json:"enabled"`         // Whether LUKS encryption is enabled
+	TPM2          bool   `json:"tpm2"`            // Whether TPM2 auto-unlock is enabled
+	Root1LUKSUUID string `json:"root1_luks_uuid"` // LUKS UUID for root1 partition
+	Root2LUKSUUID string `json:"root2_luks_uuid"` // LUKS UUID for root2 partition
+	VarLUKSUUID   string `json:"var_luks_uuid"`   // LUKS UUID for var partition
+}
+
 // SystemConfig represents the system configuration stored in /etc/nbc/
 type SystemConfig struct {
-	ImageRef       string   `json:"image_ref"`       // Container image reference
-	ImageDigest    string   `json:"image_digest"`    // Container image digest (sha256:...)
-	Device         string   `json:"device"`          // Installation device
-	InstallDate    string   `json:"install_date"`    // Installation timestamp
-	KernelArgs     []string `json:"kernel_args"`     // Custom kernel arguments
-	BootloaderType string   `json:"bootloader_type"` // Bootloader type (grub2, systemd-boot)
-	FilesystemType string   `json:"filesystem_type"` // Filesystem type (ext4, btrfs)
+	ImageRef       string            `json:"image_ref"`            // Container image reference
+	ImageDigest    string            `json:"image_digest"`         // Container image digest (sha256:...)
+	Device         string            `json:"device"`               // Installation device
+	InstallDate    string            `json:"install_date"`         // Installation timestamp
+	KernelArgs     []string          `json:"kernel_args"`          // Custom kernel arguments
+	BootloaderType string            `json:"bootloader_type"`      // Bootloader type (grub2, systemd-boot)
+	FilesystemType string            `json:"filesystem_type"`      // Filesystem type (ext4, btrfs)
+	Encryption     *EncryptionConfig `json:"encryption,omitempty"` // Encryption configuration (nil if not encrypted)
 }
 
 // WriteSystemConfig writes system configuration to /etc/nbc/config.json

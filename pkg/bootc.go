@@ -269,6 +269,25 @@ func (b *BootcInstaller) Install() error {
 		BootloaderType: string(DetectBootloader(b.MountPoint)),
 		FilesystemType: b.FilesystemType,
 	}
+
+	// Store encryption config if enabled (needed for A/B updates)
+	if b.Encryption != nil && b.Encryption.Enabled && len(scheme.LUKSDevices) > 0 {
+		config.Encryption = &EncryptionConfig{
+			Enabled: true,
+			TPM2:    b.Encryption.TPM2,
+		}
+		for _, dev := range scheme.LUKSDevices {
+			switch dev.MapperName {
+			case "root1":
+				config.Encryption.Root1LUKSUUID = dev.LUKSUUID
+			case "root2":
+				config.Encryption.Root2LUKSUUID = dev.LUKSUUID
+			case "var":
+				config.Encryption.VarLUKSUUID = dev.LUKSUUID
+			}
+		}
+	}
+
 	if err := WriteSystemConfigToTarget(b.MountPoint, config, b.DryRun); err != nil {
 		return fmt.Errorf("failed to write system config: %w", err)
 	}

@@ -238,6 +238,37 @@ Both root filesystems mount the same /var partition, ensuring:
 - Databases remain accessible
 - Configuration in /var is preserved
 
+### Encryption Support
+
+A/B updates fully support LUKS-encrypted systems. The encryption configuration is stored in `/etc/nbc/config.json` during installation and automatically loaded during updates.
+
+For encrypted systems, the update process:
+
+1. **Reads encryption config** from the system config file
+2. **Generates correct LUKS kernel arguments** for each root partition:
+   - `rd.luks.uuid` - LUKS container UUID
+   - `rd.luks.name` - Mapper device name (root1, root2, or var)
+   - `rd.luks.options` - TPM2 unlock options (if enabled)
+3. **Creates separate boot entries** with the appropriate LUKS UUIDs for:
+   - Target partition (the one being updated)
+   - Active partition (for rollback)
+
+The system config stores LUKS UUIDs for all partitions:
+
+```json
+{
+  "encryption": {
+    "enabled": true,
+    "tpm2": true,
+    "root1_luks_uuid": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "root2_luks_uuid": "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy",
+    "var_luks_uuid": "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz"
+  }
+}
+```
+
+This ensures that after an update, both boot entries (new and previous) have the correct LUKS kernel arguments for their respective root partitions.
+
 ## Comparison to Other Systems
 
 ### vs Traditional Package Updates

@@ -223,3 +223,44 @@ These names are used in:
 - `/dev/mapper/<name>` paths
 - `/etc/crypttab` entries
 - Kernel command line arguments
+
+### System Configuration Storage
+
+Encryption configuration is stored in `/etc/nbc/config.json` to support A/B updates:
+
+```json
+{
+  "image_ref": "ghcr.io/example/image:latest",
+  "device": "/dev/sda",
+  "encryption": {
+    "enabled": true,
+    "tpm2": true,
+    "root1_luks_uuid": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "root2_luks_uuid": "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy",
+    "var_luks_uuid": "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz"
+  }
+}
+```
+
+This configuration is:
+
+- **Created during install**: LUKS UUIDs for all partitions are stored
+- **Read during update**: Used to generate correct kernel arguments for each root
+- **Essential for A/B updates**: Each root partition has a different LUKS UUID
+
+## A/B Updates with Encryption
+
+When updating an encrypted system, `nbc update` automatically:
+
+1. Reads the encryption config from `/etc/nbc/config.json`
+2. Determines which root partition is active and which is the target
+3. Generates kernel command lines with the correct LUKS UUIDs:
+   - **Target root**: Uses root1 or root2 LUKS UUID based on which is inactive
+   - **Previous root**: Uses the active root's LUKS UUID for rollback
+   - **Var partition**: Always uses the same var LUKS UUID
+
+Example kernel command line for encrypted target:
+
+```
+root=/dev/mapper/root2 rw rd.luks.uuid=<root2-uuid> rd.luks.name=<root2-uuid>=root2 rd.luks.uuid=<var-uuid> rd.luks.name=<var-uuid>=var rd.luks.options=<root2-uuid>=tpm2-device=auto rd.luks.options=<var-uuid>=tpm2-device=auto systemd.mount-extra=/dev/mapper/var:/var:ext4:defaults
+```

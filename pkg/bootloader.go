@@ -26,6 +26,7 @@ type BootloaderInstaller struct {
 	KernelArgs []string
 	OSName     string
 	Verbose    bool
+	Encryption *LUKSConfig // Encryption configuration
 }
 
 // NewBootloaderInstaller creates a new BootloaderInstaller
@@ -53,6 +54,72 @@ func (b *BootloaderInstaller) AddKernelArg(arg string) {
 // SetVerbose enables verbose output
 func (b *BootloaderInstaller) SetVerbose(verbose bool) {
 	b.Verbose = verbose
+}
+
+// SetEncryption sets the encryption configuration
+func (b *BootloaderInstaller) SetEncryption(config *LUKSConfig) {
+	b.Encryption = config
+}
+
+// buildKernelCmdline builds the kernel command line with LUKS support if encrypted
+func (b *BootloaderInstaller) buildKernelCmdline() ([]string, error) {
+	fsType := b.Scheme.FilesystemType
+	if fsType == "" {
+		fsType = "ext4"
+	}
+
+	var kernelCmdline []string
+
+	if b.Scheme.Encrypted {
+		// LUKS encrypted root - use device mapper path
+		rootDev := b.Scheme.GetLUKSDevice("root1")
+		varDev := b.Scheme.GetLUKSDevice("var")
+
+		if rootDev == nil || varDev == nil {
+			return nil, fmt.Errorf("LUKS devices not found for encrypted scheme")
+		}
+
+		// Root via device mapper
+		kernelCmdline = append(kernelCmdline, "root=/dev/mapper/root1")
+		kernelCmdline = append(kernelCmdline, "rw")
+
+		// LUKS UUIDs for initramfs to discover and unlock
+		kernelCmdline = append(kernelCmdline, "rd.luks.uuid="+rootDev.LUKSUUID)
+		kernelCmdline = append(kernelCmdline, "rd.luks.name="+rootDev.LUKSUUID+"=root1")
+
+		// Var partition via device mapper
+		kernelCmdline = append(kernelCmdline, "rd.luks.uuid="+varDev.LUKSUUID)
+		kernelCmdline = append(kernelCmdline, "rd.luks.name="+varDev.LUKSUUID+"=var")
+
+		// TPM2 auto-unlock if enabled
+		if b.Encryption != nil && b.Encryption.TPM2 {
+			kernelCmdline = append(kernelCmdline, "rd.luks.options="+rootDev.LUKSUUID+"=tpm2-device=auto")
+			kernelCmdline = append(kernelCmdline, "rd.luks.options="+varDev.LUKSUUID+"=tpm2-device=auto")
+		}
+
+		// Mount /var via systemd.mount-extra using mapper device
+		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=/dev/mapper/var:/var:"+fsType+":defaults")
+	} else {
+		// Non-encrypted root - use UUID
+		rootUUID, err := GetPartitionUUID(b.Scheme.Root1Partition)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get root UUID: %w", err)
+		}
+
+		varUUID, err := GetPartitionUUID(b.Scheme.VarPartition)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get var UUID: %w", err)
+		}
+
+		kernelCmdline = append(kernelCmdline, "root=UUID="+rootUUID)
+		kernelCmdline = append(kernelCmdline, "rw")
+		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=UUID="+varUUID+":/var:"+fsType+":defaults")
+	}
+
+	// Add user-specified kernel arguments
+	kernelCmdline = append(kernelCmdline, b.KernelArgs...)
+
+	return kernelCmdline, nil
 }
 
 // ensureUppercaseEFIDirectory ensures the EFI directory structure uses proper uppercase naming
@@ -341,12 +408,6 @@ func (b *BootloaderInstaller) installGRUB2() error {
 func (b *BootloaderInstaller) generateGRUBConfig() error {
 	fmt.Println("  Generating GRUB configuration...")
 
-	// Get root UUID
-	rootUUID, err := GetPartitionUUID(b.Scheme.Root1Partition)
-	if err != nil {
-		return fmt.Errorf("failed to get root UUID: %w", err)
-	}
-
 	// Find kernel and initramfs
 	bootDir := filepath.Join(b.TargetDir, "boot")
 	kernels, err := filepath.Glob(filepath.Join(bootDir, "vmlinuz-*"))
@@ -370,27 +431,21 @@ func (b *BootloaderInstaller) generateGRUBConfig() error {
 		}
 	}
 
-	// Get /var UUID for kernel command line mount
-	varUUID, err := GetPartitionUUID(b.Scheme.VarPartition)
+	// Build kernel command line (with LUKS support if encrypted)
+	kernelCmdline, err := b.buildKernelCmdline()
 	if err != nil {
-		return fmt.Errorf("failed to get var UUID: %w", err)
+		return fmt.Errorf("failed to build kernel command line: %w", err)
 	}
 
-	// Get filesystem type (default to ext4 for backward compatibility)
-	fsType := b.Scheme.FilesystemType
-	if fsType == "" {
-		fsType = "ext4"
+	// Build final command line: root=..., ro, console=tty0, then rest of args
+	var finalCmdline []string
+	finalCmdline = append(finalCmdline, kernelCmdline[0]) // root=...
+	finalCmdline = append(finalCmdline, "ro", "console=tty0")
+	for _, arg := range kernelCmdline[1:] {
+		if arg != "rw" { // Skip rw since we use ro for GRUB
+			finalCmdline = append(finalCmdline, arg)
+		}
 	}
-
-	// Build kernel command line
-	kernelCmdline := []string{
-		"root=UUID=" + rootUUID,
-		"ro",
-		"console=tty0",
-		// Mount /var via kernel command line (systemd.mount-extra)
-		"systemd.mount-extra=UUID=" + varUUID + ":/var:" + fsType + ":defaults",
-	}
-	kernelCmdline = append(kernelCmdline, b.KernelArgs...)
 
 	// Create GRUB config
 	grubCfg := fmt.Sprintf(`set timeout=5
@@ -400,7 +455,7 @@ menuentry '%s' {
     linux /vmlinuz-%s %s
     initrd /%s
 }
-`, b.OSName, kernelVersion, strings.Join(kernelCmdline, " "), initrd)
+`, b.OSName, kernelVersion, strings.Join(finalCmdline, " "), initrd)
 
 	// Write GRUB config
 	grubDir := filepath.Join(b.TargetDir, "boot", "grub")
@@ -536,18 +591,6 @@ func copyEFIFile(src, dst string) error {
 func (b *BootloaderInstaller) generateSystemdBootConfig() error {
 	fmt.Println("  Generating systemd-boot configuration...")
 
-	// Get root UUID
-	rootUUID, err := GetPartitionUUID(b.Scheme.Root1Partition)
-	if err != nil {
-		return fmt.Errorf("failed to get root UUID: %w", err)
-	}
-
-	// Get /var UUID for kernel command line mount
-	varUUID, err := GetPartitionUUID(b.Scheme.VarPartition)
-	if err != nil {
-		return fmt.Errorf("failed to get var UUID: %w", err)
-	}
-
 	// Find kernel on boot partition (combined EFI/boot partition)
 	bootDir := filepath.Join(b.TargetDir, "boot")
 	kernels, err := filepath.Glob(filepath.Join(bootDir, "vmlinuz-*"))
@@ -571,20 +614,11 @@ func (b *BootloaderInstaller) generateSystemdBootConfig() error {
 		}
 	}
 
-	// Get filesystem type (default to ext4 for backward compatibility)
-	fsType := b.Scheme.FilesystemType
-	if fsType == "" {
-		fsType = "ext4"
+	// Build kernel command line (with LUKS support if encrypted)
+	kernelCmdline, err := b.buildKernelCmdline()
+	if err != nil {
+		return fmt.Errorf("failed to build kernel command line: %w", err)
 	}
-
-	// Build kernel command line
-	kernelCmdline := []string{
-		"root=UUID=" + rootUUID,
-		"rw",
-		// Mount /var via kernel command line (systemd.mount-extra)
-		"systemd.mount-extra=UUID=" + varUUID + ":/var:" + fsType + ":defaults",
-	}
-	kernelCmdline = append(kernelCmdline, b.KernelArgs...)
 
 	// Create loader configuration (in /boot/loader since /boot is the ESP)
 	loaderDir := filepath.Join(b.TargetDir, "boot", "loader")

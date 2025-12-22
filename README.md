@@ -125,6 +125,7 @@ RUN dnf install -y kernel kernel-modules initramfs-tools
 - 🔐 **Configuration Storage**: Stores image reference for easy updates
 - 🔒 **Secure Boot Support**: Automatic shim detection and Secure Boot chain setup
 - 📀 **Filesystem Choice**: Support for ext4 (default) and btrfs filesystems
+- 🔑 **Full Disk Encryption**: LUKS2 encryption with optional TPM2 automatic unlock
 
 ## Prerequisites
 
@@ -255,6 +256,21 @@ nbc install \
   --image quay.io/example/image:latest \
   --device /dev/sda \
   --dry-run
+
+# With full disk encryption (LUKS2)
+nbc install \
+  --image quay.io/example/image:latest \
+  --device /dev/sda \
+  --encrypt \
+  --passphrase "your-secure-passphrase"
+
+# With encryption + TPM2 automatic unlock
+nbc install \
+  --image quay.io/example/image:latest \
+  --device /dev/sda \
+  --encrypt \
+  --passphrase "your-secure-passphrase" \
+  --tpm2
 ```
 
 ### Update System

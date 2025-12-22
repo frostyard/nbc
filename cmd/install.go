@@ -14,6 +14,9 @@ var (
 	installSkipPull   bool
 	installKernelArgs []string
 	installFilesystem string
+	installEncrypt    bool
+	installPassphrase string
+	installTPM2       bool
 )
 
 var installCmd = &cobra.Command{
@@ -52,6 +55,9 @@ func init() {
 	installCmd.Flags().BoolVar(&installSkipPull, "skip-pull", false, "Skip pulling the image (use already pulled image)")
 	installCmd.Flags().StringArrayVarP(&installKernelArgs, "karg", "k", []string{}, "Kernel argument to pass (can be specified multiple times)")
 	installCmd.Flags().StringVarP(&installFilesystem, "filesystem", "f", "ext4", "Filesystem type for root and var partitions (ext4, btrfs)")
+	installCmd.Flags().BoolVar(&installEncrypt, "encrypt", false, "Enable LUKS full disk encryption for root and var partitions")
+	installCmd.Flags().StringVar(&installPassphrase, "passphrase", "", "LUKS passphrase (required when --encrypt is set)")
+	installCmd.Flags().BoolVar(&installTPM2, "tpm2", false, "Enroll TPM2 for automatic LUKS unlock (no PCR binding)")
 
 	_ = installCmd.MarkFlagRequired("image")
 	_ = installCmd.MarkFlagRequired("device")
@@ -70,6 +76,23 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		err := fmt.Errorf("unsupported filesystem type: %s (supported: ext4, btrfs)", installFilesystem)
 		if jsonOutput {
 			progress.Error(err, "Invalid filesystem type")
+		}
+		return err
+	}
+
+	// Validate encryption options
+	if installEncrypt && installPassphrase == "" {
+		err := fmt.Errorf("--passphrase is required when --encrypt is set")
+		if jsonOutput {
+			progress.Error(err, "Missing passphrase")
+		}
+		return err
+	}
+
+	if installTPM2 && !installEncrypt {
+		err := fmt.Errorf("--tpm2 requires --encrypt to be set")
+		if jsonOutput {
+			progress.Error(err, "Invalid encryption options")
 		}
 		return err
 	}
@@ -97,6 +120,11 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	// Add kernel arguments
 	for _, arg := range installKernelArgs {
 		installer.AddKernelArg(arg)
+	}
+
+	// Set encryption options
+	if installEncrypt {
+		installer.SetEncryption(installPassphrase, installTPM2)
 	}
 
 	// Run installation

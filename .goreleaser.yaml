@@ -18,8 +18,14 @@ metadata:
   maintainers:
     - "Brian Ketelsen <bketelsen@gmail.com>"
 
+git:
+  # Allow non-semver tags for snapshot builds
+  ignore_tags:
+    - continuous
+
 snapshot:
-  version_template: "{{ incpatch .Version }}-next"
+  # Use a static version template that doesn't require parsing existing tags
+  version_template: "{{ .ShortCommit }}-snapshot"
 
 gomod:
   proxy: true

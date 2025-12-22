@@ -267,11 +267,17 @@ func MergeEtcFromActive(targetDir string, activeRootPartition string, dryRun boo
 				"hostname", "hosts", "resolv.conf",
 				"fstab", "crypttab",
 				"machine-id",
+				"localtime", "locale.conf", // Timezone and locale
+				"adjtime",                  // Hardware clock settings
 			}
 
 			// Patterns for files that should be preserved (matched against relPath)
 			preservePatterns := []string{
-				"ssh/ssh_host_", // SSH host keys (identity of the system)
+				"ssh/ssh_host_",                       // SSH host keys (identity of the system)
+				"NetworkManager/system-connections/",  // WiFi passwords, VPN configs
+				"ssl/private/",                        // SSL/TLS private keys
+				"pki/tls/private/",                    // PKI private keys (RHEL-style)
+				"sudoers.d/",                          // Custom sudo rules
 			}
 
 			shouldPreserve := false

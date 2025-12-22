@@ -68,6 +68,8 @@ func init() {
 	updateCmd.Flags().BoolVar(&updateSkipPull, "skip-pull", false, "Skip pulling the image (use already pulled image)")
 	updateCmd.Flags().BoolVarP(&updateCheckOnly, "check", "c", false, "Only check if an update is available (don't install)")
 	updateCmd.Flags().StringArrayVarP(&updateKernelArgs, "karg", "k", []string{}, "Kernel argument to pass (can be specified multiple times)")
+	updateCmd.Flags().BoolP("force", "f", false, "Force reinstall even if system is up-to-date")
+	_ = viper.BindPFlag("force", updateCmd.Flags().Lookup("force"))
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {

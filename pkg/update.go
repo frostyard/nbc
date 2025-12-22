@@ -550,6 +550,24 @@ func (u *SystemUpdater) Update() error {
 		return fmt.Errorf("failed to update bootloader: %w", err)
 	}
 
+	// Write updated system config to target partition
+	// This must be done before unmounting the target
+	if !u.Config.DryRun {
+		// Read current config
+		existingConfig, err := ReadSystemConfig()
+		if err != nil {
+			p.Warning("failed to read existing config: %v", err)
+		} else {
+			// Update the image reference and digest
+			existingConfig.ImageRef = u.Config.ImageRef
+			existingConfig.ImageDigest = u.Config.ImageDigest
+			// Write to target partition
+			if err := WriteSystemConfigToTarget(u.Config.MountPoint, existingConfig, false); err != nil {
+				p.Warning("failed to write config to target: %v", err)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -1010,13 +1028,6 @@ func (u *SystemUpdater) PerformUpdate(skipPull bool) error {
 	// Perform update
 	if err := u.Update(); err != nil {
 		return err
-	}
-
-	// Update system config with new image reference and digest
-	if !u.Config.DryRun {
-		if err := UpdateSystemConfigImageRef(u.Config.ImageRef, u.Config.ImageDigest, u.Config.DryRun); err != nil {
-			p.Warning("failed to update system config: %v", err)
-		}
 	}
 
 	// Report completion

@@ -93,8 +93,13 @@ func (b *BootloaderInstaller) buildKernelCmdline() ([]string, error) {
 
 		// TPM2 auto-unlock if enabled
 		if b.Encryption != nil && b.Encryption.TPM2 {
+			if b.Verbose {
+				fmt.Println("  Adding TPM2 unlock options to kernel cmdline")
+			}
 			kernelCmdline = append(kernelCmdline, "rd.luks.options="+rootDev.LUKSUUID+"=tpm2-device=auto")
 			kernelCmdline = append(kernelCmdline, "rd.luks.options="+varDev.LUKSUUID+"=tpm2-device=auto")
+		} else if b.Verbose {
+			fmt.Printf("  TPM2 options not added: Encryption=%v, TPM2=%v\n", b.Encryption != nil, b.Encryption != nil && b.Encryption.TPM2)
 		}
 
 		// Mount /var via systemd.mount-extra using mapper device

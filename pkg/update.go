@@ -158,12 +158,14 @@ type UpdaterConfig struct {
 
 // SystemUpdater handles A/B system updates
 type SystemUpdater struct {
-	Config     UpdaterConfig
-	Scheme     *PartitionScheme
-	Active     bool // true if root1 is active, false if root2 is active
-	Target     string
-	Progress   *ProgressReporter
-	Encryption *EncryptionConfig // Encryption configuration (loaded from system config)
+	Config           UpdaterConfig
+	Scheme           *PartitionScheme
+	Active           bool // true if root1 is active, false if root2 is active
+	Target           string
+	TargetMapperName string // For encrypted systems: "root1" or "root2"
+	TargetMapperPath string // For encrypted systems: "/dev/mapper/root1" or "/dev/mapper/root2"
+	Progress         *ProgressReporter
+	Encryption       *EncryptionConfig // Encryption configuration (loaded from system config)
 }
 
 // NewSystemUpdater creates a new SystemUpdater
@@ -308,6 +310,18 @@ func (u *SystemUpdater) PrepareUpdate() error {
 	u.Target = target
 	u.Active = active
 
+	// Set mapper info for encrypted systems
+	if u.Encryption != nil && u.Encryption.Enabled {
+		if u.Active {
+			// root1 is active, target is root2
+			u.TargetMapperName = "root2"
+		} else {
+			// root2 is active, target is root1
+			u.TargetMapperName = "root1"
+		}
+		u.TargetMapperPath = "/dev/mapper/" + u.TargetMapperName
+	}
+
 	if u.Active {
 		p.Message("Currently booted from: %s (root1)", scheme.Root1Partition)
 		p.Message("Update target: %s (root2)", u.Target)
@@ -423,7 +437,42 @@ func (u *SystemUpdater) Update() error {
 		return fmt.Errorf("failed to create mount point: %w", err)
 	}
 
-	cmd := exec.Command("mount", u.Target, u.Config.MountPoint)
+	// Determine which device to mount
+	mountDevice := u.Target
+
+	// For encrypted systems, open the LUKS container first
+	if u.Encryption != nil && u.Encryption.Enabled {
+		p.Message("Opening LUKS container for %s...", u.TargetMapperName)
+
+		// Check if already open (from a previous failed attempt)
+		if _, err := os.Stat(u.TargetMapperPath); os.IsNotExist(err) {
+			// Need to open the LUKS container - prompt for passphrase
+			fmt.Print("Enter LUKS passphrase: ")
+			var passphrase string
+			_, err := fmt.Scanln(&passphrase)
+			if err != nil {
+				return fmt.Errorf("failed to read passphrase: %w", err)
+			}
+
+			_, err = OpenLUKS(u.Target, u.TargetMapperName, passphrase)
+			if err != nil {
+				return fmt.Errorf("failed to open LUKS container: %w", err)
+			}
+		} else {
+			p.Message("LUKS container already open at %s", u.TargetMapperPath)
+		}
+
+		mountDevice = u.TargetMapperPath
+
+		// Ensure we close LUKS on cleanup
+		defer func() {
+			if u.TargetMapperName != "" {
+				_ = CloseLUKS(u.TargetMapperName)
+			}
+		}()
+	}
+
+	cmd := exec.Command("mount", mountDevice, u.Config.MountPoint)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to mount target partition: %w\nOutput: %s", err, string(output))
 	}
@@ -459,6 +508,14 @@ func (u *SystemUpdater) Update() error {
 	activeRoot := u.Scheme.Root1Partition
 	if !u.Active {
 		activeRoot = u.Scheme.Root2Partition
+	}
+	// For encrypted systems, use the mapper path since that's what GetActiveRootPartition returns
+	if u.Encryption != nil && u.Encryption.Enabled {
+		if u.Active {
+			activeRoot = "/dev/mapper/root1"
+		} else {
+			activeRoot = "/dev/mapper/root2"
+		}
 	}
 	if err := MergeEtcFromActive(u.Config.MountPoint, activeRoot, u.Config.DryRun); err != nil {
 		return fmt.Errorf("failed to merge /etc: %w", err)

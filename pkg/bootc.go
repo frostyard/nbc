@@ -70,11 +70,12 @@ func (b *BootcInstaller) SetJSONOutput(jsonOutput bool) {
 	b.Progress = NewProgressReporter(jsonOutput, 6)
 }
 
-// SetEncryption enables LUKS encryption with the given passphrase and optional TPM2
-func (b *BootcInstaller) SetEncryption(passphrase string, tpm2 bool) {
+// SetEncryption enables LUKS encryption with the given passphrase/keyfile and optional TPM2
+func (b *BootcInstaller) SetEncryption(passphrase, keyfile string, tpm2 bool) {
 	b.Encryption = &LUKSConfig{
 		Enabled:    true,
 		Passphrase: passphrase,
+		Keyfile:    keyfile,
 		TPM2:       tpm2,
 	}
 }
@@ -306,7 +307,7 @@ func (b *BootcInstaller) Install() error {
 	if b.Encryption != nil && b.Encryption.Enabled && b.Encryption.TPM2 {
 		p.Message("Enrolling TPM2 for automatic unlock...")
 		for _, luksDevice := range scheme.LUKSDevices {
-			if err := EnrollTPM2(luksDevice.Partition, b.Encryption.Passphrase); err != nil {
+			if err := EnrollTPM2(luksDevice.Partition, b.Encryption); err != nil {
 				return fmt.Errorf("failed to enroll TPM2 for %s: %w", luksDevice.Partition, err)
 			}
 			p.Message("  Enrolled TPM2 for %s", luksDevice.MapperName)

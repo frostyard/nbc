@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/frostyard/nbc/pkg"
 	"github.com/spf13/cobra"
@@ -16,6 +18,7 @@ var (
 	installFilesystem string
 	installEncrypt    bool
 	installPassphrase string
+	installKeyfile    string
 	installTPM2       bool
 )
 
@@ -54,9 +57,10 @@ func init() {
 	installCmd.Flags().StringVarP(&installDevice, "device", "d", "", "Target disk device (required)")
 	installCmd.Flags().BoolVar(&installSkipPull, "skip-pull", false, "Skip pulling the image (use already pulled image)")
 	installCmd.Flags().StringArrayVarP(&installKernelArgs, "karg", "k", []string{}, "Kernel argument to pass (can be specified multiple times)")
-	installCmd.Flags().StringVarP(&installFilesystem, "filesystem", "f", "ext4", "Filesystem type for root and var partitions (ext4, btrfs)")
+	installCmd.Flags().StringVarP(&installFilesystem, "filesystem", "f", "btrfs", "Filesystem type for root and var partitions (ext4, btrfs)")
 	installCmd.Flags().BoolVar(&installEncrypt, "encrypt", false, "Enable LUKS full disk encryption for root and var partitions")
-	installCmd.Flags().StringVar(&installPassphrase, "passphrase", "", "LUKS passphrase (required when --encrypt is set)")
+	installCmd.Flags().StringVar(&installPassphrase, "passphrase", "", "LUKS passphrase (required when --encrypt is set, unless --keyfile is provided)")
+	installCmd.Flags().StringVar(&installKeyfile, "keyfile", "", "Path to file containing LUKS passphrase (alternative to --passphrase)")
 	installCmd.Flags().BoolVar(&installTPM2, "tpm2", false, "Enroll TPM2 for automatic LUKS unlock (no PCR binding)")
 
 	_ = installCmd.MarkFlagRequired("image")
@@ -81,12 +85,33 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	}
 
 	// Validate encryption options
-	if installEncrypt && installPassphrase == "" {
-		err := fmt.Errorf("--passphrase is required when --encrypt is set")
-		if jsonOutput {
-			progress.Error(err, "Missing passphrase")
+	if installEncrypt {
+		if installPassphrase == "" && installKeyfile == "" {
+			err := fmt.Errorf("--passphrase or --keyfile is required when --encrypt is set")
+			if jsonOutput {
+				progress.Error(err, "Missing passphrase")
+			}
+			return err
 		}
-		return err
+		if installPassphrase != "" && installKeyfile != "" {
+			err := fmt.Errorf("--passphrase and --keyfile are mutually exclusive")
+			if jsonOutput {
+				progress.Error(err, "Invalid encryption options")
+			}
+			return err
+		}
+		// Read passphrase from keyfile if provided
+		if installKeyfile != "" {
+			keyData, err := os.ReadFile(installKeyfile)
+			if err != nil {
+				err = fmt.Errorf("failed to read keyfile: %w", err)
+				if jsonOutput {
+					progress.Error(err, "Failed to read keyfile")
+				}
+				return err
+			}
+			installPassphrase = strings.TrimRight(string(keyData), "\n\r")
+		}
 	}
 
 	if installTPM2 && !installEncrypt {
@@ -124,7 +149,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	// Set encryption options
 	if installEncrypt {
-		installer.SetEncryption(installPassphrase, installTPM2)
+		installer.SetEncryption(installPassphrase, installKeyfile, installTPM2)
 	}
 
 	// Run installation

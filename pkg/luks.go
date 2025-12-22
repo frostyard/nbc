@@ -11,7 +11,8 @@ import (
 // LUKSConfig holds encryption configuration
 type LUKSConfig struct {
 	Enabled    bool
-	Passphrase string
+	Passphrase string // Passphrase for LUKS (mutually exclusive with Keyfile)
+	Keyfile    string // Path to keyfile containing passphrase (mutually exclusive with Passphrase)
 	TPM2       bool
 }
 
@@ -111,16 +112,44 @@ func GetLUKSUUID(partition string) (string, error) {
 }
 
 // EnrollTPM2 enrolls a TPM2 key for automatic unlock with no PCRs
-func EnrollTPM2(partition, passphrase string) error {
+func EnrollTPM2(partition string, config *LUKSConfig) error {
 	fmt.Printf("  Enrolling TPM2 key on %s (no PCRs)...\n", partition)
+
+	var keyFilePath string
+	var cleanup func()
+
+	if config.Keyfile != "" {
+		// Use the provided keyfile directly
+		keyFilePath = config.Keyfile
+		cleanup = func() {} // No cleanup needed
+	} else {
+		// Write passphrase to a temporary file (systemd-cryptenroll doesn't reliably read from stdin)
+		keyFile, err := os.CreateTemp("", "luks-key-*")
+		if err != nil {
+			return fmt.Errorf("failed to create temporary key file: %w", err)
+		}
+		keyFilePath = keyFile.Name()
+		cleanup = func() { _ = os.Remove(keyFilePath) }
+
+		if _, err := keyFile.WriteString(config.Passphrase); err != nil {
+			_ = keyFile.Close()
+			cleanup()
+			return fmt.Errorf("failed to write to temporary key file: %w", err)
+		}
+		if err := keyFile.Close(); err != nil {
+			cleanup()
+			return fmt.Errorf("failed to close temporary key file: %w", err)
+		}
+	}
+	defer cleanup()
 
 	// Use systemd-cryptenroll to add TPM2 key with no PCR binding
 	cmd := exec.Command("systemd-cryptenroll",
+		"--unlock-key-file="+keyFilePath,
 		"--tpm2-device=auto",
 		"--tpm2-pcrs=", // Empty PCRs = no binding
 		partition,
 	)
-	cmd.Stdin = strings.NewReader(passphrase)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 

@@ -268,16 +268,37 @@ func MergeEtcFromActive(targetDir string, activeRootPartition string, dryRun boo
 				"fstab", "crypttab",
 				"machine-id",
 			}
+
+			// Patterns for files that should be preserved (matched against relPath)
+			preservePatterns := []string{
+				"ssh/ssh_host_", // SSH host keys (identity of the system)
+			}
+
+			shouldPreserve := false
+			// Check exact filename matches
 			for _, preserve := range preserveUserModifications {
 				if filepath.Base(relPath) == preserve {
-					if isSymlink {
-						_ = copySymlink(path, destPath)
-					} else {
-						_ = copyFile(path, destPath)
-					}
-					fmt.Printf("    = Preserved user config: %s\n", relPath)
+					shouldPreserve = true
 					break
 				}
+			}
+			// Check pattern matches (prefix matching)
+			if !shouldPreserve {
+				for _, pattern := range preservePatterns {
+					if len(relPath) >= len(pattern) && relPath[:len(pattern)] == pattern {
+						shouldPreserve = true
+						break
+					}
+				}
+			}
+
+			if shouldPreserve {
+				if isSymlink {
+					_ = copySymlink(path, destPath)
+				} else {
+					_ = copyFile(path, destPath)
+				}
+				fmt.Printf("    = Preserved user config: %s\n", relPath)
 			}
 		}
 

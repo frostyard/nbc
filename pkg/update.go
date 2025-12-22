@@ -84,7 +84,18 @@ func GetInactiveRootPartition(scheme *PartitionScheme) (string, bool, error) {
 		return scheme.Root2Partition, true, nil
 	}
 
-	// Normalize paths for comparison
+	// Handle encrypted systems - mapper paths like /dev/mapper/root1 or /dev/mapper/root2
+	if strings.HasPrefix(active, "/dev/mapper/") {
+		mapperName := filepath.Base(active)
+		switch mapperName {
+		case "root1":
+			return scheme.Root2Partition, true, nil
+		case "root2":
+			return scheme.Root1Partition, false, nil
+		}
+	}
+
+	// Normalize paths for comparison (non-encrypted systems)
 	activeBase := filepath.Base(active)
 	root1Base := filepath.Base(scheme.Root1Partition)
 	root2Base := filepath.Base(scheme.Root2Partition)

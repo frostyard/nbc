@@ -18,11 +18,11 @@ nbc install --encrypt --passphrase "your-secure-passphrase" --tpm2 ghcr.io/myorg
 
 When `--encrypt` is specified, the following partitions are encrypted with LUKS2:
 
-| Partition | Mapper Name | Description |
-|-----------|-------------|-------------|
-| Root1 | `/dev/mapper/root1` | Active root filesystem |
-| Root2 | `/dev/mapper/root2` | Inactive root for A/B updates |
-| Var | `/dev/mapper/var` | Persistent `/var` data |
+| Partition | Mapper Name         | Description                   |
+| --------- | ------------------- | ----------------------------- |
+| Root1     | `/dev/mapper/root1` | Active root filesystem        |
+| Root2     | `/dev/mapper/root2` | Inactive root for A/B updates |
+| Var       | `/dev/mapper/var`   | Persistent `/var` data        |
 
 The ESP (EFI System Partition) and Boot partitions are **not encrypted** to allow the bootloader to load the kernel and initramfs.
 
@@ -66,6 +66,7 @@ PCR (Platform Configuration Register) binding ties the encryption key to specifi
 - Firmware updates occur
 
 By using empty PCRs (`--tpm2-pcrs=`), the system will unlock as long as:
+
 - The TPM2 chip is present
 - The TPM2 state hasn't been reset
 - No tampering is detected
@@ -89,6 +90,7 @@ RUN update-initramfs -u -k all
 ```
 
 Required packages:
+
 - `cryptsetup` - LUKS userspace tools
 - `cryptsetup-initramfs` - LUKS hook for initramfs-tools
 - `tpm2-tools` - TPM2 userspace tools (for TPM2 unlock)
@@ -107,11 +109,13 @@ RUN dracut --force --regenerate-all
 ```
 
 Required packages:
+
 - `cryptsetup` - LUKS userspace tools
 - `tpm2-tools` - TPM2 userspace tools
 - `tpm2-tss` - TPM2 software stack
 
 Dracut modules (should be included automatically):
+
 - `90crypt` - LUKS support
 - `91tpm2-tss` - TPM2 support
 
@@ -120,6 +124,7 @@ Dracut modules (should be included automatically):
 ### During Installation
 
 nbc will check for LUKS/TPM2 support after extracting the container and warn if:
+
 - No LUKS initramfs support is detected
 - TPM2 is requested but TPM2 initramfs support is not detected
 
@@ -152,6 +157,7 @@ systemd-cryptenroll --tpm2-device=list /dev/sdaX
 ### Cannot Boot After Update
 
 If A/B update breaks TPM2 unlock:
+
 1. Enter passphrase at boot prompt
 2. Re-enroll TPM2: `systemd-cryptenroll --wipe-slot=tpm2 --tpm2-device=auto /dev/sdaX`
 
@@ -172,11 +178,13 @@ mount /dev/mapper/root1 /mnt
 1. **Passphrase Strength**: Use a strong passphrase. It's your backup when TPM2 fails.
 
 2. **Physical Access**: Without PCR binding, anyone with physical access to the TPM2 can unlock the system. The security comes from:
+
    - TPM2 is bound to the specific hardware
    - Removing the disk and attaching to another machine won't work
    - The passphrase is still required without TPM2
 
 3. **Recovery Key**: Consider adding a recovery key:
+
    ```bash
    systemd-cryptenroll --recovery-key /dev/sdaX
    ```
@@ -187,15 +195,16 @@ mount /dev/mapper/root1 /mnt
 
 ### Files Created
 
-| File | Purpose |
-|------|---------|
-| `/etc/crypttab` | Defines LUKS devices for systemd |
-| `/boot/loader/entries/*.conf` | Boot entry with LUKS kernel args |
-| `/boot/grub/grub.cfg` | GRUB config with LUKS kernel args |
+| File                          | Purpose                           |
+| ----------------------------- | --------------------------------- |
+| `/etc/crypttab`               | Defines LUKS devices for systemd  |
+| `/boot/loader/entries/*.conf` | Boot entry with LUKS kernel args  |
+| `/boot/grub/grub.cfg`         | GRUB config with LUKS kernel args |
 
 ### LUKS Format Options
 
 nbc uses LUKS2 with default settings:
+
 - `cryptsetup luksFormat --type luks2`
 - Default cipher (typically `aes-xts-plain64`)
 - Default key size (typically 256-bit)
@@ -203,13 +212,14 @@ nbc uses LUKS2 with default settings:
 
 ### Mapper Device Names
 
-| Partition Role | Mapper Name |
-|---------------|-------------|
-| Root1 (active) | `root1` |
-| Root2 (inactive) | `root2` |
-| Var | `var` |
+| Partition Role   | Mapper Name |
+| ---------------- | ----------- |
+| Root1 (active)   | `root1`     |
+| Root2 (inactive) | `root2`     |
+| Var              | `var`       |
 
 These names are used in:
+
 - `/dev/mapper/<name>` paths
 - `/etc/crypttab` entries
 - Kernel command line arguments

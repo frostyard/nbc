@@ -15,6 +15,10 @@ type PartitionScheme struct {
 	Root2Partition string // Second root filesystem partition (12GB)
 	VarPartition   string // /var partition (remaining space)
 	FilesystemType string // Filesystem type for root/var partitions (ext4, btrfs)
+
+	// LUKS encryption (optional)
+	Encrypted   bool          // Whether partitions are LUKS encrypted
+	LUKSDevices []*LUKSDevice // Opened LUKS devices (for cleanup)
 }
 
 // CreatePartitions creates a GPT partition table with EFI, boot, and root partitions
@@ -111,6 +115,116 @@ func CreatePartitions(device string, dryRun bool) (*PartitionScheme, error) {
 	return scheme, nil
 }
 
+// SetupLUKS creates LUKS containers on root and var partitions
+// Returns the opened LUKS devices (must be closed during cleanup)
+func SetupLUKS(scheme *PartitionScheme, passphrase string, dryRun bool) error {
+	if dryRun {
+		fmt.Println("[DRY RUN] Would create LUKS containers on root1, root2, var")
+		return nil
+	}
+
+	fmt.Println("Setting up LUKS encryption...")
+
+	// Create and open LUKS containers for each partition
+	partitions := []struct {
+		partition  string
+		mapperName string
+	}{
+		{scheme.Root1Partition, "root1"},
+		{scheme.Root2Partition, "root2"},
+		{scheme.VarPartition, "var"},
+	}
+
+	var luksDevices []*LUKSDevice
+
+	for _, p := range partitions {
+		// Create LUKS container
+		if err := CreateLUKSContainer(p.partition, passphrase); err != nil {
+			// Close any already-opened devices on error
+			for _, dev := range luksDevices {
+				_ = CloseLUKS(dev.MapperName)
+			}
+			return fmt.Errorf("failed to create LUKS on %s: %w", p.partition, err)
+		}
+
+		// Open LUKS container
+		dev, err := OpenLUKS(p.partition, p.mapperName, passphrase)
+		if err != nil {
+			// Close any already-opened devices on error
+			for _, d := range luksDevices {
+				_ = CloseLUKS(d.MapperName)
+			}
+			return fmt.Errorf("failed to open LUKS on %s: %w", p.partition, err)
+		}
+
+		luksDevices = append(luksDevices, dev)
+		fmt.Printf("  LUKS container %s ready at %s (UUID: %s)\n", p.mapperName, dev.MapperPath, dev.LUKSUUID)
+	}
+
+	scheme.Encrypted = true
+	scheme.LUKSDevices = luksDevices
+
+	fmt.Println("LUKS encryption setup complete")
+	return nil
+}
+
+// GetRoot1Device returns the device path to use for root1 (mapper or raw partition)
+func (s *PartitionScheme) GetRoot1Device() string {
+	if s.Encrypted && len(s.LUKSDevices) > 0 {
+		for _, dev := range s.LUKSDevices {
+			if dev.MapperName == "root1" {
+				return dev.MapperPath
+			}
+		}
+	}
+	return s.Root1Partition
+}
+
+// GetRoot2Device returns the device path to use for root2 (mapper or raw partition)
+func (s *PartitionScheme) GetRoot2Device() string {
+	if s.Encrypted && len(s.LUKSDevices) > 0 {
+		for _, dev := range s.LUKSDevices {
+			if dev.MapperName == "root2" {
+				return dev.MapperPath
+			}
+		}
+	}
+	return s.Root2Partition
+}
+
+// GetVarDevice returns the device path to use for var (mapper or raw partition)
+func (s *PartitionScheme) GetVarDevice() string {
+	if s.Encrypted && len(s.LUKSDevices) > 0 {
+		for _, dev := range s.LUKSDevices {
+			if dev.MapperName == "var" {
+				return dev.MapperPath
+			}
+		}
+	}
+	return s.VarPartition
+}
+
+// GetLUKSDevice returns the LUKS device for a given mapper name
+func (s *PartitionScheme) GetLUKSDevice(mapperName string) *LUKSDevice {
+	for _, dev := range s.LUKSDevices {
+		if dev.MapperName == mapperName {
+			return dev
+		}
+	}
+	return nil
+}
+
+// CloseLUKSDevices closes all open LUKS containers
+func (s *PartitionScheme) CloseLUKSDevices() {
+	if !s.Encrypted {
+		return
+	}
+	for _, dev := range s.LUKSDevices {
+		_ = CloseLUKS(dev.MapperName)
+	}
+	s.LUKSDevices = nil
+}
+
 // FormatPartitions formats the partitions with appropriate filesystems
 func FormatPartitions(scheme *PartitionScheme, dryRun bool) error {
 	if dryRun {
@@ -127,27 +241,33 @@ func FormatPartitions(scheme *PartitionScheme, dryRun bool) error {
 	fmt.Printf("Formatting partitions (filesystem: %s)...\n", fsType)
 
 	// Format boot partition as FAT32 (EFI System Partition)
+	// Boot partition is never encrypted
 	fmt.Printf("  Formatting %s as FAT32 (boot/EFI)...\n", scheme.BootPartition)
 	cmd := exec.Command("mkfs.vfat", "-F", "32", "-n", "UEFI", scheme.BootPartition)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to format boot partition: %w\nOutput: %s", err, string(output))
 	}
 
-	// Format first root partition
-	fmt.Printf("  Formatting %s as %s...\n", scheme.Root1Partition, fsType)
-	if err := formatPartition(scheme.Root1Partition, fsType, "root1"); err != nil {
+	// Get device paths (use mapper devices if encrypted)
+	root1Dev := scheme.GetRoot1Device()
+	root2Dev := scheme.GetRoot2Device()
+	varDev := scheme.GetVarDevice()
+
+	// Format first root partition (or LUKS mapper device)
+	fmt.Printf("  Formatting %s as %s...\n", root1Dev, fsType)
+	if err := formatPartition(root1Dev, fsType, "root1"); err != nil {
 		return fmt.Errorf("failed to format root1 partition: %w", err)
 	}
 
-	// Format second root partition
-	fmt.Printf("  Formatting %s as %s...\n", scheme.Root2Partition, fsType)
-	if err := formatPartition(scheme.Root2Partition, fsType, "root2"); err != nil {
+	// Format second root partition (or LUKS mapper device)
+	fmt.Printf("  Formatting %s as %s...\n", root2Dev, fsType)
+	if err := formatPartition(root2Dev, fsType, "root2"); err != nil {
 		return fmt.Errorf("failed to format root2 partition: %w", err)
 	}
 
-	// Format /var partition
-	fmt.Printf("  Formatting %s as %s...\n", scheme.VarPartition, fsType)
-	if err := formatPartition(scheme.VarPartition, fsType, "var"); err != nil {
+	// Format /var partition (or LUKS mapper device)
+	fmt.Printf("  Formatting %s as %s...\n", varDev, fsType)
+	if err := formatPartition(varDev, fsType, "var"); err != nil {
 		return fmt.Errorf("failed to format var partition: %w", err)
 	}
 
@@ -192,8 +312,12 @@ func MountPartitions(scheme *PartitionScheme, mountPoint string, dryRun bool) er
 		return fmt.Errorf("failed to create mount point: %w", err)
 	}
 
-	// Mount first root partition
-	cmd := exec.Command("mount", scheme.Root1Partition, mountPoint)
+	// Get device paths (use mapper devices if encrypted)
+	root1Dev := scheme.GetRoot1Device()
+	varDev := scheme.GetVarDevice()
+
+	// Mount first root partition (or LUKS mapper device)
+	cmd := exec.Command("mount", root1Dev, mountPoint)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to mount root1 partition: %w\nOutput: %s", err, string(output))
 	}
@@ -208,14 +332,14 @@ func MountPartitions(scheme *PartitionScheme, mountPoint string, dryRun bool) er
 		return fmt.Errorf("failed to create var directory: %w", err)
 	}
 
-	// Mount boot partition (FAT32 EFI System Partition)
+	// Mount boot partition (FAT32 EFI System Partition - never encrypted)
 	cmd = exec.Command("mount", scheme.BootPartition, bootDir)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to mount boot partition: %w\nOutput: %s", err, string(output))
 	}
 
-	// Mount /var partition
-	cmd = exec.Command("mount", scheme.VarPartition, varDir)
+	// Mount /var partition (or LUKS mapper device)
+	cmd = exec.Command("mount", varDev, varDir)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to mount var partition: %w\nOutput: %s", err, string(output))
 	}

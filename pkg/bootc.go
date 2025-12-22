@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ type BootcInstaller struct {
 	MountPoint     string
 	FilesystemType string // ext4 or btrfs
 	Progress       *ProgressReporter
+	Encryption     *LUKSConfig // Encryption configuration
 }
 
 // NewBootcInstaller creates a new BootcInstaller
@@ -66,6 +68,15 @@ func (b *BootcInstaller) SetFilesystemType(fsType string) {
 func (b *BootcInstaller) SetJSONOutput(jsonOutput bool) {
 	b.JSONOutput = jsonOutput
 	b.Progress = NewProgressReporter(jsonOutput, 6)
+}
+
+// SetEncryption enables LUKS encryption with the given passphrase and optional TPM2
+func (b *BootcInstaller) SetEncryption(passphrase string, tpm2 bool) {
+	b.Encryption = &LUKSConfig{
+		Enabled:    true,
+		Passphrase: passphrase,
+		TPM2:       tpm2,
+	}
 }
 
 // CheckRequiredTools checks if required tools are available
@@ -149,6 +160,14 @@ func (b *BootcInstaller) Install() error {
 	// Set filesystem type on partition scheme
 	scheme.FilesystemType = b.FilesystemType
 
+	// Step 1.5: Setup LUKS encryption if enabled
+	if b.Encryption != nil && b.Encryption.Enabled {
+		p.Message("Setting up LUKS encryption...")
+		if err := SetupLUKS(scheme, b.Encryption.Passphrase, b.DryRun); err != nil {
+			return fmt.Errorf("failed to setup LUKS encryption: %w", err)
+		}
+	}
+
 	// Step 2: Format partitions
 	p.Step(2, "Formatting partitions")
 	if err := FormatPartitions(scheme, b.DryRun); err != nil {
@@ -166,6 +185,10 @@ func (b *BootcInstaller) Install() error {
 		if !b.DryRun {
 			p.Message("Cleaning up...")
 			_ = UnmountPartitions(b.MountPoint, b.DryRun)
+			// Close LUKS devices if encrypted
+			if scheme.Encrypted {
+				scheme.CloseLUKSDevices()
+			}
 			_ = os.RemoveAll(b.MountPoint)
 		}
 	}()
@@ -178,12 +201,32 @@ func (b *BootcInstaller) Install() error {
 		return fmt.Errorf("failed to extract container: %w", err)
 	}
 
+	// Validate initramfs has LUKS/TPM2 support if encryption is enabled
+	if b.Encryption != nil && b.Encryption.Enabled {
+		warnings := ValidateInitramfsSupport(b.MountPoint, b.Encryption.TPM2)
+		for _, warning := range warnings {
+			p.Warning("%s", warning)
+		}
+	}
+
 	// Step 5: Configure system
 	p.Step(5, "Configuring system")
 
 	// Create fstab
 	if err := CreateFstab(b.MountPoint, scheme); err != nil {
 		return fmt.Errorf("failed to create fstab: %w", err)
+	}
+
+	// Generate /etc/crypttab if encryption is enabled
+	if b.Encryption != nil && b.Encryption.Enabled && len(scheme.LUKSDevices) > 0 {
+		crypttabContent := GenerateCrypttab(scheme.LUKSDevices, b.Encryption.TPM2)
+		crypttabPath := filepath.Join(b.MountPoint, "etc", "crypttab")
+		if err := os.WriteFile(crypttabPath, []byte(crypttabContent), 0600); err != nil {
+			return fmt.Errorf("failed to write /etc/crypttab: %w", err)
+		}
+		if b.Verbose {
+			p.Message("Created /etc/crypttab")
+		}
 	}
 
 	// Setup system directories
@@ -237,6 +280,11 @@ func (b *BootcInstaller) Install() error {
 	bootloader := NewBootloaderInstaller(b.MountPoint, b.Device, scheme, osName)
 	bootloader.SetVerbose(b.Verbose)
 
+	// Set encryption config if enabled
+	if b.Encryption != nil && b.Encryption.Enabled {
+		bootloader.SetEncryption(b.Encryption)
+	}
+
 	// Add kernel arguments
 	for _, arg := range b.KernelArgs {
 		bootloader.AddKernelArg(arg)
@@ -248,6 +296,17 @@ func (b *BootcInstaller) Install() error {
 
 	if err := bootloader.Install(); err != nil {
 		return fmt.Errorf("failed to install bootloader: %w", err)
+	}
+
+	// Enroll TPM2 if encryption is enabled with TPM2
+	if b.Encryption != nil && b.Encryption.Enabled && b.Encryption.TPM2 {
+		p.Message("Enrolling TPM2 for automatic unlock...")
+		for _, luksDevice := range scheme.LUKSDevices {
+			if err := EnrollTPM2(luksDevice.Partition, b.Encryption.Passphrase); err != nil {
+				return fmt.Errorf("failed to enroll TPM2 for %s: %w", luksDevice.Partition, err)
+			}
+			p.Message("  Enrolled TPM2 for %s", luksDevice.MapperName)
+		}
 	}
 
 	return nil

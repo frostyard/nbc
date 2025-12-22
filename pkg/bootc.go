@@ -168,7 +168,8 @@ func (b *BootcInstaller) Install() error {
 		}
 
 		// Ensure LUKS devices are always cleaned up, even if later steps fail
-		defer CleanupLUKS(scheme, b.DryRun)
+		defer scheme.CloseLUKSDevices()
+
 	}
 
 	// Step 2: Format partitions

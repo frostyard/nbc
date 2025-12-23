@@ -188,4 +188,10 @@ else
     return 0
 fi
 
+# Create marker file to indicate system was booted via nbc
+# Similar to /run/ostree-booted for bootc systems
+mkdir -p "$SYSROOT/run"
+echo "nbc" > "$SYSROOT/run/nbc-booted"
+info "etc-overlay: Created /run/nbc-booted marker"
+
 info "etc-overlay: Setup complete"

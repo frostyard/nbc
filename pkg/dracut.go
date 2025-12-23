@@ -68,11 +68,17 @@ func RegenerateInitramfs(targetDir string, dryRun bool, verbose bool) error {
 	fmt.Println("  Regenerating initramfs to include etc-overlay module...")
 
 	// Check if dracut is available in the target
+	// We need to track the path relative to the chroot (for use inside chroot)
+	var dracutChrootPath string
 	dracutPath := filepath.Join(targetDir, "usr", "bin", "dracut")
-	if _, err := os.Stat(dracutPath); os.IsNotExist(err) {
+	if _, err := os.Stat(dracutPath); err == nil {
+		dracutChrootPath = "/usr/bin/dracut"
+	} else {
 		// Try /sbin/dracut
 		dracutPath = filepath.Join(targetDir, "sbin", "dracut")
-		if _, err := os.Stat(dracutPath); os.IsNotExist(err) {
+		if _, err := os.Stat(dracutPath); err == nil {
+			dracutChrootPath = "/sbin/dracut"
+		} else {
 			fmt.Println("  Warning: dracut not found in target, skipping initramfs regeneration")
 			fmt.Println("  The container image's initramfs will be used (may not have etc-overlay support)")
 			return nil
@@ -127,7 +133,7 @@ func RegenerateInitramfs(targetDir string, dryRun bool, verbose bool) error {
 		// Run dracut in chroot
 		args := []string{
 			targetDir,
-			"/usr/bin/dracut",
+			dracutChrootPath,
 			"--force",
 			"--add", "etc-overlay",
 			initramfsPath,

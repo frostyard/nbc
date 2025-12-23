@@ -104,7 +104,17 @@ func RegenerateInitramfs(targetDir string, dryRun bool, verbose bool) error {
 	}
 
 	// Setup bind mounts for chroot
+	// Track successful mounts for cleanup
 	bindMounts := []string{"/dev", "/proc", "/sys"}
+	var mountedPaths []string
+
+	// Ensure cleanup of bind mounts - defer before mounting so it runs even on partial failure
+	defer func() {
+		for i := len(mountedPaths) - 1; i >= 0; i-- {
+			_ = exec.Command("umount", mountedPaths[i]).Run()
+		}
+	}()
+
 	for _, mount := range bindMounts {
 		targetMount := filepath.Join(targetDir, mount)
 		if err := os.MkdirAll(targetMount, 0755); err != nil {
@@ -114,15 +124,8 @@ func RegenerateInitramfs(targetDir string, dryRun bool, verbose bool) error {
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("failed to bind mount %s: %w", mount, err)
 		}
+		mountedPaths = append(mountedPaths, targetMount)
 	}
-
-	// Ensure cleanup of bind mounts
-	defer func() {
-		for i := len(bindMounts) - 1; i >= 0; i-- {
-			targetMount := filepath.Join(targetDir, bindMounts[i])
-			_ = exec.Command("umount", targetMount).Run()
-		}
-	}()
 
 	// Regenerate initramfs for each kernel version
 	for _, kernelVersion := range kernelVersions {

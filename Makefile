@@ -35,7 +35,7 @@ test-integration: ## Run integration tests (requires root)
 	@echo "Running integration tests (requires root)..."
 	@if [ "$$(id -u)" -ne 0 ]; then \
 		echo "Re-running with sudo and preserving PATH..."; \
-		sudo -E PATH="/usr/sbin:/sbin:$$PATH" $(MAKE) _test-integration; \
+		sudo -E env "PATH=$$PATH:/usr/sbin:/sbin" $(MAKE) _test-integration; \
 	else \
 		$(MAKE) _test-integration; \
 	fi
@@ -47,36 +47,80 @@ test-install: ## Run installation tests (requires root)
 	@echo "Running installation tests (requires root)..."
 	@if [ "$$(id -u)" -ne 0 ]; then \
 		echo "Re-running with sudo and preserving PATH..."; \
-		sudo -E PATH="/usr/sbin:/sbin:$$PATH" $(MAKE) test-install; \
+		sudo -E env "PATH=$$PATH:/usr/sbin:/sbin" $(MAKE) _test-install; \
 	else \
-		go test -v ./pkg/... -run "^(TestBootcInstaller)" -timeout 20m; \
+		$(MAKE) _test-install; \
 	fi
+
+_test-install: ## Internal target for install tests
+	@go test -v ./pkg/... -run "^(TestBootcInstaller)" -timeout 20m
 
 test-update: ## Run update tests (requires root)
 	@echo "Running update tests (requires root)..."
 	@if [ "$$(id -u)" -ne 0 ]; then \
 		echo "Re-running with sudo and preserving PATH..."; \
-		sudo -E PATH="/usr/sbin:/sbin:$$PATH" $(MAKE) test-update; \
+		sudo -E env "PATH=$$PATH:/usr/sbin:/sbin" $(MAKE) _test-update; \
 	else \
-		go test -v ./pkg/... -run "^(TestSystemUpdater)" -timeout 20m; \
+		$(MAKE) _test-update; \
 	fi
+
+_test-update: ## Internal target for update tests
+	@go test -v ./pkg/... -run "^(TestSystemUpdater)" -timeout 20m
 
 test-incus: ## Run Incus VM integration tests (requires root and incus)
 	@echo "Running Incus integration tests (requires root and incus)..."
 	@if [ "$$(id -u)" -ne 0 ]; then \
 		echo "Re-running with sudo and preserving environment..."; \
-		sudo -E env "PATH=$$PATH" $(MAKE) test-incus; \
+		sudo -E env "PATH=$$PATH:/usr/sbin:/sbin" $(MAKE) _test-incus; \
 	else \
-		./test_incus.sh; \
+		$(MAKE) _test-incus; \
 	fi
+
+_test-incus: ## Internal target for Incus tests
+	@./test_incus.sh
+
+test-incus-quick: ## Run quick Incus install test (requires root and incus)
+	@echo "Running quick Incus install test..."
+	@if [ "$$(id -u)" -ne 0 ]; then \
+		sudo -E env "PATH=$$PATH:/usr/sbin:/sbin" $(MAKE) _test-incus-quick; \
+	else \
+		$(MAKE) _test-incus-quick; \
+	fi
+
+_test-incus-quick: ## Internal target for quick Incus tests
+	@./test_incus_quick.sh
+
+test-incus-encryption: ## Run Incus encryption tests (requires root and incus)
+	@echo "Running Incus encryption tests..."
+	@if [ "$$(id -u)" -ne 0 ]; then \
+		sudo -E env "PATH=$$PATH:/usr/sbin:/sbin" $(MAKE) _test-incus-encryption; \
+	else \
+		$(MAKE) _test-incus-encryption; \
+	fi
+
+_test-incus-encryption: ## Internal target for Incus encryption tests
+	@./test_incus_encryption.sh
 
 test-all: ## Run all tests (unit + integration, requires root)
 	@echo "Running all tests..."
 	@$(MAKE) test-unit
-	@$(MAKE) test-integration
+	@if [ "$$(id -u)" -ne 0 ]; then \
+		echo "Re-running integration tests with sudo..."; \
+		sudo -E env "PATH=$$PATH:/usr/sbin:/sbin" $(MAKE) _test-integration; \
+	else \
+		$(MAKE) _test-integration; \
+	fi
 
-test-coverage: ## Run tests with coverage report
+test-coverage: ## Run tests with coverage report (requires root for full coverage)
 	@echo "Running tests with coverage..."
+	@if [ "$$(id -u)" -ne 0 ]; then \
+		echo "Re-running with sudo and preserving PATH..."; \
+		sudo -E env "PATH=$$PATH:/usr/sbin:/sbin" $(MAKE) _test-coverage; \
+	else \
+		$(MAKE) _test-coverage; \
+	fi
+
+_test-coverage: ## Internal target for coverage tests
 	@go test -v ./pkg/... -coverprofile=coverage.out -covermode=atomic
 	@go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
@@ -118,8 +162,15 @@ bump: ## generate a new version with svu
 		echo "Pushing tag $$version to origin..."; \
 		git push origin $$version
 
-clean-volumes:
+clean-volumes: ## Clean up test volumes (requires root)
 	@echo "Cleaning up test volumes..."
+	@if [ "$$(id -u)" -ne 0 ]; then \
+		sudo -E env "PATH=$$PATH" $(MAKE) _clean-volumes; \
+	else \
+		$(MAKE) _clean-volumes; \
+	fi
+
+_clean-volumes: ## Internal target for cleaning volumes
 	@incus storage volume list default --format csv | grep -E '^(custom|block),(nbc-|phukit-)' | cut -d',' -f2 | xargs -I{} incus storage volume rm default {}
 
 .DEFAULT_GOAL := help

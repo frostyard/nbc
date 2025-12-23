@@ -309,3 +309,53 @@ Tests **cannot** accidentally wipe your real disks because they:
 1. Only work with loop devices from test images
 2. Don't have access to actual `/dev/sd*` or `/dev/nvme*` devices during tests
 3. Clean up completely on exit
+
+## Continuous Integration
+
+The project uses GitHub Actions for automated testing on every push and pull request.
+
+### CI Workflow
+
+The `.github/workflows/test.yml` workflow runs:
+
+| Job                   | Description                                       | Runs on       |
+| --------------------- | ------------------------------------------------- | ------------- |
+| **Lint**              | golangci-lint for code quality                    | ubuntu-latest |
+| **Unit Tests**        | All unit tests with coverage                      | ubuntu-latest |
+| **Build**             | Cross-compilation for linux/amd64 and linux/arm64 | ubuntu-latest |
+| **Integration Tests** | Info only (requires root/loop devices)            | -             |
+
+### Coverage Reporting
+
+Unit tests generate coverage data and upload to Codecov (when configured):
+
+```bash
+# Generate coverage locally
+make test-coverage
+
+# View coverage report
+go tool cover -html=coverage.out
+```
+
+### What CI Cannot Test
+
+Due to GitHub Actions limitations, these tests require manual execution:
+
+- **Integration tests** (`sudo make test-integration`) - Require root and loop devices
+- **Incus E2E tests** (`./test_incus.sh`) - Require VM creation capability
+- **Encryption tests** (`./test_incus_encryption.sh`) - Require LUKS and TPM emulation
+
+### Running CI Locally
+
+You can simulate the CI workflow locally using [act](https://github.com/nektos/act):
+
+```bash
+# Install act (macOS)
+brew install act
+
+# Run all CI jobs
+act
+
+# Run specific job
+act -j unit-test
+```

@@ -143,7 +143,17 @@ if [ -d "$ETC_LOWER_DIR" ] && [ "$(ls -A "$ETC_LOWER_DIR" 2>/dev/null)" ]; then
         # The current /etc might be leftover from a failed overlay attempt
         info "etc-overlay: Current /etc has content, merging with lower layer"
         # Copy any new files from /etc to upper layer (they are customizations)
-        cp -a "$ETC_LOWER"/* "$OVERLAY_UPPER/" 2>/dev/null || true
+        # Avoid overwriting existing entries in the upper layer to preserve user changes
+        for src in "$ETC_LOWER"/*; do
+            # Handle case where the glob doesn't match anything
+            [ -e "$src" ] || continue
+            name=${src##*/}  # basename
+            if [ -e "$OVERLAY_UPPER/$name" ]; then
+                info "etc-overlay: Skipping existing upper-layer entry: $name"
+                continue
+            fi
+            cp -a "$src" "$OVERLAY_UPPER/" 2>/dev/null || true
+        done
     fi
 else
     # First boot or lower dir is empty/missing - move /etc to lower dir

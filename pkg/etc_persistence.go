@@ -1,7 +1,10 @@
 package pkg
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -206,14 +209,15 @@ func detectEtcConflicts(upperDir, newEtc, pristineEtc string) []string {
 		newPath := filepath.Join(newEtc, relPath)
 		pristinePath := filepath.Join(pristineEtc, relPath)
 
-		newInfo, newErr := os.Stat(newPath)
-		pristineInfo, pristineErr := os.Stat(pristinePath)
+		_, newErr := os.Stat(newPath)
+		_, pristineErr := os.Stat(pristinePath)
 
 		// File exists in both new and pristine - check if container changed it
 		if newErr == nil && pristineErr == nil {
-			// Simple heuristic: if sizes differ, assume change
-			// A more robust approach would compare checksums
-			if newInfo.Size() != pristineInfo.Size() {
+			// Compare SHA256 hashes to detect changes
+			newHash, newHashErr := hashFile(newPath)
+			pristineHash, pristineHashErr := hashFile(pristinePath)
+			if newHashErr == nil && pristineHashErr == nil && newHash != pristineHash {
 				conflicts = append(conflicts, relPath)
 			}
 		} else if newErr == nil && pristineErr != nil {
@@ -225,6 +229,22 @@ func detectEtcConflicts(upperDir, newEtc, pristineEtc string) []string {
 	})
 
 	return conflicts
+}
+
+// hashFile computes the SHA256 hash of a file and returns it as a hex string
+func hashFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // copyFile copies a single file preserving permissions

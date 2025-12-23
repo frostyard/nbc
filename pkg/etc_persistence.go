@@ -252,16 +252,3 @@ func copyFile(src, dst string) error {
 
 	return nil
 }
-
-// copySymlink copies a symlink preserving its target
-func copySymlink(src, dst string) error {
-	target, err := os.Readlink(src)
-	if err != nil {
-		return err
-	}
-
-	// Remove existing file/symlink if present
-	_ = os.Remove(dst)
-
-	return os.Symlink(target, dst)
-}

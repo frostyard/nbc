@@ -272,11 +272,21 @@ func (u *SystemUpdater) buildKernelCmdline(rootUUID, varUUID, fsType string, isT
 
 		// Mount /var via systemd.mount-extra using mapper device
 		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=/dev/mapper/var:/var:"+fsType+":defaults")
+
+		// Enable /etc overlay persistence
+		// The dracut module 95etc-overlay will mount an overlayfs for /etc
+		kernelCmdline = append(kernelCmdline, "rd.etc.overlay=1")
+		kernelCmdline = append(kernelCmdline, "rd.etc.overlay.var=/dev/mapper/var")
 	} else {
 		// Non-encrypted system - use UUID
 		kernelCmdline = append(kernelCmdline, "root=UUID="+rootUUID)
 		kernelCmdline = append(kernelCmdline, "rw")
 		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=UUID="+varUUID+":/var:"+fsType+":defaults")
+
+		// Enable /etc overlay persistence
+		// The dracut module 95etc-overlay will mount an overlayfs for /etc
+		kernelCmdline = append(kernelCmdline, "rd.etc.overlay=1")
+		kernelCmdline = append(kernelCmdline, "rd.etc.overlay.var=UUID="+varUUID)
 	}
 
 	// Add user-specified kernel arguments

@@ -69,9 +69,10 @@ func CreatePartitions(device string, dryRun bool) (*PartitionScheme, error) {
 	// Inform kernel of partition changes
 	deviceBase := filepath.Base(device)
 	if strings.HasPrefix(deviceBase, "loop") {
-		// For loop devices, use losetup --partscan to force partition re-read
-		if err := exec.Command("losetup", "--partscan", device).Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: losetup --partscan failed: %v\n", err)
+		// For loop devices, use partx -u to update partition table
+		// Note: losetup --partscan only works during initial setup, not on existing devices
+		if err := exec.Command("partx", "-u", device).Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: partx -u failed: %v\n", err)
 		}
 	}
 	if err := exec.Command("partprobe", device).Run(); err != nil {

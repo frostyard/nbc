@@ -190,11 +190,12 @@ CMD ["/bin/sh"]
 
 // WaitForDevice waits for a device to appear (useful after partitioning)
 func WaitForDevice(device string) error {
-	// For loop devices, force partition rescan
+	// For loop devices, force partition rescan using partx
+	// Note: losetup --partscan only works during initial setup, not on existing devices
 	if strings.HasPrefix(filepath.Base(device), "loop") {
-		cmd := exec.Command("losetup", "--partscan", device)
+		cmd := exec.Command("partx", "-u", device)
 		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("losetup --partscan failed: %w", err)
+			return fmt.Errorf("partx -u failed: %w", err)
 		}
 	}
 

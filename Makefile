@@ -29,16 +29,19 @@ test: ## Run tests
 
 test-unit: ## Run unit tests (no root required)
 	@echo "Running unit tests..."
-	@go test -v ./pkg/... -run "^(TestFormatSize|TestGetBootDeviceFromPartition|TestGetDiskByPath)$$"
+	@go test -v ./pkg/... -run "^Test[^I]" -skip "Integration"
 
 test-integration: ## Run integration tests (requires root)
 	@echo "Running integration tests (requires root)..."
 	@if [ "$$(id -u)" -ne 0 ]; then \
 		echo "Re-running with sudo and preserving PATH..."; \
-		sudo -E PATH="/usr/sbin:/sbin:$$PATH" $(MAKE) test-integration; \
+		sudo -E PATH="/usr/sbin:/sbin:$$PATH" $(MAKE) _test-integration; \
 	else \
-		./test_integration.sh; \
+		$(MAKE) _test-integration; \
 	fi
+
+_test-integration: ## Internal target for integration tests
+	@go test -v ./pkg/... -run "^TestIntegration_" -timeout 10m
 
 test-install: ## Run installation tests (requires root)
 	@echo "Running installation tests (requires root)..."
@@ -66,6 +69,17 @@ test-incus: ## Run Incus VM integration tests (requires root and incus)
 	else \
 		./test_incus.sh; \
 	fi
+
+test-all: ## Run all tests (unit + integration, requires root)
+	@echo "Running all tests..."
+	@$(MAKE) test-unit
+	@$(MAKE) test-integration
+
+test-coverage: ## Run tests with coverage report
+	@echo "Running tests with coverage..."
+	@go test -v ./pkg/... -coverprofile=coverage.out -covermode=atomic
+	@go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report: coverage.html"
 
 fmt: ## Format code
 	@echo "Formatting code..."

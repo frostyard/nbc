@@ -175,7 +175,7 @@ timeout $TIMEOUT incus exec ${VM_NAME} -- bash -c "echo 'yes' | nbc install \
     --image '$TEST_IMAGE' \
     --device '$TEST_DISK' \
     --encrypt \
-    --passphrase-file /tmp/luks-passphrase \
+    --keyfile /tmp/luks-passphrase \
     --karg 'loglevel=7' \
     --verbose" 2>&1 | tee /tmp/nbc-enc-install-$$.log | sed 's/^/  /'
 INSTALL_EXIT=${PIPESTATUS[0]}

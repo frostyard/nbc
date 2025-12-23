@@ -1,59 +1,39 @@
 package pkg
 
 import (
-	"embed"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 )
 
-//go:embed dracut/95etc-overlay/*
-var dracutModules embed.FS
-
-// InstallDracutEtcOverlay installs the etc-overlay dracut module into the target filesystem.
-// This module sets up an overlayfs for /etc at boot time, with the root filesystem's /etc
-// as the read-only lower layer and /var/lib/nbc/etc-overlay as the writable upper layer.
-func InstallDracutEtcOverlay(targetDir string, dryRun bool) error {
+// VerifyDracutEtcOverlay verifies that the etc-overlay dracut module exists in the target filesystem.
+// The module is installed via the nbc deb/rpm package to /usr/lib/dracut/modules.d/95etc-overlay/.
+// This function checks that the container/host has nbc installed with the dracut module.
+func VerifyDracutEtcOverlay(targetDir string, dryRun bool) error {
 	if dryRun {
-		fmt.Println("[DRY RUN] Would install etc-overlay dracut module")
+		fmt.Println("[DRY RUN] Would verify etc-overlay dracut module exists")
 		return nil
 	}
 
-	fmt.Println("  Installing etc-overlay dracut module...")
+	fmt.Println("  Verifying etc-overlay dracut module...")
 
 	moduleDir := filepath.Join(targetDir, "usr", "lib", "dracut", "modules.d", "95etc-overlay")
 
-	// Create module directory
-	if err := os.MkdirAll(moduleDir, 0755); err != nil {
-		return fmt.Errorf("failed to create dracut module directory: %w", err)
-	}
-
-	// List of files to install
-	files := []string{
+	// Check for required files
+	requiredFiles := []string{
 		"module-setup.sh",
 		"etc-overlay-mount.sh",
 	}
 
-	for _, filename := range files {
-		srcPath := filepath.Join("dracut", "95etc-overlay", filename)
-		dstPath := filepath.Join(moduleDir, filename)
-
-		content, err := dracutModules.ReadFile(srcPath)
-		if err != nil {
-			return fmt.Errorf("failed to read embedded file %s: %w", srcPath, err)
+	for _, filename := range requiredFiles {
+		filePath := filepath.Join(moduleDir, filename)
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			return fmt.Errorf("etc-overlay dracut module not found at %s - ensure nbc is installed in the container image", moduleDir)
 		}
-
-		// Determine permissions (scripts need to be executable)
-		perm := os.FileMode(0755)
-
-		if err := os.WriteFile(dstPath, content, perm); err != nil {
-			return fmt.Errorf("failed to write %s: %w", dstPath, err)
-		}
-		fmt.Printf("    Installed %s\n", filename)
 	}
 
-	fmt.Println("  Dracut module installed successfully")
+	fmt.Println("  ✓ Dracut etc-overlay module verified")
 	return nil
 }
 
@@ -160,11 +140,4 @@ func RegenerateInitramfs(targetDir string, dryRun bool, verbose bool) error {
 
 	fmt.Println("  Initramfs regeneration complete")
 	return nil
-}
-
-// ValidateDracutModule checks if the target filesystem has the etc-overlay dracut module.
-func ValidateDracutModule(targetDir string) bool {
-	moduleSetup := filepath.Join(targetDir, "usr", "lib", "dracut", "modules.d", "95etc-overlay", "module-setup.sh")
-	_, err := os.Stat(moduleSetup)
-	return err == nil
 }

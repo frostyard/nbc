@@ -514,9 +514,10 @@ func (u *SystemUpdater) Update() error {
 		return fmt.Errorf("failed to extract container: %w", err)
 	}
 
-	// Install dracut module for /etc overlay persistence
-	if err := InstallDracutEtcOverlay(u.Config.MountPoint, u.Config.DryRun); err != nil {
-		return fmt.Errorf("failed to install dracut etc-overlay module: %w", err)
+	// Verify dracut module for /etc overlay persistence exists
+	// The module is installed via nbc deb/rpm package
+	if err := VerifyDracutEtcOverlay(u.Config.MountPoint, u.Config.DryRun); err != nil {
+		return fmt.Errorf("dracut etc-overlay module not found: %w", err)
 	}
 
 	// Regenerate initramfs to include the etc-overlay module

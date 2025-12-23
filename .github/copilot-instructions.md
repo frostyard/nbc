@@ -9,6 +9,24 @@ nbc is a Go-based tool for installing bootc (bootable container) systems to disk
 - Bootloader installation (GRUB2 and systemd-boot)
 - System configuration for immutable/atomic OS deployments
 
+## Critical: Install and Update Parity
+
+**IMPORTANT**: nbc has TWO code paths that must stay in sync:
+
+1. **Installation** (`pkg/bootc.go` - `Install()` function)
+2. **A/B Updates** (`pkg/update.go` - `Update()` function)
+
+**Any change to the installation flow MUST also be applied to the update flow.**
+
+Examples of things that must be kept in sync:
+
+- Kernel command line parameters (e.g., `rd.etc.overlay=1`)
+- System configuration files (e.g., tmpfiles.d configs)
+- Bootloader entry generation
+- Filesystem setup and directory creation
+
+When modifying installation logic, always search for the equivalent code in `update.go` and update it accordingly. The `buildKernelCmdline()` function in `update.go` must match the kernel cmdline logic in `bootloader.go`.
+
 ## Code Style & Conventions
 
 ### General Go Practices

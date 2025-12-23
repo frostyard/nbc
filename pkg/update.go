@@ -452,6 +452,14 @@ func (u *SystemUpdater) Update() error {
 
 	p.MessagePlain("Starting system update...")
 
+	// Ensure critical files (SSH host keys, machine-id) are in overlay upper layer
+	// This must happen before we extract the new container image, so that these
+	// files persist even if the new container image has different versions
+	if err := EnsureCriticalFilesInOverlay(u.Config.DryRun); err != nil {
+		p.Warning("Failed to preserve critical files in overlay: %v", err)
+		// Continue anyway - this is a best-effort operation
+	}
+
 	// Step 1: Mount target partition
 	p.Step(1, "Mounting target partition")
 	if err := os.MkdirAll(u.Config.MountPoint, 0755); err != nil {

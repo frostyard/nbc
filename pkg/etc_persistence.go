@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 )
 
 const (
@@ -245,6 +246,105 @@ func hashFile(path string) (string, error) {
 	}
 
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// EnsureCriticalFilesInOverlay ensures critical files that should persist across updates
+// are captured in the overlay upper layer. This is necessary because some files
+// (like SSH host keys) may exist in the container image from build time, meaning
+// they never get written to the overlay upper layer during normal operation.
+//
+// When an A/B update happens with a new container image, the lower layer changes
+// to the new container's /etc, and any files not in the overlay upper will show
+// the new container's version instead of the running system's version.
+//
+// This function copies critical files from the running system's /etc to the overlay
+// upper layer if they don't already exist there.
+func EnsureCriticalFilesInOverlay(dryRun bool) error {
+	if dryRun {
+		fmt.Printf("[DRY RUN] Would ensure critical files are in overlay upper layer\n")
+		return nil
+	}
+
+	fmt.Println("  Ensuring critical files are preserved in overlay...")
+
+	// Critical files/directories that should persist across updates
+	criticalPaths := []string{
+		"ssh/ssh_host_ecdsa_key",
+		"ssh/ssh_host_ecdsa_key.pub",
+		"ssh/ssh_host_ed25519_key",
+		"ssh/ssh_host_ed25519_key.pub",
+		"ssh/ssh_host_rsa_key",
+		"ssh/ssh_host_rsa_key.pub",
+		"machine-id",
+	}
+
+	overlayUpper := "/var/lib/nbc/etc-overlay/upper"
+
+	// Check if overlay is active
+	if _, err := os.Stat(overlayUpper); os.IsNotExist(err) {
+		return fmt.Errorf("overlay upper directory does not exist: %s", overlayUpper)
+	}
+
+	for _, relPath := range criticalPaths {
+		srcPath := filepath.Join("/etc", relPath)
+		dstPath := filepath.Join(overlayUpper, relPath)
+
+		// Check if source exists
+		srcInfo, err := os.Stat(srcPath)
+		if os.IsNotExist(err) {
+			continue // Source doesn't exist, skip
+		}
+		if err != nil {
+			fmt.Printf("  Warning: could not stat %s: %v\n", srcPath, err)
+			continue
+		}
+
+		// Check if already in overlay
+		if _, err := os.Stat(dstPath); err == nil {
+			continue // Already in overlay, skip
+		}
+
+		// Create parent directory if needed
+		dstDir := filepath.Dir(dstPath)
+		if err := os.MkdirAll(dstDir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", dstDir, err)
+		}
+
+		// Copy the file preserving permissions
+		if err := copyFileWithOwnership(srcPath, dstPath, srcInfo); err != nil {
+			return fmt.Errorf("failed to copy %s to overlay: %w", relPath, err)
+		}
+
+		fmt.Printf("  Preserved %s in overlay\n", relPath)
+	}
+
+	return nil
+}
+
+// copyFileWithOwnership copies a file preserving permissions and ownership
+func copyFileWithOwnership(src, dst string, srcInfo os.FileInfo) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = srcFile.Close() }()
+
+	dstFile, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, srcInfo.Mode())
+	if err != nil {
+		return err
+	}
+	defer func() { _ = dstFile.Close() }()
+
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		return err
+	}
+
+	// Try to preserve ownership (requires root)
+	if stat, ok := srcInfo.Sys().(*syscall.Stat_t); ok {
+		_ = os.Chown(dst, int(stat.Uid), int(stat.Gid))
+	}
+
+	return nil
 }
 
 // copyFile copies a single file preserving permissions

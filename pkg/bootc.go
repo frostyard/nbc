@@ -214,6 +214,21 @@ func (b *BootcInstaller) Install() error {
 		}
 	}
 
+	// Install dracut module for /etc overlay persistence
+	// This must happen before initramfs regeneration (if any)
+	if err := InstallDracutEtcOverlay(b.MountPoint, b.DryRun); err != nil {
+		return fmt.Errorf("failed to install dracut etc-overlay module: %w", err)
+	}
+
+	// Regenerate initramfs to include the etc-overlay module
+	// This ensures the overlay is set up during early boot
+	if err := RegenerateInitramfs(b.MountPoint, b.DryRun, b.Verbose); err != nil {
+		// Don't fail on initramfs regeneration - the container's initramfs might still work
+		// if it was built with etc-overlay support
+		p.Warning("initramfs regeneration failed: %v", err)
+		p.Warning("Boot may fail if container's initramfs lacks etc-overlay support")
+	}
+
 	// Step 5: Configure system
 	p.Step(5, "Configuring system")
 

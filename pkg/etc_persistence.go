@@ -10,44 +10,55 @@ import (
 const (
 	// PristineEtcPath is where we store the pristine /etc from installation
 	PristineEtcPath = "/var/lib/nbc/etc.pristine"
+	// EtcOverlayPath is where we store the overlay upper/work directories
+	EtcOverlayPath = "/var/lib/nbc/etc-overlay"
 	// VarEtcPath is DEPRECATED - we no longer use /var/etc for boot-time bind mount
 	// Kept for documentation purposes
 	VarEtcPath = "/var/etc.backup"
 )
 
-// SetupEtcPersistence ensures /etc is properly configured for persistence across A/B updates.
+// SetupEtcOverlay creates the overlay directories for /etc persistence.
 //
-// IMPORTANT: We do NOT bind-mount /var/etc to /etc at boot time.
-// The bind-mount approach causes critical boot failures because:
-// 1. Services like dbus-broker, systemd-journald need /etc very early in boot
-// 2. The etc.mount unit runs too late (after var.mount, before local-fs.target)
-// 3. Early systemd generators and services fail trying to read unmounted /etc
+// The overlay approach works as follows:
+// 1. The root filesystem's /etc is the read-only lower layer (from container image)
+// 2. User modifications persist in /var/lib/nbc/etc-overlay/upper (writable layer)
+// 3. A dracut module (95etc-overlay) mounts the overlay during early boot
 //
-// Instead, we keep /etc on the root filesystem where services expect it.
-// For A/B updates, /etc contents are merged from the old root to the new root
-// during the update process (see MergeEtcFromActive).
-//
-// We still backup /etc to /var/etc for disaster recovery purposes.
-func SetupEtcPersistence(targetDir string, dryRun bool) error {
+// This allows user changes to /etc to persist across A/B updates while
+// keeping the base /etc from the container image.
+func SetupEtcOverlay(targetDir string, dryRun bool) error {
 	if dryRun {
-		fmt.Printf("[DRY RUN] Would setup /etc persistence\n")
+		fmt.Printf("[DRY RUN] Would setup /etc overlay directories\n")
 		return nil
 	}
 
-	fmt.Println("  Setting up /etc persistence...")
+	fmt.Println("  Setting up /etc overlay persistence...")
 
-	// Verify /etc exists and has content
+	// Create overlay directories
+	overlayBase := filepath.Join(targetDir, "var", "lib", "nbc", "etc-overlay")
+	upperDir := filepath.Join(overlayBase, "upper")
+	workDir := filepath.Join(overlayBase, "work")
+
+	if err := os.MkdirAll(upperDir, 0755); err != nil {
+		return fmt.Errorf("failed to create overlay upper directory: %w", err)
+	}
+	if err := os.MkdirAll(workDir, 0755); err != nil {
+		return fmt.Errorf("failed to create overlay work directory: %w", err)
+	}
+
+	fmt.Printf("  Created overlay directories at %s\n", overlayBase)
+
+	// Verify /etc exists and has content (will be the lower layer)
 	etcSource := filepath.Join(targetDir, "etc")
 	if _, err := os.Stat(etcSource); os.IsNotExist(err) {
 		return fmt.Errorf("/etc does not exist at %s", etcSource)
 	}
 
-	// List contents of /etc for debugging
 	entries, err := os.ReadDir(etcSource)
 	if err != nil {
 		return fmt.Errorf("failed to read /etc directory: %w", err)
 	}
-	fmt.Printf("  /etc contains %d entries\n", len(entries))
+	fmt.Printf("  /etc (lower layer) contains %d entries\n", len(entries))
 	if len(entries) == 0 {
 		return fmt.Errorf("/etc is empty at %s", etcSource)
 	}
@@ -63,39 +74,27 @@ func SetupEtcPersistence(targetDir string, dryRun bool) error {
 		}
 	}
 
-	// Create backup of /etc in /var/etc for disaster recovery
-	// This is NOT used for boot-time mounting, only as a backup
-	varEtcDir := filepath.Join(targetDir, "var", "etc.backup")
-	if err := os.MkdirAll(varEtcDir, 0755); err != nil {
-		return fmt.Errorf("failed to create /var/etc.backup directory: %w", err)
-	}
-
-	// Backup /etc contents to /var/etc.backup
-	cmd := exec.Command("rsync", "-al", etcSource+"/", varEtcDir+"/")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		fmt.Printf("  Warning: failed to backup /etc to /var/etc.backup: %v\nOutput: %s\n", err, string(output))
-		// Don't fail on backup error - it's not critical for boot
-	} else {
-		fmt.Println("  Created /etc backup in /var/etc.backup")
-	}
-
-	fmt.Println("  /etc persistence setup complete (/etc stays on root filesystem)")
+	fmt.Println("  /etc overlay persistence setup complete")
 	return nil
 }
 
-// InstallEtcMountUnit is DEPRECATED - do not use.
-// The bind-mount approach causes boot failures because services need /etc before the mount happens.
-// This function is kept for backwards compatibility but does nothing.
-// Use SetupEtcPersistence instead.
+// SetupEtcPersistence ensures /etc is properly configured for persistence across A/B updates.
+//
+// IMPORTANT: This function now sets up overlay-based persistence.
+// A dracut module mounts an overlayfs for /etc during early boot:
+// - lowerdir: /etc from root filesystem (read-only, from container image)
+// - upperdir: /var/lib/nbc/etc-overlay/upper (writable, user modifications)
+// - workdir: /var/lib/nbc/etc-overlay/work (required by overlayfs)
+//
+// This approach solves the timing issues that plagued bind-mount approaches,
+// because the dracut hook runs before pivot_root when /etc is not yet in use.
+func SetupEtcPersistence(targetDir string, dryRun bool) error {
+	return SetupEtcOverlay(targetDir, dryRun)
+}
+
+// InstallEtcMountUnit is DEPRECATED - use SetupEtcPersistence instead.
+// This function now just calls SetupEtcPersistence for backwards compatibility.
 func InstallEtcMountUnit(targetDir string, dryRun bool) error {
-	// DEPRECATED: The bind-mount approach doesn't work because:
-	// - dbus-broker and other early services need /etc before var.mount completes
-	// - systemd generators run before etc.mount can activate
-	// - This causes "Failed to read /etc/passwd" and similar errors
-	//
-	// Instead, we now keep /etc on the root filesystem and only use
-	// /var/etc.backup for disaster recovery, not for boot-time mounting.
-	fmt.Println("  Note: /etc bind-mount skipped (using root filesystem /etc for reliability)")
 	return SetupEtcPersistence(targetDir, dryRun)
 }
 
@@ -127,201 +126,105 @@ func SavePristineEtc(targetDir string, dryRun bool) error {
 	return nil
 }
 
-// MergeEtcFromActive merges /etc configuration from the active root during A/B updates.
+// MergeEtcFromActive handles /etc configuration during A/B updates with overlay persistence.
 //
-// This function is called during the update process to preserve user modifications
-// to /etc when switching to a new root partition. The approach is:
+// With the overlay-based persistence model, user modifications to /etc are stored in
+// /var/lib/nbc/etc-overlay/upper and automatically apply to whichever root is active.
+// This function no longer needs to copy files between roots.
 //
-// 1. Mount the currently active root partition (contains user's modified /etc)
-// 2. Mount the new root partition (contains fresh /etc from container image)
-// 3. Merge user modifications from active /etc into new /etc, preserving:
-//   - User-added files (not in container image)
-//   - User-modified files (changed from container defaults)
-//
-// 4. System identity files (like /etc/os-release) always come from the new container
+// The main task now is to:
+// 1. Ensure the overlay directories exist on the new root
+// 2. Optionally detect conflicts where both the container and user modified the same file
 //
 // Parameters:
 //   - targetDir: mount point of the NEW root partition (e.g., /tmp/nbc-update)
-//   - activeRootPartition: the CURRENT root partition device (contains user's /etc)
+//   - activeRootPartition: the CURRENT root partition device (not used with overlay)
 //   - dryRun: if true, don't make changes
 func MergeEtcFromActive(targetDir string, activeRootPartition string, dryRun bool) error {
 	if dryRun {
-		fmt.Printf("[DRY RUN] Would merge /etc from active system\n")
+		fmt.Printf("[DRY RUN] Would setup /etc overlay for updated root\n")
 		return nil
 	}
 
-	fmt.Println("  Merging /etc configuration from active system...")
+	fmt.Println("  Setting up /etc overlay for updated root...")
 
-	var activeEtc string
-	var needsUnmount bool
+	// With overlay persistence, user modifications are stored in /var/lib/nbc/etc-overlay/upper
+	// and automatically apply to the new root's /etc when the overlay is mounted at boot.
+	// We just need to ensure the overlay directories exist.
 
-	// Check if the active root is already mounted (we're running on the live system)
-	// by checking if we can access /etc directly and it matches the active partition
-	currentRoot, _ := GetActiveRootPartition()
-	if currentRoot == activeRootPartition {
-		// We're running on the active system, use /etc directly
-		activeEtc = "/etc"
-		needsUnmount = false
-		fmt.Println("  Using live /etc from running system")
+	overlayBase := filepath.Join(targetDir, "var", "lib", "nbc", "etc-overlay")
+	upperDir := filepath.Join(overlayBase, "upper")
+	workDir := filepath.Join(overlayBase, "work")
+
+	// Check if overlay directories already exist (they should, on /var)
+	if _, err := os.Stat(upperDir); os.IsNotExist(err) {
+		fmt.Println("  Creating overlay directories...")
+		if err := os.MkdirAll(upperDir, 0755); err != nil {
+			return fmt.Errorf("failed to create overlay upper directory: %w", err)
+		}
+		if err := os.MkdirAll(workDir, 0755); err != nil {
+			return fmt.Errorf("failed to create overlay work directory: %w", err)
+		}
 	} else {
-		// Mount the active root partition to access user's /etc
-		activeMountPoint := "/tmp/nbc-active-root"
-		if err := os.MkdirAll(activeMountPoint, 0755); err != nil {
-			return fmt.Errorf("failed to create active root mount point: %w", err)
-		}
-		defer func() { _ = os.RemoveAll(activeMountPoint) }()
-
-		mountCmd := exec.Command("mount", "-o", "ro", activeRootPartition, activeMountPoint)
-		if err := mountCmd.Run(); err != nil {
-			return fmt.Errorf("failed to mount active root partition %s: %w", activeRootPartition, err)
-		}
-		activeEtc = filepath.Join(activeMountPoint, "etc")
-		needsUnmount = true
-		defer func() {
-			if needsUnmount {
-				_ = exec.Command("umount", activeMountPoint).Run()
-			}
-		}()
+		fmt.Println("  Overlay directories already exist (user modifications preserved)")
 	}
 
+	// Optionally check for conflicts: files modified by both user AND new container
+	// This happens when the overlay upper has a file that also changed in the new container
 	newEtc := filepath.Join(targetDir, "etc")
+	pristineEtc := filepath.Join(targetDir, "var", "lib", "nbc", "etc.pristine")
 
-	// Check if active /etc exists
-	if _, err := os.Stat(activeEtc); os.IsNotExist(err) {
-		fmt.Println("  No /etc found on active root, using container defaults")
-		return SetupEtcPersistence(targetDir, dryRun)
+	// Only check for conflicts if we have a pristine snapshot to compare against
+	if _, err := os.Stat(pristineEtc); err == nil {
+		conflicts := detectEtcConflicts(upperDir, newEtc, pristineEtc)
+		if len(conflicts) > 0 {
+			fmt.Println("  Warning: Potential conflicts detected (files modified by both user and update):")
+			for _, conflict := range conflicts {
+				fmt.Printf("    ! %s\n", conflict)
+			}
+			fmt.Println("  User modifications in overlay will take precedence over container changes.")
+		}
 	}
 
-	// Files that should always come from the NEW container (system identity files)
-	// These should NOT be preserved from the old system
-	systemFilesFromContainer := map[string]bool{
-		"os-release": true,
-	}
+	fmt.Println("  /etc overlay configuration complete")
+	return nil
+}
 
-	// Files/directories that should be preserved from the active system
-	// (user modifications that should persist across updates)
-	fmt.Println("  Merging user modifications from active /etc...")
+// detectEtcConflicts finds files that exist in the overlay upper (user modified)
+// AND have changed between the pristine snapshot and the new container's /etc.
+func detectEtcConflicts(upperDir, newEtc, pristineEtc string) []string {
+	var conflicts []string
 
-	err := filepath.Walk(activeEtc, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return nil // Skip files we can't access
-		}
-
-		relPath, _ := filepath.Rel(activeEtc, path)
-		if relPath == "." {
+	_ = filepath.Walk(upperDir, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info.IsDir() {
 			return nil
 		}
 
-		destPath := filepath.Join(newEtc, relPath)
+		relPath, _ := filepath.Rel(upperDir, path)
 
-		// Check if this is a symlink
-		linfo, err := os.Lstat(path)
-		if err != nil {
-			return nil // Skip files we can't lstat
-		}
+		// Check if file exists in new container's /etc
+		newPath := filepath.Join(newEtc, relPath)
+		pristinePath := filepath.Join(pristineEtc, relPath)
 
-		isSymlink := linfo.Mode()&os.ModeSymlink != 0
+		newInfo, newErr := os.Stat(newPath)
+		pristineInfo, pristineErr := os.Stat(pristinePath)
 
-		// Skip system identity files - these come from the new container
-		if systemFilesFromContainer[filepath.Base(relPath)] {
-			return nil
-		}
-
-		// Check if this file/directory exists in the new /etc
-		newInfo, newErr := os.Lstat(destPath)
-		fileExistsInNew := newErr == nil
-
-		if linfo.IsDir() {
-			// Create directory if it doesn't exist in new /etc
-			if !fileExistsInNew {
-				_ = os.MkdirAll(destPath, linfo.Mode())
-				fmt.Printf("    + Added directory: %s\n", relPath)
+		// File exists in both new and pristine - check if container changed it
+		if newErr == nil && pristineErr == nil {
+			// Simple heuristic: if sizes differ, assume change
+			// A more robust approach would compare checksums
+			if newInfo.Size() != pristineInfo.Size() {
+				conflicts = append(conflicts, relPath)
 			}
-			return nil
-		}
-
-		// For files, decide whether to copy based on whether it exists in new /etc
-		if !fileExistsInNew {
-			// File doesn't exist in new container - this is a user-added file, preserve it
-			_ = os.MkdirAll(filepath.Dir(destPath), 0755)
-			if isSymlink {
-				if err := copySymlink(path, destPath); err != nil {
-					fmt.Printf("    Warning: failed to copy user symlink %s: %v\n", relPath, err)
-				} else {
-					fmt.Printf("    + Preserved user symlink: %s\n", relPath)
-				}
-			} else {
-				if err := copyFile(path, destPath); err != nil {
-					fmt.Printf("    Warning: failed to copy user file %s: %v\n", relPath, err)
-				} else {
-					fmt.Printf("    + Preserved user file: %s\n", relPath)
-				}
-			}
-		} else if !newInfo.IsDir() && !linfo.IsDir() {
-			// Both exist as files - check if user modified the file
-			// For now, we preserve user's version for known config files
-			// This is a simple heuristic - a more sophisticated approach would
-			// compare against pristine /etc to detect actual modifications
-			preserveUserModifications := []string{
-				"passwd", "group", "shadow", "gshadow",
-				"hostname", "hosts", "resolv.conf",
-				"fstab", "crypttab",
-				"machine-id",
-				"localtime", "locale.conf", // Timezone and locale
-				"adjtime", // Hardware clock settings
-			}
-
-			// Patterns for files that should be preserved (matched against relPath)
-			preservePatterns := []string{
-				"ssh/ssh_host_",                      // SSH host keys (identity of the system)
-				"NetworkManager/system-connections/", // WiFi passwords, VPN configs
-				"ssl/private/",                       // SSL/TLS private keys
-				"pki/tls/private/",                   // PKI private keys (RHEL-style)
-				"sudoers.d/",                         // Custom sudo rules
-			}
-
-			shouldPreserve := false
-			// Check exact filename matches
-			for _, preserve := range preserveUserModifications {
-				if filepath.Base(relPath) == preserve {
-					shouldPreserve = true
-					break
-				}
-			}
-			// Check pattern matches (prefix matching)
-			if !shouldPreserve {
-				for _, pattern := range preservePatterns {
-					if len(relPath) >= len(pattern) && relPath[:len(pattern)] == pattern {
-						shouldPreserve = true
-						break
-					}
-				}
-			}
-
-			if shouldPreserve {
-				if isSymlink {
-					_ = copySymlink(path, destPath)
-				} else {
-					_ = copyFile(path, destPath)
-				}
-				fmt.Printf("    = Preserved user config: %s\n", relPath)
-			}
+		} else if newErr == nil && pristineErr != nil {
+			// File is new in container but user also added it
+			conflicts = append(conflicts, relPath+" (new in container)")
 		}
 
 		return nil
 	})
 
-	if err != nil {
-		return fmt.Errorf("failed to merge /etc: %w", err)
-	}
-
-	// Setup persistence (creates backup in /var/etc.backup)
-	if err := SetupEtcPersistence(targetDir, dryRun); err != nil {
-		return fmt.Errorf("failed to setup etc persistence: %w", err)
-	}
-
-	fmt.Println("  /etc configuration merged successfully")
-	return nil
+	return conflicts
 }
 
 // copyFile copies a single file preserving permissions

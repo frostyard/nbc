@@ -79,12 +79,16 @@ The complete installation workflow (6 steps):
 5. Configure System
    ├─ Create /etc/fstab (minimal, most mounts auto-discovered)
    ├─ Setup system directories (dev, proc, sys, run, tmp)
-   ├─ Verify /etc and create backup in /var/etc.backup
+   ├─ Setup /etc overlay for persistence across A/B updates
+   │  ├─ Create /var/lib/nbc/etc-overlay/{upper,work} directories
+   │  └─ Install dracut module (95etc-overlay) for overlay mount
    └─ Parse os-release for OS name
 
-   Note: /etc stays on the root filesystem for reliable boot.
-   Early attempts to bind-mount /var/etc to /etc failed because
-   services like dbus-broker need /etc before /var is mounted.
+   Note: /etc persistence uses overlayfs with the container's /etc
+   as lowerdir and /var/lib/nbc/etc-overlay as upperdir. The overlay
+   is mounted by a dracut module during initramfs phase (pre-pivot).
+   User modifications are stored in the upperdir on /var and persist
+   across A/B updates. See docs/ETC-OVERLAY.md for details.
 
 6. Install Bootloader
    ├─ Detect bootloader type (GRUB2/systemd-boot)
@@ -217,6 +221,7 @@ Potential improvements:
 
 - [x] A/B partition scheme (implemented)
 - [x] systemd-boot support (implemented)
+- [x] /etc persistence via overlayfs (implemented)
 - [ ] Support for custom partition layouts
 - [ ] BTRFS/XFS filesystem options
 - [ ] RAID/LVM support

@@ -118,7 +118,7 @@ RUN dnf install -y kernel kernel-modules initramfs-tools
 - 🚀 **Automated Installation**: Complete installation workflow with safety checks
 - 🔄 **A/B Updates**: Dual root partition system for safe, atomic updates with rollback
 - 🔧 **Kernel Arguments**: Support for custom kernel arguments
-- 💾 **/etc Persistence**: User configuration preserved on root filesystem with merge during A/B updates
+- 💾 **/etc Overlay Persistence**: User modifications to /etc persist via overlayfs across A/B updates
 - 🏷️ **Multiple Device Types**: Supports SATA (sd\*), NVMe (nvme\*), virtio (vd\*), and MMC devices
 - 🛡️ **Safety Features**: Confirmation prompts and force flag for automation
 - 📝 **Detailed Logging**: Verbose output for troubleshooting

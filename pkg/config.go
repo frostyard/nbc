@@ -13,15 +13,49 @@ const (
 	// SystemConfigFile is the main configuration file
 	SystemConfigFile = "/etc/nbc/config.json"
 	// NBCBootedMarker is the runtime marker file indicating nbc-managed boot
-	// Created by the dracut module during early boot, similar to /run/ostree-booted
+	// Created by tmpfiles.d during boot, similar to /run/ostree-booted
 	NBCBootedMarker = "/run/nbc-booted"
+	// NBCTmpfilesConfig is the tmpfiles.d config that creates the marker
+	NBCTmpfilesConfig = "/usr/lib/tmpfiles.d/nbc.conf"
 )
 
 // IsNBCBooted checks if the current system was booted via nbc.
-// Returns true if /run/nbc-booted exists (created by the dracut module).
+// Returns true if /run/nbc-booted exists (created by tmpfiles.d during boot).
 func IsNBCBooted() bool {
 	_, err := os.Stat(NBCBootedMarker)
 	return err == nil
+}
+
+// InstallTmpfilesConfig installs a tmpfiles.d config to create /run/nbc-booted marker.
+// This marker is created by systemd-tmpfiles during boot, after /run is mounted.
+// Unlike the dracut approach, this ensures the marker exists after switch_root
+// when systemd mounts a fresh tmpfs on /run.
+func InstallTmpfilesConfig(targetDir string, dryRun bool) error {
+	if dryRun {
+		fmt.Printf("[DRY RUN] Would install tmpfiles.d config for nbc-booted marker\n")
+		return nil
+	}
+
+	// Content for the tmpfiles.d config
+	// Format: type path mode user group age argument
+	// 'f' = create file if it doesn't exist
+	tmpfilesContent := `# nbc boot marker - indicates system was installed by nbc
+# Similar to /run/ostree-booted for ostree-managed systems
+f /run/nbc-booted 0644 root root - nbc
+`
+
+	tmpfilesDir := filepath.Join(targetDir, "usr", "lib", "tmpfiles.d")
+	if err := os.MkdirAll(tmpfilesDir, 0755); err != nil {
+		return fmt.Errorf("failed to create tmpfiles.d directory: %w", err)
+	}
+
+	tmpfilesPath := filepath.Join(tmpfilesDir, "nbc.conf")
+	if err := os.WriteFile(tmpfilesPath, []byte(tmpfilesContent), 0644); err != nil {
+		return fmt.Errorf("failed to write tmpfiles.d config: %w", err)
+	}
+
+	fmt.Println("  Installed tmpfiles.d config for /run/nbc-booted marker")
+	return nil
 }
 
 // FilesystemType represents the supported filesystem types

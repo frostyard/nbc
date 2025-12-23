@@ -94,7 +94,9 @@ User modifications in `/var/lib/nbc/etc-overlay/upper` automatically apply to th
 
 ### Runtime Detection
 
-The dracut module creates a marker file at `/run/nbc-booted` to indicate the system was booted via nbc. This is similar to `/run/ostree-booted` created by bootc/ostree systems.
+A marker file at `/run/nbc-booted` indicates the system was installed and booted via nbc. This is similar to `/run/ostree-booted` created by bootc/ostree systems.
+
+The marker is created by `systemd-tmpfiles` during boot via `/usr/lib/tmpfiles.d/nbc.conf`. This ensures the marker exists after systemd mounts a fresh tmpfs on `/run` following switch_root.
 
 #### Shell Script Detection
 

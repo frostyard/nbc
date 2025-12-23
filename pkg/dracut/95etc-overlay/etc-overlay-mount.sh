@@ -11,14 +11,19 @@
 
 type getarg >/dev/null 2>&1 || . /lib/dracut-lib.sh
 
+SYSROOT="${NEWROOT:-/sysroot}"
+
+# Note: The /run/nbc-booted marker is created by tmpfiles.d after boot,
+# not here. Creating it here would be lost when systemd mounts a fresh
+# tmpfs on /run after switch_root.
+
 # Check if overlay is enabled
 if ! getargbool 0 rd.etc.overlay; then
+    info "etc-overlay: rd.etc.overlay not enabled, skipping overlay setup"
     return 0
 fi
 
 info "etc-overlay: Setting up /etc overlay..."
-
-SYSROOT="${NEWROOT:-/sysroot}"
 OVERLAY_BASE="$SYSROOT/var/lib/nbc/etc-overlay"
 OVERLAY_UPPER="$OVERLAY_BASE/upper"
 OVERLAY_WORK="$OVERLAY_BASE/work"
@@ -187,11 +192,5 @@ else
     mv "$ETC_LOWER_DIR" "$ETC_LOWER"
     return 0
 fi
-
-# Create marker file to indicate system was booted via nbc
-# Similar to /run/ostree-booted for bootc systems
-mkdir -p "$SYSROOT/run"
-echo "nbc" > "$SYSROOT/run/nbc-booted"
-info "etc-overlay: Created /run/nbc-booted marker"
 
 info "etc-overlay: Setup complete"

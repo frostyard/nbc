@@ -550,6 +550,12 @@ func (u *SystemUpdater) Update() error {
 		return fmt.Errorf("failed to setup directories: %w", err)
 	}
 
+	// Install tmpfiles.d config for /run/nbc-booted marker
+	// This ensures the marker exists after boot on the new root
+	if err := InstallTmpfilesConfig(u.Config.MountPoint, u.Config.DryRun); err != nil {
+		return fmt.Errorf("failed to install tmpfiles config: %w", err)
+	}
+
 	// Step 6: Install new kernel and initramfs if present
 	p.Step(6, "Checking for new kernel and initramfs")
 	if err := u.InstallKernelAndInitramfs(); err != nil {

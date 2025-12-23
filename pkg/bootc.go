@@ -257,6 +257,12 @@ func (b *BootcInstaller) Install() error {
 		return fmt.Errorf("failed to setup directories: %w", err)
 	}
 
+	// Install tmpfiles.d config for /run/nbc-booted marker
+	// This ensures the marker exists after boot (when /run is a fresh tmpfs)
+	if err := InstallTmpfilesConfig(b.MountPoint, b.DryRun); err != nil {
+		return fmt.Errorf("failed to install tmpfiles config: %w", err)
+	}
+
 	// Setup /etc persistence (verifies /etc and creates backup in /var/etc.backup)
 	// Note: /etc stays on the root filesystem for reliable boot
 	if err := InstallEtcMountUnit(b.MountPoint, b.DryRun); err != nil {

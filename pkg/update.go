@@ -514,6 +514,18 @@ func (u *SystemUpdater) Update() error {
 		return fmt.Errorf("failed to extract container: %w", err)
 	}
 
+	// Verify dracut module for /etc overlay persistence exists
+	// The module is installed via nbc deb/rpm package
+	if err := VerifyDracutEtcOverlay(u.Config.MountPoint, u.Config.DryRun); err != nil {
+		return fmt.Errorf("dracut etc-overlay module not found: %w", err)
+	}
+
+	// Regenerate initramfs to include the etc-overlay module
+	if err := RegenerateInitramfs(u.Config.MountPoint, u.Config.DryRun, u.Config.Verbose); err != nil {
+		p.Warning("initramfs regeneration failed: %v", err)
+		p.Warning("Boot may fail if container's initramfs lacks etc-overlay support")
+	}
+
 	// Step 4: Merge /etc configuration from active system
 	p.Step(4, "Preserving user configuration")
 	activeRoot := u.Scheme.Root1Partition

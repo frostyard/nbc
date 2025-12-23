@@ -12,7 +12,17 @@ const (
 	SystemConfigDir = "/etc/nbc"
 	// SystemConfigFile is the main configuration file
 	SystemConfigFile = "/etc/nbc/config.json"
+	// NBCBootedMarker is the runtime marker file indicating nbc-managed boot
+	// Created by the dracut module during early boot, similar to /run/ostree-booted
+	NBCBootedMarker = "/run/nbc-booted"
 )
+
+// IsNBCBooted checks if the current system was booted via nbc.
+// Returns true if /run/nbc-booted exists (created by the dracut module).
+func IsNBCBooted() bool {
+	_, err := os.Stat(NBCBootedMarker)
+	return err == nil
+}
 
 // FilesystemType represents the supported filesystem types
 type FilesystemType string

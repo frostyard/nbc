@@ -42,3 +42,4 @@ config.yaml
 dist/
 completions/
 manpages/
+nbc_test

@@ -104,4 +104,8 @@ bump: ## generate a new version with svu
 		echo "Pushing tag $$version to origin..."; \
 		git push origin $$version
 
+clean-volumes:
+	@echo "Cleaning up test volumes..."
+	@incus storage volume list default --format csv | grep -E '^(custom|block),(nbc-|phukit-)' | cut -d',' -f2 | xargs -I{} incus storage volume rm default {}
+
 .DEFAULT_GOAL := help

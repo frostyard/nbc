@@ -69,6 +69,7 @@ func (b *BootloaderInstaller) buildKernelCmdline() ([]string, error) {
 	}
 
 	var kernelCmdline []string
+	var varSpec string // /var device specification for overlay
 
 	if b.Scheme.Encrypted {
 		// LUKS encrypted root - use device mapper path
@@ -104,6 +105,7 @@ func (b *BootloaderInstaller) buildKernelCmdline() ([]string, error) {
 
 		// Mount /var via systemd.mount-extra using mapper device
 		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=/dev/mapper/var:/var:"+fsType+":defaults")
+		varSpec = "/dev/mapper/var"
 	} else {
 		// Non-encrypted root - use UUID
 		rootUUID, err := GetPartitionUUID(b.Scheme.Root1Partition)
@@ -119,7 +121,14 @@ func (b *BootloaderInstaller) buildKernelCmdline() ([]string, error) {
 		kernelCmdline = append(kernelCmdline, "root=UUID="+rootUUID)
 		kernelCmdline = append(kernelCmdline, "rw")
 		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=UUID="+varUUID+":/var:"+fsType+":defaults")
+		varSpec = "UUID=" + varUUID
 	}
+
+	// Enable /etc overlay persistence
+	// The dracut module 95etc-overlay will mount an overlayfs for /etc
+	// with the root filesystem as lowerdir and /var/lib/nbc/etc-overlay as upperdir
+	kernelCmdline = append(kernelCmdline, "rd.etc.overlay=1")
+	kernelCmdline = append(kernelCmdline, "rd.etc.overlay.var="+varSpec)
 
 	// Add user-specified kernel arguments
 	kernelCmdline = append(kernelCmdline, b.KernelArgs...)

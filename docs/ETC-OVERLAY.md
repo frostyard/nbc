@@ -92,6 +92,38 @@ During `nbc update`:
 
 User modifications in `/var/lib/nbc/etc-overlay/upper` automatically apply to the new root's `/etc` when overlay mounts at boot.
 
+### Runtime Detection
+
+The dracut module creates a marker file at `/run/nbc-booted` to indicate the system was booted via nbc. This is similar to `/run/ostree-booted` created by bootc/ostree systems.
+
+#### Shell Script Detection
+
+```bash
+if [ -f /run/nbc-booted ]; then
+    echo "Running on nbc-managed system"
+fi
+```
+
+#### Go Code Detection
+
+The `pkg` package provides a helper function:
+
+```go
+import "github.com/frostyard/nbc/pkg"
+
+if pkg.IsNBCBooted() {
+    // System was booted via nbc
+    fmt.Println("nbc-managed system detected")
+}
+```
+
+#### Programmatic Use Cases
+
+- Conditionally enable/disable features based on boot method
+- Detect whether A/B updates are available
+- Validate that nbc dracut module ran successfully
+- System inventory and management tools
+
 ### Conflict Detection
 
 When updating, `nbc` compares:
@@ -190,6 +222,19 @@ The overlay is shared between A and B root partitions via the common `/var` part
 - To truly roll back `/etc`, manually restore from pristine snapshot
 
 ## Troubleshooting
+
+### Check if System Booted via nbc
+
+```bash
+# Check for runtime marker
+if [ -f /run/nbc-booted ]; then
+    echo "nbc-managed boot detected"
+else
+    echo "Not an nbc-managed boot"
+fi
+```
+
+If `/run/nbc-booted` doesn't exist but overlay is mounted, the dracut module may have partially failed.
 
 ### Check if Overlay is Active
 

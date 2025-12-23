@@ -467,17 +467,32 @@ func (u *SystemUpdater) Update() error {
 
 		// Check if already open (from a previous failed attempt)
 		if _, err := os.Stat(u.TargetMapperPath); os.IsNotExist(err) {
-			// Need to open the LUKS container - prompt for passphrase
-			fmt.Print("Enter LUKS passphrase: ")
-			var passphrase string
-			_, err := fmt.Scanln(&passphrase)
-			if err != nil {
-				return fmt.Errorf("failed to read passphrase: %w", err)
+			var opened bool
+
+			// Try TPM2 auto-unlock first if enabled
+			if u.Encryption.TPM2 {
+				_, tpmErr := TryTPM2Unlock(u.Target, u.TargetMapperName)
+				if tpmErr == nil {
+					p.Message("LUKS container unlocked via TPM2")
+					opened = true
+				} else {
+					p.Warning("TPM2 unlock failed, falling back to passphrase: %v", tpmErr)
+				}
 			}
 
-			_, err = OpenLUKS(u.Target, u.TargetMapperName, passphrase)
-			if err != nil {
-				return fmt.Errorf("failed to open LUKS container: %w", err)
+			// Fall back to passphrase if TPM2 not enabled or failed
+			if !opened {
+				fmt.Print("Enter LUKS passphrase: ")
+				var passphrase string
+				_, err := fmt.Scanln(&passphrase)
+				if err != nil {
+					return fmt.Errorf("failed to read passphrase: %w", err)
+				}
+
+				_, err = OpenLUKS(u.Target, u.TargetMapperName, passphrase)
+				if err != nil {
+					return fmt.Errorf("failed to open LUKS container: %w", err)
+				}
 			}
 		} else {
 			p.Message("LUKS container already open at %s", u.TargetMapperPath)

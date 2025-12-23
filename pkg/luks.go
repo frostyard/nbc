@@ -80,6 +80,41 @@ func OpenLUKS(partition, mapperName, passphrase string) (*LUKSDevice, error) {
 	}, nil
 }
 
+// TryTPM2Unlock attempts to open a LUKS container using TPM2 token
+// Returns the LUKSDevice on success, or an error if TPM2 unlock failed
+func TryTPM2Unlock(partition, mapperName string) (*LUKSDevice, error) {
+	fmt.Printf("  Attempting TPM2 unlock for %s as %s...\n", partition, mapperName)
+
+	// Use cryptsetup with --token-only to only try token-based unlock (TPM2)
+	// This will fail if no TPM2 token is enrolled or TPM2 is unavailable
+	cmd := exec.Command("cryptsetup", "open",
+		"--token-only",
+		partition,
+		mapperName,
+	)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("TPM2 unlock failed for %s: %w", partition, err)
+	}
+
+	// Get LUKS UUID
+	luksUUID, err := GetLUKSUUID(partition)
+	if err != nil {
+		// Try to close the container before returning error
+		_ = CloseLUKS(mapperName)
+		return nil, err
+	}
+
+	return &LUKSDevice{
+		Partition:  partition,
+		MapperName: mapperName,
+		MapperPath: filepath.Join("/dev/mapper", mapperName),
+		LUKSUUID:   luksUUID,
+	}, nil
+}
+
 // CloseLUKS closes a LUKS container
 func CloseLUKS(mapperName string) error {
 	fmt.Printf("  Closing LUKS container %s...\n", mapperName)

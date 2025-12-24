@@ -279,7 +279,7 @@ Example GitHub Actions workflow to verify initramfs:
     # Extract and check the image
     podman create --name temp ${{ env.IMAGE_NAME }}
     podman cp temp:/usr/lib/modules - | tar -tf - | grep -q initramfs.img
-    
+
     # Check initramfs contents
     podman run --rm ${{ env.IMAGE_NAME }} \
       lsinitramfs /usr/lib/modules/*/initramfs.img | grep -q etc-overlay-mount.sh

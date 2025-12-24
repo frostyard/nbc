@@ -11,7 +11,7 @@ func TestInitramfsHasEtcOverlay(t *testing.T) {
 	t.Run("returns false when no tools available", func(t *testing.T) {
 		// This test is tricky because it depends on system tools
 		// We can only verify the function doesn't panic
-		
+
 		// Create a dummy file to check
 		tmpDir := t.TempDir()
 		dummyFile := filepath.Join(tmpDir, "dummy.img")
@@ -69,7 +69,7 @@ func TestInitramfsHasEtcOverlay(t *testing.T) {
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
-		
+
 		// We can't assert the result because we don't know if this system
 		// has the etc-overlay module, but we can verify the function works
 		t.Logf("InitramfsHasEtcOverlay(%s) = %v", initramfsPath, result)

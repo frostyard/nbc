@@ -547,6 +547,13 @@ func (u *SystemUpdater) Update() error {
 		return fmt.Errorf("failed to extract container: %w", err)
 	}
 
+	// Verify extraction succeeded - this catches silent failures that could
+	// leave the partition empty or with incomplete content
+	p.Message("Verifying extraction...")
+	if err := VerifyExtraction(u.Config.MountPoint); err != nil {
+		return fmt.Errorf("container extraction verification failed: %w\n\nThe target partition may be in an inconsistent state.\nThe previous installation is still bootable - do NOT reboot.\nRe-run the update to try again", err)
+	}
+
 	// Verify dracut module for /etc overlay persistence exists
 	// The module is installed via nbc deb/rpm package
 	if err := VerifyDracutEtcOverlay(u.Config.MountPoint, u.Config.DryRun); err != nil {

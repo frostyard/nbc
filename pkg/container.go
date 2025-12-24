@@ -431,3 +431,81 @@ func ParseOSRelease(targetDir string) string {
 
 	return "Linux"
 }
+
+// VerifyExtraction checks that the extracted filesystem has essential directories
+// and files, returning an error if the extraction appears incomplete or failed.
+// This helps catch silent extraction failures before proceeding with the update.
+func VerifyExtraction(targetDir string) error {
+	// Critical directories that must exist in any Linux root filesystem
+	requiredDirs := []string{
+		"usr",
+		"usr/bin",
+		"usr/lib",
+		"etc",
+	}
+
+	// Critical files/symlinks that must exist
+	requiredPaths := []string{
+		"usr/lib/os-release", // Every modern Linux has this
+	}
+
+	// Check required directories
+	for _, dir := range requiredDirs {
+		path := filepath.Join(targetDir, dir)
+		info, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			return fmt.Errorf("extraction verification failed: required directory %s is missing", dir)
+		}
+		if err != nil {
+			return fmt.Errorf("extraction verification failed: cannot stat %s: %w", dir, err)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("extraction verification failed: %s exists but is not a directory", dir)
+		}
+	}
+
+	// Check required files (follow symlinks)
+	for _, file := range requiredPaths {
+		path := filepath.Join(targetDir, file)
+		info, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			return fmt.Errorf("extraction verification failed: required file %s is missing", file)
+		}
+		if err != nil {
+			return fmt.Errorf("extraction verification failed: cannot stat %s: %w", file, err)
+		}
+		if info.IsDir() {
+			return fmt.Errorf("extraction verification failed: %s should be a file, not a directory", file)
+		}
+	}
+
+	// Check minimum filesystem size (a valid Linux rootfs should be at least 100MB)
+	// This catches cases where extraction started but failed silently
+	var totalSize int64
+	err := filepath.WalkDir(targetDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil // Ignore errors during size calculation
+		}
+		if !d.IsDir() {
+			info, err := d.Info()
+			if err == nil {
+				totalSize += info.Size()
+			}
+		}
+		// Stop early if we've already confirmed sufficient content
+		if totalSize > 100*1024*1024 { // 100MB
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if err != nil && err != filepath.SkipAll {
+		return fmt.Errorf("extraction verification failed: error walking filesystem: %w", err)
+	}
+
+	minSize := int64(100 * 1024 * 1024) // 100MB minimum
+	if totalSize < minSize {
+		return fmt.Errorf("extraction verification failed: filesystem too small (%d bytes, expected at least %d bytes) - extraction may have failed", totalSize, minSize)
+	}
+
+	return nil
+}

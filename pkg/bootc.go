@@ -206,6 +206,12 @@ func (b *BootcInstaller) Install() error {
 		return fmt.Errorf("failed to extract container: %w", err)
 	}
 
+	// Verify extraction succeeded - this catches silent failures
+	p.Message("Verifying extraction...")
+	if err := VerifyExtraction(b.MountPoint); err != nil {
+		return fmt.Errorf("container extraction verification failed: %w", err)
+	}
+
 	// Validate initramfs has LUKS/TPM2 support if encryption is enabled
 	if b.Encryption != nil && b.Encryption.Enabled {
 		warnings := ValidateInitramfsSupport(b.MountPoint, b.Encryption.TPM2)

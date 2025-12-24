@@ -263,3 +263,120 @@ func TestExtractTar_OpaqueWhiteout(t *testing.T) {
 		t.Errorf("New file should exist after opaque whiteout: %s", newFilePath)
 	}
 }
+
+func TestVerifyExtraction_ValidFilesystem(t *testing.T) {
+	targetDir := t.TempDir()
+
+	// Create minimal valid Linux filesystem structure
+	dirs := []string{
+		"usr",
+		"usr/bin",
+		"usr/lib",
+		"etc",
+	}
+	for _, dir := range dirs {
+		if err := os.MkdirAll(filepath.Join(targetDir, dir), 0755); err != nil {
+			t.Fatalf("Failed to create directory %s: %v", dir, err)
+		}
+	}
+
+	// Create os-release file (required)
+	osReleasePath := filepath.Join(targetDir, "usr/lib/os-release")
+	if err := os.WriteFile(osReleasePath, []byte("ID=test\nNAME=Test Linux\n"), 0644); err != nil {
+		t.Fatalf("Failed to create os-release: %v", err)
+	}
+
+	// Create enough content to pass size check (100MB+)
+	// Create a large file to simulate actual content
+	largeFile := filepath.Join(targetDir, "usr/lib/large_lib.so")
+	data := make([]byte, 110*1024*1024) // 110MB
+	if err := os.WriteFile(largeFile, data, 0644); err != nil {
+		t.Fatalf("Failed to create large file: %v", err)
+	}
+
+	err := VerifyExtraction(targetDir)
+	if err != nil {
+		t.Errorf("VerifyExtraction should pass for valid filesystem: %v", err)
+	}
+}
+
+func TestVerifyExtraction_MissingDirectory(t *testing.T) {
+	targetDir := t.TempDir()
+
+	// Create only some directories (missing usr/bin)
+	dirs := []string{
+		"usr",
+		"usr/lib",
+		"etc",
+	}
+	for _, dir := range dirs {
+		if err := os.MkdirAll(filepath.Join(targetDir, dir), 0755); err != nil {
+			t.Fatalf("Failed to create directory %s: %v", dir, err)
+		}
+	}
+
+	err := VerifyExtraction(targetDir)
+	if err == nil {
+		t.Error("VerifyExtraction should fail when required directory is missing")
+	}
+}
+
+func TestVerifyExtraction_MissingOsRelease(t *testing.T) {
+	targetDir := t.TempDir()
+
+	// Create directories but no os-release
+	dirs := []string{
+		"usr",
+		"usr/bin",
+		"usr/lib",
+		"etc",
+	}
+	for _, dir := range dirs {
+		if err := os.MkdirAll(filepath.Join(targetDir, dir), 0755); err != nil {
+			t.Fatalf("Failed to create directory %s: %v", dir, err)
+		}
+	}
+
+	err := VerifyExtraction(targetDir)
+	if err == nil {
+		t.Error("VerifyExtraction should fail when os-release is missing")
+	}
+}
+
+func TestVerifyExtraction_TooSmall(t *testing.T) {
+	targetDir := t.TempDir()
+
+	// Create valid structure but with minimal content
+	dirs := []string{
+		"usr",
+		"usr/bin",
+		"usr/lib",
+		"etc",
+	}
+	for _, dir := range dirs {
+		if err := os.MkdirAll(filepath.Join(targetDir, dir), 0755); err != nil {
+			t.Fatalf("Failed to create directory %s: %v", dir, err)
+		}
+	}
+
+	// Create os-release but no other content
+	osReleasePath := filepath.Join(targetDir, "usr/lib/os-release")
+	if err := os.WriteFile(osReleasePath, []byte("ID=test\n"), 0644); err != nil {
+		t.Fatalf("Failed to create os-release: %v", err)
+	}
+
+	err := VerifyExtraction(targetDir)
+	if err == nil {
+		t.Error("VerifyExtraction should fail when filesystem is too small")
+	}
+}
+
+func TestVerifyExtraction_EmptyDirectory(t *testing.T) {
+	targetDir := t.TempDir()
+
+	// Empty directory simulates the failed extraction scenario
+	err := VerifyExtraction(targetDir)
+	if err == nil {
+		t.Error("VerifyExtraction should fail for empty directory")
+	}
+}

@@ -48,11 +48,10 @@ func InitramfsHasEtcOverlay(initramfsPath string) (bool, error) {
 		line := scanner.Text()
 		if strings.Contains(line, "etc-overlay-mount.sh") {
 			found = true
-			break
 		}
 	}
 
-	// Wait for the command to finish (we may have stopped reading early)
+	// Wait for the command to finish after fully reading its output
 	if err := listCmd.Wait(); err != nil {
 		if found {
 			// We already found the hook; log a warning but still return success.

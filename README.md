@@ -45,6 +45,7 @@ The container image should follow standard Linux Filesystem Hierarchy Standard (
 The image should contain:
 
 - **Linux kernel modules** in `/usr/lib/modules/$KERNEL_VERSION/`
+- **dracut**: Required for initramfs generation with etc-overlay module
 - **System libraries** in `/usr/lib` and `/usr/lib64`
 - **Essential binaries** in `/usr/bin` and `/usr/sbin`
 - **Basic system configuration** in `/etc`
@@ -55,6 +56,8 @@ The image should contain:
 - **NetworkManager** or similar for network configuration
 - **SSH server**: For remote access
 - **Package manager**: For installing additional software after deployment
+
+**Note**: Container images can include a pre-built initramfs with the etc-overlay module to skip dracut regeneration during installation. See [docs/ETC-OVERLAY.md](docs/ETC-OVERLAY.md#building-images-with-pre-included-etc-overlay-module) for details.
 
 ### Secure Boot Support
 
@@ -384,9 +387,10 @@ The initial installation follows these steps:
 7. **Formatting**: Formats all partitions (FAT32 for EFI, ext4 for others)
 8. **Mounting**: Mounts partitions in correct order for extraction
 9. **Extraction**: Extracts container filesystem to Root Partition 1
-10. **System Setup**: Creates `/var` structure, saves pristine `/etc`
-11. **Configuration**: Creates `/etc/fstab`, `/etc/nbc/config.json`
-12. **Bootloader Installation**: Installs and configures GRUB2 with UUIDs
+10. **System Setup**: Creates `/var` structure and overlay directories
+11. **Dracut Setup**: Installs etc-overlay dracut module and regenerates initramfs
+12. **Configuration**: Creates `/etc/fstab`, `/etc/nbc/config.json`
+13. **Bootloader Installation**: Installs and configures bootloader with kernel parameters
 
 ### Update Process
 
@@ -398,35 +402,49 @@ Updates use the inactive root partition for safe atomic updates:
 4. **Mounting**: Mounts target partition and boot partition
 5. **Clearing**: Removes old content from target partition
 6. **Extraction**: Extracts new filesystem to target partition
-7. **/etc Merge**: Merges user modifications from active root to new root
-8. **System Directories**: Sets up necessary system directories
-9. **Bootloader Update**: Updates GRUB to boot from new partition by default
+7. **Dracut Setup**: Installs etc-overlay dracut module and regenerates initramfs
+8. **Conflict Detection**: Detects files modified by both user and container
+9. **Bootloader Update**: Updates bootloader to boot from new partition by default
 10. **Dual Boot Menu**: Creates menu entries for both updated and previous systems
 
-After reboot, the system boots from the new partition. The old partition remains available for rollback via the GRUB menu.
+After reboot, the system boots from the new partition with overlay `/etc` automatically applied. The old partition remains available for rollback via the boot menu.
 
-### /etc Configuration Persistence
+### /etc Overlay Persistence
 
-`nbc` keeps `/etc` on the root filesystem for reliable boot. During A/B updates, user modifications are merged from the active root to the new root:
+`nbc` uses an overlayfs-based approach to persist user modifications to `/etc` across A/B updates. This is handled by a custom dracut module that runs during early boot.
 
 **How it works:**
 
-1. **Initial Install**: `/etc` from the container image is extracted to the root filesystem
-2. **Backup**: A backup copy is stored in `/var/etc.backup` for disaster recovery
-3. **During Updates**: User modifications are merged from the old root's `/etc` to the new root's `/etc`
+1. **Initial Install**: `/etc` from the container image is extracted normally
+2. **Early Boot**: A dracut module (`95etc-overlay`) mounts overlayfs over `/etc`
+3. **Overlay Structure**:
+   - **Lower layer**: Original `/etc` from container (read-only, moved to `/.etc.lower`)
+   - **Upper layer**: `/var/lib/nbc/etc-overlay/upper` (writable, stores modifications)
+   - **Merged view**: `/etc` (what the system sees)
 
-**Merge behavior during updates:**
+**Kernel parameters** (automatically configured):
 
-- Files added by user (not in container) → **preserved** in new system
-- User-modified config files (passwd, hostname, etc.) → **preserved** from active system
-- System identity files (os-release) → **always from new container**
-- New files in container → **added** to new system
+- `rd.etc.overlay=1` - Enable the overlay
+- `rd.etc.overlay.var=UUID=xxx` - Location of `/var` partition for overlay storage
 
-**Why not bind-mount /var/etc?**
+**Behavior during updates:**
 
-Early versions attempted to bind-mount `/var/etc` to `/etc` at boot, but this caused boot failures because critical services (dbus-broker, systemd-journald) need `/etc` before the mount completes. Keeping `/etc` on the root filesystem ensures reliable boot.
+- New container's `/etc` becomes the new lower layer
+- User modifications in overlay upper are automatically merged at boot
+- Conflicts are detected and reported (user modifications take precedence)
 
-This approach ensures user configuration survives updates while maintaining a reliable boot process.
+**Benefits of overlay approach:**
+
+- User modifications persist without explicit merge during updates
+- Both A and B root partitions share the same overlay on `/var`
+- Clean separation between container configuration and user changes
+- Conflict detection warns when container and user both modify the same file
+
+**Detecting nbc-managed boot:**
+
+A marker file `/run/nbc-booted` is created on systems installed with nbc, similar to `/run/ostree-booted` for bootc/ostree systems.
+
+For detailed documentation, see [docs/ETC-OVERLAY.md](docs/ETC-OVERLAY.md).
 
 ## System Configuration
 
@@ -538,6 +556,9 @@ sudo nbc install --image IMAGE --device DEVICE
 ## Documentation
 
 - [A/B Updates](docs/AB-UPDATES.md) - Detailed documentation on the A/B update system
+- [/etc Overlay Persistence](docs/ETC-OVERLAY.md) - How /etc modifications persist across updates
+- [Secure Boot](docs/SECURE-BOOT.md) - Secure Boot chain setup and troubleshooting
+- [Encryption](docs/ENCRYPTION.md) - Full disk encryption with LUKS2 and TPM2
 - [Incus Integration Tests](docs/INCUS-TESTS.md) - VM-based testing documentation
 - [Implementation Details](IMPLEMENTATION.md) - Technical implementation details
 

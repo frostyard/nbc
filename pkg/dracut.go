@@ -146,6 +146,21 @@ func RegenerateInitramfs(targetDir string, dryRun bool, verbose bool) error {
 	var needsRegeneration []string
 	for _, kernelVersion := range kernelVersions {
 		initramfsPath := filepath.Join(targetDir, "usr", "lib", "modules", kernelVersion, "initramfs.img")
+
+		// First check if the initramfs file exists before inspecting its contents
+		if _, err := os.Stat(initramfsPath); err != nil {
+			if os.IsNotExist(err) {
+				if verbose {
+					fmt.Printf("    Info: initramfs for %s not found at %s, will regenerate\n", kernelVersion, initramfsPath)
+				}
+			} else {
+				if verbose {
+					fmt.Printf("    Warning: could not stat initramfs for %s at %s: %v\n", kernelVersion, initramfsPath, err)
+				}
+			}
+			needsRegeneration = append(needsRegeneration, kernelVersion)
+			continue
+		}
 		hasModule, err := InitramfsHasEtcOverlay(initramfsPath)
 		if err != nil {
 			if verbose {

@@ -57,6 +57,12 @@ import (
 //        l.RegisterCheck(CheckMyThing)  // Add your check here
 //    }
 //
+// 3. Update docs/LINT.md with:
+//    - Check name and severity
+//    - What it checks and why it matters
+//    - Auto-fix behavior
+//    - Manual fix instructions (Dockerfile example)
+//
 // SEVERITY LEVELS
 // ---------------
 //

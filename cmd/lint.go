@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/frostyard/nbc/pkg"
 	"github.com/spf13/cobra"
@@ -17,10 +18,12 @@ type LintOutput struct {
 	Issues     []pkg.LintIssue `json:"issues"`
 	ErrorCount int             `json:"error_count"`
 	WarnCount  int             `json:"warning_count"`
+	FixedCount int             `json:"fixed_count,omitempty"`
 	Success    bool            `json:"success"`
 }
 
 var lintLocal bool
+var lintFix bool
 
 var lintCmd = &cobra.Command{
 	Use:   "lint [image]",
@@ -40,6 +43,9 @@ Exit codes:
 Use --local to run inside a container build (e.g., as the last step in a
 Dockerfile) to check the current filesystem instead of pulling an image.
 
+Use --fix with --local to automatically fix issues (remove SSH keys, truncate
+machine-id, etc.). Fixed issues don't count as errors.
+
 Examples:
   # Lint a remote image
   nbc lint ghcr.io/myorg/myimage:latest
@@ -48,8 +54,8 @@ Examples:
   # Lint the current filesystem (inside a container build)
   nbc lint --local
 
-  # In a Dockerfile:
-  # RUN nbc lint --local`,
+  # Lint and fix issues in a Dockerfile:
+  # RUN nbc lint --local --fix`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runLint,
 }
@@ -57,6 +63,7 @@ Examples:
 func init() {
 	rootCmd.AddCommand(lintCmd)
 	lintCmd.Flags().BoolVar(&lintLocal, "local", false, "Lint the current filesystem instead of a container image (for use inside container builds)")
+	lintCmd.Flags().BoolVar(&lintFix, "fix", false, "Automatically fix issues (only valid with --local)")
 }
 
 func runLint(cmd *cobra.Command, args []string) error {
@@ -70,10 +77,19 @@ func runLint(cmd *cobra.Command, args []string) error {
 	if !lintLocal && len(args) == 0 {
 		return fmt.Errorf("image reference required (or use --local to lint current filesystem)")
 	}
+	if lintFix && !lintLocal {
+		return fmt.Errorf("--fix can only be used with --local")
+	}
+
+	// Safety check: when using --fix, ensure we're inside a container
+	if lintFix && !pkg.IsRunningInContainer() {
+		return fmt.Errorf("--fix requires running inside a container (no /.dockerenv or /run/.containerenv found)\n\nThis safety check prevents accidentally modifying a host system.\nIf you're sure you want to proceed, run the fix commands manually.")
+	}
 
 	linter := pkg.NewLinter()
 	linter.SetVerbose(verbose)
 	linter.SetQuiet(jsonOutput) // Suppress stdout for clean JSON output
+	linter.SetFix(lintFix)
 
 	var result *pkg.LintResult
 	var err error
@@ -82,7 +98,11 @@ func runLint(cmd *cobra.Command, args []string) error {
 	if lintLocal {
 		// Lint the current filesystem (for use inside container builds)
 		if !jsonOutput {
-			fmt.Println("Linting current filesystem...")
+			if lintFix {
+				fmt.Println("Linting and fixing current filesystem...")
+			} else {
+				fmt.Println("Linting current filesystem...")
+			}
 		}
 		result = linter.Lint("/")
 	} else {
@@ -117,6 +137,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 			Issues:     result.Issues,
 			ErrorCount: result.ErrorCount,
 			WarnCount:  result.WarnCount,
+			FixedCount: result.FixedCount,
 			Success:    result.ErrorCount == 0,
 		}
 		if lintLocal {
@@ -141,11 +162,15 @@ func runLint(cmd *cobra.Command, args []string) error {
 	fmt.Println("\nIssues found:")
 	for _, issue := range result.Issues {
 		var prefix string
-		switch issue.Severity {
-		case pkg.SeverityError:
-			prefix = "ERROR"
-		case pkg.SeverityWarning:
-			prefix = "WARN "
+		if issue.Fixed {
+			prefix = "FIXED"
+		} else {
+			switch issue.Severity {
+			case pkg.SeverityError:
+				prefix = "ERROR"
+			case pkg.SeverityWarning:
+				prefix = "WARN "
+			}
 		}
 
 		if issue.Path != "" {
@@ -155,13 +180,26 @@ func runLint(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Printf("\nSummary: %d error(s), %d warning(s)\n", result.ErrorCount, result.WarnCount)
+	// Build summary string
+	summaryParts := []string{}
+	if result.ErrorCount > 0 {
+		summaryParts = append(summaryParts, fmt.Sprintf("%d error(s)", result.ErrorCount))
+	}
+	if result.WarnCount > 0 {
+		summaryParts = append(summaryParts, fmt.Sprintf("%d warning(s)", result.WarnCount))
+	}
+	if result.FixedCount > 0 {
+		summaryParts = append(summaryParts, fmt.Sprintf("%d fixed", result.FixedCount))
+	}
+	if len(summaryParts) > 0 {
+		fmt.Printf("\nSummary: %s\n", strings.Join(summaryParts, ", "))
+	}
 
 	if result.ErrorCount > 0 {
-		fmt.Println("\nTo fix SSH host key issues, add this to your Dockerfile:")
-		fmt.Println("  RUN rm -f /etc/ssh/ssh_host_*")
-		fmt.Println("\nTo fix machine-id issues, add this to your Dockerfile:")
-		fmt.Println("  RUN truncate -s 0 /etc/machine-id")
+		if !lintFix {
+			fmt.Println("\nTo automatically fix issues, run:")
+			fmt.Println("  nbc lint --local --fix")
+		}
 		os.Exit(1)
 	}
 

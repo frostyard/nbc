@@ -19,7 +19,7 @@ import (
 //
 // 1. Create a new check function with the LintCheck signature:
 //
-//    func CheckMyThing(rootDir string) []LintIssue {
+//    func CheckMyThing(rootDir string, fix bool) []LintIssue {
 //        var issues []LintIssue
 //
 //        // rootDir is the extracted filesystem root (e.g., "/tmp/nbc-lint-xxx")
@@ -27,12 +27,22 @@ import (
 //
 //        path := filepath.Join(rootDir, "path", "to", "check")
 //        if _, err := os.Stat(path); err == nil {
-//            issues = append(issues, LintIssue{
+//            issue := LintIssue{
 //                Check:    "my-thing",        // Unique identifier for this check
 //                Severity: SeverityError,     // or SeverityWarning
 //                Message:  "Description of the problem and how to fix it",
 //                Path:     "/path/to/check",  // Optional: file path (display only)
-//            })
+//            }
+//
+//            // If fix is true, attempt to remediate the issue
+//            if fix {
+//                if err := os.Remove(path); err == nil {
+//                    issue.Fixed = true
+//                    issue.Message = "Problem was automatically fixed"
+//                }
+//            }
+//
+//            issues = append(issues, issue)
 //        }
 //
 //        return issues
@@ -47,6 +57,12 @@ import (
 //        l.RegisterCheck(CheckMyThing)  // Add your check here
 //    }
 //
+// 3. Update docs/LINT.md with:
+//    - Check name and severity
+//    - What it checks and why it matters
+//    - Auto-fix behavior
+//    - Manual fix instructions (Dockerfile example)
+//
 // SEVERITY LEVELS
 // ---------------
 //
@@ -55,6 +71,13 @@ import (
 //
 // - SeverityWarning: Does not cause non-zero exit. Use for issues that
 //   might cause problems or are best-practice violations.
+//
+// AUTO-FIX SUPPORT
+// ----------------
+//
+// When the user runs `nbc lint --local --fix`, the fix parameter is true.
+// Checks should attempt to remediate issues and set issue.Fixed = true
+// if successful. Fixed issues don't count toward the error/warning totals.
 //
 // =============================================================================
 
@@ -72,6 +95,7 @@ type LintIssue struct {
 	Severity LintSeverity `json:"severity"`
 	Message  string       `json:"message"`
 	Path     string       `json:"path,omitempty"`
+	Fixed    bool         `json:"fixed,omitempty"` // True if the issue was automatically fixed
 }
 
 // LintResult contains all issues found by the linter
@@ -79,17 +103,20 @@ type LintResult struct {
 	Issues     []LintIssue `json:"issues"`
 	ErrorCount int         `json:"error_count"`
 	WarnCount  int         `json:"warning_count"`
+	FixedCount int         `json:"fixed_count,omitempty"`
 }
 
-// LintCheck is a function that performs a lint check on a container filesystem
-// It returns a list of issues found
-type LintCheck func(rootDir string) []LintIssue
+// LintCheck is a function that performs a lint check on a container filesystem.
+// If fix is true, the check should attempt to fix the issue and set Fixed=true on the issue.
+// It returns a list of issues found (including fixed ones).
+type LintCheck func(rootDir string, fix bool) []LintIssue
 
 // Linter performs lint checks on container images
 type Linter struct {
 	checks  []LintCheck
 	verbose bool
 	quiet   bool // Suppress all output (for JSON mode)
+	fix     bool // Attempt to fix issues (only valid with local mode)
 }
 
 // NewLinter creates a new Linter with default checks
@@ -107,6 +134,32 @@ func (l *Linter) SetVerbose(verbose bool) {
 // SetQuiet suppresses all stdout output (for JSON mode)
 func (l *Linter) SetQuiet(quiet bool) {
 	l.quiet = quiet
+}
+
+// SetFix enables automatic fixing of issues
+func (l *Linter) SetFix(fix bool) {
+	l.fix = fix
+}
+
+// IsRunningInContainer checks if the current process is running inside a container.
+// It looks for common marker files created by container runtimes:
+//   - /.dockerenv (Docker)
+//   - /run/.containerenv (Podman)
+//
+// This is used as a safety check before applying --fix in --local mode.
+func IsRunningInContainer() bool {
+	containerMarkers := []string{
+		"/.dockerenv",        // Docker
+		"/run/.containerenv", // Podman
+	}
+
+	for _, marker := range containerMarkers {
+		if _, err := os.Stat(marker); err == nil {
+			return true
+		}
+	}
+
+	return false
 }
 
 // RegisterCheck adds a new lint check
@@ -128,9 +181,13 @@ func (l *Linter) Lint(rootDir string) *LintResult {
 	}
 
 	for _, check := range l.checks {
-		issues := check(rootDir)
+		issues := check(rootDir, l.fix)
 		for _, issue := range issues {
 			result.Issues = append(result.Issues, issue)
+			if issue.Fixed {
+				result.FixedCount++
+				continue // Don't count fixed issues as errors/warnings
+			}
 			switch issue.Severity {
 			case SeverityError:
 				result.ErrorCount++
@@ -189,7 +246,7 @@ func (l *Linter) LintContainerImage(imageRef string) (*LintResult, error) {
 // =============================================================================
 
 // CheckSSHHostKeys checks for SSH host keys that should not be in the image
-func CheckSSHHostKeys(rootDir string) []LintIssue {
+func CheckSSHHostKeys(rootDir string, fix bool) []LintIssue {
 	var issues []LintIssue
 
 	sshDir := filepath.Join(rootDir, "etc", "ssh")
@@ -206,12 +263,21 @@ func CheckSSHHostKeys(rootDir string) []LintIssue {
 
 		for _, match := range matches {
 			relPath, _ := filepath.Rel(rootDir, match)
-			issues = append(issues, LintIssue{
+			issue := LintIssue{
 				Check:    "ssh-host-keys",
 				Severity: SeverityError,
 				Message:  "SSH host key found in image - these should be generated at first boot, not baked into the image",
 				Path:     "/" + relPath,
-			})
+			}
+
+			if fix {
+				if err := os.Remove(match); err == nil {
+					issue.Fixed = true
+					issue.Message = "SSH host key removed (will be regenerated at first boot)"
+				}
+			}
+
+			issues = append(issues, issue)
 		}
 	}
 
@@ -219,7 +285,7 @@ func CheckSSHHostKeys(rootDir string) []LintIssue {
 }
 
 // CheckMachineID checks for a non-empty machine-id
-func CheckMachineID(rootDir string) []LintIssue {
+func CheckMachineID(rootDir string, fix bool) []LintIssue {
 	var issues []LintIssue
 
 	machineIDPath := filepath.Join(rootDir, "etc", "machine-id")
@@ -240,12 +306,22 @@ func CheckMachineID(rootDir string) []LintIssue {
 		if err == nil {
 			contentStr := strings.TrimSpace(string(content))
 			if contentStr != "" && contentStr != "uninitialized" {
-				issues = append(issues, LintIssue{
+				issue := LintIssue{
 					Check:    "machine-id",
 					Severity: SeverityError,
 					Message:  fmt.Sprintf("machine-id contains a value (%s) - should be empty or 'uninitialized' for container images", contentStr[:min(8, len(contentStr))]+"..."),
 					Path:     "/etc/machine-id",
-				})
+				}
+
+				if fix {
+					// Truncate the file to zero length
+					if err := os.Truncate(machineIDPath, 0); err == nil {
+						issue.Fixed = true
+						issue.Message = "machine-id truncated to empty (will be regenerated at first boot)"
+					}
+				}
+
+				issues = append(issues, issue)
 			}
 		}
 	}
@@ -254,7 +330,7 @@ func CheckMachineID(rootDir string) []LintIssue {
 }
 
 // CheckRandomSeed checks for random seed files that should not be in the image
-func CheckRandomSeed(rootDir string) []LintIssue {
+func CheckRandomSeed(rootDir string, fix bool) []LintIssue {
 	var issues []LintIssue
 
 	// Files that contain random data and should not be shared
@@ -266,12 +342,21 @@ func CheckRandomSeed(rootDir string) []LintIssue {
 	for _, seedFile := range seedFiles {
 		path := filepath.Join(rootDir, seedFile)
 		if info, err := os.Stat(path); err == nil && info.Size() > 0 {
-			issues = append(issues, LintIssue{
+			issue := LintIssue{
 				Check:    "random-seed",
 				Severity: SeverityWarning,
 				Message:  "Random seed file found - this should not be shared across systems",
 				Path:     "/" + seedFile,
-			})
+			}
+
+			if fix {
+				if err := os.Remove(path); err == nil {
+					issue.Fixed = true
+					issue.Message = "Random seed file removed (will be regenerated at boot)"
+				}
+			}
+
+			issues = append(issues, issue)
 		}
 	}
 

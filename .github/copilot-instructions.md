@@ -58,6 +58,7 @@ if err != nil {
   fmt.Println("  Installing GRUB2...")
   fmt.Println("  GRUB2 installation complete")
   ```
+- follow the existing patterns for json output if applicable
 
 #### File Paths
 

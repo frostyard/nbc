@@ -117,7 +117,6 @@ func extractTar(r io.Reader, targetDir string) error {
 			// Remove all contents of the directory
 			targetDir := filepath.Join(targetDir, dir)
 			// if the targetDir contains "efi" just skip it to avoid deleting efi contents
-			fmt.Println("    Processing opaque whiteout for directory:", base, targetDir)
 			if filepath.Base(targetDir) == "efi" {
 				continue
 			}
@@ -136,8 +135,6 @@ func extractTar(r io.Reader, targetDir string) error {
 
 		// Regular whiteout: .wh.filename means "delete filename"
 		if len(base) > 4 && base[:4] == ".wh." {
-			fmt.Println("    Processing whiteout for file:", base, dir)
-
 			// The whiteout indicates we should delete the file it references
 			originalName := base[4:] // Remove .wh. prefix
 			whiteoutTarget := filepath.Join(targetDir, dir, originalName)

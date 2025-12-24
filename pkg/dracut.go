@@ -1,11 +1,62 @@
 package pkg
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
+
+// InitramfsHasEtcOverlay checks if the initramfs at the given path contains
+// the etc-overlay dracut module. This is used to skip regenerating the
+// initramfs if it already has the module.
+//
+// The function uses lsinitrd (Fedora/RHEL) or lsinitramfs (Debian/Ubuntu) to
+// list the initramfs contents and searches for the etc-overlay hook script.
+func InitramfsHasEtcOverlay(initramfsPath string) (bool, error) {
+	// Determine which tool to use
+	var listCmd *exec.Cmd
+	if _, err := exec.LookPath("lsinitrd"); err == nil {
+		// Fedora/RHEL style
+		listCmd = exec.Command("lsinitrd", "--list", initramfsPath)
+	} else if _, err := exec.LookPath("lsinitramfs"); err == nil {
+		// Debian/Ubuntu style
+		listCmd = exec.Command("lsinitramfs", initramfsPath)
+	} else {
+		// No tool available, assume we need to regenerate
+		return false, nil
+	}
+
+	stdout, err := listCmd.StdoutPipe()
+	if err != nil {
+		return false, fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	if err := listCmd.Start(); err != nil {
+		return false, fmt.Errorf("failed to list initramfs contents: %w", err)
+	}
+
+	// Search for the etc-overlay hook script
+	// Dracut installs hooks as: usr/lib/dracut/hooks/<hook-type>/<priority><script-name>.sh
+	// Our module installs: inst_hook pre-pivot 50 "$moddir/etc-overlay-mount.sh"
+	// This becomes something like: usr/lib/dracut/hooks/pre-pivot/50etc-overlay-mount.sh
+	scanner := bufio.NewScanner(stdout)
+	found := false
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, "etc-overlay-mount.sh") {
+			found = true
+			break
+		}
+	}
+
+	// Wait for the command to finish (we may have stopped reading early)
+	_ = listCmd.Wait()
+
+	return found, scanner.Err()
+}
 
 // VerifyDracutEtcOverlay verifies that the etc-overlay dracut module exists in the target filesystem.
 // The module is installed via the nbc deb/rpm package to /usr/lib/dracut/modules.d/95etc-overlay/.
@@ -39,13 +90,14 @@ func VerifyDracutEtcOverlay(targetDir string, dryRun bool) error {
 
 // RegenerateInitramfs regenerates the initramfs using dracut in a chroot environment.
 // This is necessary to include the etc-overlay module in the initramfs.
+// If the initramfs already contains the etc-overlay module, regeneration is skipped.
 func RegenerateInitramfs(targetDir string, dryRun bool, verbose bool) error {
 	if dryRun {
-		fmt.Println("[DRY RUN] Would regenerate initramfs with dracut")
+		fmt.Println("[DRY RUN] Would check/regenerate initramfs with dracut if needed")
 		return nil
 	}
 
-	fmt.Println("  Regenerating initramfs to include etc-overlay module...")
+	fmt.Println("  Checking initramfs for etc-overlay module...")
 
 	// Check if dracut is available in the target
 	// We need to track the path relative to the chroot (for use inside chroot)
@@ -83,6 +135,32 @@ func RegenerateInitramfs(targetDir string, dryRun bool, verbose bool) error {
 		return fmt.Errorf("no kernel versions found in /usr/lib/modules")
 	}
 
+	// Check which kernels need initramfs regeneration
+	var needsRegeneration []string
+	for _, kernelVersion := range kernelVersions {
+		initramfsPath := filepath.Join(targetDir, "usr", "lib", "modules", kernelVersion, "initramfs.img")
+		hasModule, err := InitramfsHasEtcOverlay(initramfsPath)
+		if err != nil {
+			if verbose {
+				fmt.Printf("    Warning: could not check initramfs for %s: %v\n", kernelVersion, err)
+			}
+			needsRegeneration = append(needsRegeneration, kernelVersion)
+			continue
+		}
+		if hasModule {
+			fmt.Printf("    ✓ Initramfs for %s already has etc-overlay module\n", kernelVersion)
+		} else {
+			needsRegeneration = append(needsRegeneration, kernelVersion)
+		}
+	}
+
+	if len(needsRegeneration) == 0 {
+		fmt.Println("  All initramfs images already have etc-overlay module, skipping regeneration")
+		return nil
+	}
+
+	fmt.Printf("  Regenerating initramfs for %d kernel(s)...\n", len(needsRegeneration))
+
 	// Setup bind mounts for chroot
 	// Track successful mounts for cleanup
 	bindMounts := []string{"/dev", "/proc", "/sys"}
@@ -107,11 +185,11 @@ func RegenerateInitramfs(targetDir string, dryRun bool, verbose bool) error {
 		mountedPaths = append(mountedPaths, targetMount)
 	}
 
-	// Regenerate initramfs for each kernel version
-	for _, kernelVersion := range kernelVersions {
-		fmt.Printf("    Regenerating initramfs for kernel %s...\n", kernelVersion)
+	// Regenerate initramfs for each kernel version that needs it
+	for _, kernelVersion := range needsRegeneration {
+		chrootInitramfsPath := filepath.Join("/usr/lib/modules", kernelVersion, "initramfs.img")
 
-		initramfsPath := filepath.Join("/usr/lib/modules", kernelVersion, "initramfs.img")
+		fmt.Printf("    Regenerating initramfs for kernel %s...\n", kernelVersion)
 
 		// Run dracut in chroot
 		args := []string{
@@ -119,7 +197,7 @@ func RegenerateInitramfs(targetDir string, dryRun bool, verbose bool) error {
 			dracutChrootPath,
 			"--force",
 			"--add", "etc-overlay",
-			initramfsPath,
+			chrootInitramfsPath,
 			kernelVersion,
 		}
 

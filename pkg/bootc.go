@@ -15,16 +15,18 @@ import (
 
 // BootcInstaller handles bootc container installation
 type BootcInstaller struct {
-	ImageRef       string
-	Device         string
-	Verbose        bool
-	DryRun         bool
-	JSONOutput     bool
-	KernelArgs     []string
-	MountPoint     string
-	FilesystemType string // ext4 or btrfs
-	Progress       *ProgressReporter
-	Encryption     *LUKSConfig // Encryption configuration
+	ImageRef        string
+	Device          string
+	Verbose         bool
+	DryRun          bool
+	JSONOutput      bool
+	KernelArgs      []string
+	MountPoint      string
+	FilesystemType  string // ext4 or btrfs
+	Progress        *ProgressReporter
+	Encryption      *LUKSConfig // Encryption configuration
+	LocalLayoutPath string      // Path to OCI layout directory for local image
+	LocalMetadata   *CachedImageMetadata // Metadata from cached image
 }
 
 // NewBootcInstaller creates a new BootcInstaller
@@ -77,6 +79,15 @@ func (b *BootcInstaller) SetEncryption(passphrase, keyfile string, tpm2 bool) {
 		Passphrase: passphrase,
 		Keyfile:    keyfile,
 		TPM2:       tpm2,
+	}
+}
+
+// SetLocalImage sets the local OCI layout path and metadata for offline installation
+func (b *BootcInstaller) SetLocalImage(layoutPath string, metadata *CachedImageMetadata) {
+	b.LocalLayoutPath = layoutPath
+	b.LocalMetadata = metadata
+	if metadata != nil {
+		b.ImageRef = metadata.ImageRef
 	}
 }
 
@@ -200,7 +211,12 @@ func (b *BootcInstaller) Install() error {
 
 	// Step 4: Extract container filesystem
 	p.Step(4, "Extracting container filesystem")
-	extractor := NewContainerExtractor(b.ImageRef, b.MountPoint)
+	var extractor *ContainerExtractor
+	if b.LocalLayoutPath != "" {
+		extractor = NewContainerExtractorFromLocal(b.LocalLayoutPath, b.MountPoint)
+	} else {
+		extractor = NewContainerExtractor(b.ImageRef, b.MountPoint)
+	}
 	extractor.SetVerbose(b.Verbose)
 	if err := extractor.Extract(); err != nil {
 		return fmt.Errorf("failed to extract container: %w", err)
@@ -281,12 +297,22 @@ func (b *BootcInstaller) Install() error {
 	}
 
 	// Get image digest for tracking updates
-	imageDigest, err := GetRemoteImageDigest(b.ImageRef)
-	if err != nil {
-		p.Warning("could not get image digest: %v", err)
-		imageDigest = "" // Continue without digest
-	} else if b.Verbose {
-		p.Message("Image digest: %s", imageDigest)
+	var imageDigest string
+	if b.LocalMetadata != nil {
+		// Use digest from cached image metadata
+		imageDigest = b.LocalMetadata.ImageDigest
+		if b.Verbose {
+			p.Message("Image digest (from cache): %s", imageDigest)
+		}
+	} else {
+		// Fetch digest from remote
+		imageDigest, err = GetRemoteImageDigest(b.ImageRef)
+		if err != nil {
+			p.Warning("could not get image digest: %v", err)
+			imageDigest = "" // Continue without digest
+		} else if b.Verbose {
+			p.Message("Image digest: %s", imageDigest)
+		}
 	}
 
 	// Write system configuration

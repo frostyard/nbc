@@ -32,6 +32,7 @@ The `nbc update` command implements an A/B (dual root) update system that enable
 3. **Pull New Image**
 
    - Downloads the latest container image using go-containerregistry
+   - Alternatively, uses a pre-staged image from local cache (see `nbc download --for-update`)
 
 4. **Extract to Inactive Partition**
 
@@ -84,6 +85,33 @@ sudo nbc update \
   --device /dev/sda \
   --skip-pull
 ```
+
+### Staged Updates (Download Now, Apply Later)
+
+Download an update image without applying it:
+
+```bash
+# Download update using system's configured image
+sudo nbc download --for-update
+
+# Or specify a different image
+sudo nbc download --for-update --image quay.io/example/myimage:v2.0
+```
+
+Apply the staged update later:
+
+```bash
+# Apply the previously downloaded update
+sudo nbc update --device /dev/sda --local-image
+```
+
+Check staged update status:
+
+```bash
+nbc status --device /dev/sda --json
+```
+
+The staged update cache is automatically cleared after successful application.
 
 ### Dry Run Test
 

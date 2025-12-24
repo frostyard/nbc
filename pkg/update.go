@@ -177,6 +177,8 @@ type SystemUpdater struct {
 	TargetMapperPath string // For encrypted systems: "/dev/mapper/root1" or "/dev/mapper/root2"
 	Progress         *ProgressReporter
 	Encryption       *EncryptionConfig // Encryption configuration (loaded from system config)
+	LocalLayoutPath  string            // Path to OCI layout directory for local image
+	LocalMetadata    *CachedImageMetadata // Metadata from cached image
 }
 
 // NewSystemUpdater creates a new SystemUpdater
@@ -216,6 +218,16 @@ func (u *SystemUpdater) SetJSONOutput(jsonOutput bool) {
 // AddKernelArg adds a kernel argument
 func (u *SystemUpdater) AddKernelArg(arg string) {
 	u.Config.KernelArgs = append(u.Config.KernelArgs, arg)
+}
+
+// SetLocalImage sets the local OCI layout path and metadata for offline updates
+func (u *SystemUpdater) SetLocalImage(layoutPath string, metadata *CachedImageMetadata) {
+	u.LocalLayoutPath = layoutPath
+	u.LocalMetadata = metadata
+	if metadata != nil {
+		u.Config.ImageRef = metadata.ImageRef
+		u.Config.ImageDigest = metadata.ImageDigest
+	}
 }
 
 // buildKernelCmdline builds the kernel command line with proper LUKS support if encrypted
@@ -393,14 +405,22 @@ func (u *SystemUpdater) IsUpdateNeeded() (bool, string, error) {
 	p := u.Progress
 	p.MessagePlain("Checking if update is needed...")
 
-	// Get the remote image digest
-	remoteDigest, err := GetRemoteImageDigest(u.Config.ImageRef)
-	if err != nil {
-		return false, "", fmt.Errorf("failed to get remote image digest: %w", err)
-	}
-
-	if u.Config.Verbose {
-		p.Message("Remote image digest: %s", remoteDigest)
+	// Get the image digest - from local cache or remote
+	var remoteDigest string
+	var err error
+	if u.LocalMetadata != nil {
+		remoteDigest = u.LocalMetadata.ImageDigest
+		if u.Config.Verbose {
+			p.Message("Image digest (from cache): %s", remoteDigest)
+		}
+	} else {
+		remoteDigest, err = GetRemoteImageDigest(u.Config.ImageRef)
+		if err != nil {
+			return false, "", fmt.Errorf("failed to get remote image digest: %w", err)
+		}
+		if u.Config.Verbose {
+			p.Message("Remote image digest: %s", remoteDigest)
+		}
 	}
 
 	// Read the current system config to get installed digest
@@ -541,7 +561,12 @@ func (u *SystemUpdater) Update() error {
 
 	// Step 3: Extract new container filesystem
 	p.Step(3, "Extracting new container filesystem")
-	extractor := NewContainerExtractor(u.Config.ImageRef, u.Config.MountPoint)
+	var extractor *ContainerExtractor
+	if u.LocalLayoutPath != "" {
+		extractor = NewContainerExtractorFromLocal(u.LocalLayoutPath, u.Config.MountPoint)
+	} else {
+		extractor = NewContainerExtractor(u.Config.ImageRef, u.Config.MountPoint)
+	}
 	extractor.SetVerbose(u.Config.Verbose)
 	if err := extractor.Extract(); err != nil {
 		return fmt.Errorf("failed to extract container: %w", err)

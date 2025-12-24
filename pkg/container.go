@@ -11,14 +11,17 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/layout"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
 // ContainerExtractor handles extracting container images to disk
 type ContainerExtractor struct {
-	ImageRef  string
-	TargetDir string
-	Verbose   bool
+	ImageRef       string
+	TargetDir      string
+	Verbose        bool
+	LocalLayoutPath string // Path to OCI layout directory for local image
 }
 
 // NewContainerExtractor creates a new ContainerExtractor
@@ -29,6 +32,14 @@ func NewContainerExtractor(imageRef, targetDir string) *ContainerExtractor {
 	}
 }
 
+// NewContainerExtractorFromLocal creates a ContainerExtractor for a local OCI layout
+func NewContainerExtractorFromLocal(layoutPath, targetDir string) *ContainerExtractor {
+	return &ContainerExtractor{
+		LocalLayoutPath: layoutPath,
+		TargetDir:       targetDir,
+	}
+}
+
 // SetVerbose enables verbose output
 func (c *ContainerExtractor) SetVerbose(verbose bool) {
 	c.Verbose = verbose
@@ -36,19 +47,31 @@ func (c *ContainerExtractor) SetVerbose(verbose bool) {
 
 // Extract extracts the container filesystem to the target directory using go-containerregistry
 func (c *ContainerExtractor) Extract() error {
-	fmt.Printf("Extracting container image %s...\n", c.ImageRef)
+	var img v1.Image
+	var err error
 
-	// Parse image reference
-	ref, err := name.ParseReference(c.ImageRef)
-	if err != nil {
-		return fmt.Errorf("failed to parse image reference: %w", err)
-	}
+	// Load image from local OCI layout or pull from registry
+	if c.LocalLayoutPath != "" {
+		fmt.Printf("Extracting container image from local cache...\n")
+		img, err = LoadImageFromOCILayout(c.LocalLayoutPath)
+		if err != nil {
+			return fmt.Errorf("failed to load image from local cache: %w", err)
+		}
+	} else {
+		fmt.Printf("Extracting container image %s...\n", c.ImageRef)
 
-	// Pull image
-	fmt.Println("  Pulling image...")
-	img, err := remote.Image(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain))
-	if err != nil {
-		return fmt.Errorf("failed to pull image: %w", err)
+		// Parse image reference
+		ref, err := name.ParseReference(c.ImageRef)
+		if err != nil {
+			return fmt.Errorf("failed to parse image reference: %w", err)
+		}
+
+		// Pull image
+		fmt.Println("  Pulling image...")
+		img, err = remote.Image(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+		if err != nil {
+			return fmt.Errorf("failed to pull image: %w", err)
+		}
 	}
 
 	// Get image layers
@@ -508,4 +531,37 @@ func VerifyExtraction(targetDir string) error {
 	}
 
 	return nil
+}
+
+// LoadImageFromOCILayout loads a container image from an OCI layout directory
+func LoadImageFromOCILayout(layoutPath string) (v1.Image, error) {
+	// Open OCI layout
+	p, err := layout.FromPath(layoutPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open OCI layout: %w", err)
+	}
+
+	// Get image index
+	idx, err := p.ImageIndex()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get image index: %w", err)
+	}
+
+	// Get manifest list
+	manifest, err := idx.IndexManifest()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get index manifest: %w", err)
+	}
+
+	if len(manifest.Manifests) == 0 {
+		return nil, fmt.Errorf("no images found in layout")
+	}
+
+	// Load the first image
+	img, err := p.Image(manifest.Manifests[0].Digest)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load image from layout: %w", err)
+	}
+
+	return img, nil
 }

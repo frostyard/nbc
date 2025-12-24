@@ -343,6 +343,57 @@ Bootloader:   grub2
 
 With verbose mode (`-v`), additional information is shown including install date, kernel arguments, and whether an update is available.
 
+### Download Images for Offline Use
+
+Download container images to a local cache for offline installation or staged updates:
+
+```bash
+# Download image for embedding in a live ISO (offline installation)
+nbc download --image quay.io/example/myimage:latest --for-install
+
+# Download update for later application (uses image from system config)
+nbc download --for-update
+
+# Download a specific update image
+nbc download --image quay.io/example/myimage:v2.0 --for-update
+
+# JSON output for scripting
+nbc download --image quay.io/example/myimage:latest --for-install --json
+```
+
+Staged images are stored in OCI layout format:
+- Installation images: `/var/cache/nbc/staged-install/` (supports multiple images)
+- Update images: `/var/cache/nbc/staged-update/` (single image)
+
+### Apply Staged Updates
+
+```bash
+# Download update without applying
+nbc download --for-update
+
+# Later, apply the staged update
+nbc update --local-image
+```
+
+### Manage Image Cache
+
+```bash
+# List staged installation images (JSON for GUI installers)
+nbc cache list --install-images --json
+
+# List staged update image
+nbc cache list --update-images
+
+# Remove a cached image by digest
+nbc cache remove sha256:abc123...
+
+# Clear all staged installation images
+nbc cache clear --install
+
+# Clear staged update
+nbc cache clear --update
+```
+
 ### Global Flags
 
 ```bash

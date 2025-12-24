@@ -53,7 +53,15 @@ func InitramfsHasEtcOverlay(initramfsPath string) (bool, error) {
 	}
 
 	// Wait for the command to finish (we may have stopped reading early)
-	_ = listCmd.Wait()
+	if err := listCmd.Wait(); err != nil {
+		if found {
+			// We already found the hook; log a warning but still return success.
+			fmt.Printf("warning: listing initramfs contents failed after finding etc-overlay hook: %v\n", err)
+		} else {
+			// Listing failed before we found the hook; propagate error so callers can regenerate.
+			return false, fmt.Errorf("failed to list initramfs contents: %w", err)
+		}
+	}
 
 	return found, scanner.Err()
 }

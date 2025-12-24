@@ -160,6 +160,143 @@ User modifications in overlay will take precedence over container changes.
 - `/var` partition must be mountable during initramfs (before pivot_root)
 - Supports ext4 and btrfs filesystems for `/var`
 
+## Building Images with Pre-included etc-overlay Module
+
+Container image authors can include the etc-overlay dracut module and pre-build the initramfs in their images. This speeds up installation and updates by skipping the initramfs regeneration step.
+
+### Benefits
+
+- **Faster installation**: No need to run dracut during install/update
+- **Smaller runtime footprint**: No need to include dracut in the final image (if pre-built)
+- **Reproducible builds**: Initramfs is built once in CI, not on each target machine
+- **Offline installation**: No dracut execution required on the target system
+
+### Option 1: Install nbc Package (Recommended)
+
+The simplest approach is to install the `nbc` package in your container image. This installs the dracut module and regenerates the initramfs automatically.
+
+```dockerfile
+FROM ghcr.io/frostyard/debian-bootc:trixie
+
+# Install nbc - this installs the dracut module to
+# /usr/lib/dracut/modules.d/95etc-overlay/
+RUN apt-get update && apt-get install -y nbc
+
+# Regenerate initramfs for all kernels with etc-overlay included
+RUN for kver in /usr/lib/modules/*/; do \
+      kver=$(basename "$kver"); \
+      dracut --force --add etc-overlay \
+        /usr/lib/modules/$kver/initramfs.img $kver; \
+    done
+
+# Optional: Remove dracut to reduce image size (initramfs already built)
+# Only do this if you won't need to regenerate initramfs later
+# RUN apt-get remove -y dracut-core && apt-get autoremove -y
+```
+
+### Option 2: Copy Dracut Module Manually
+
+If you don't want to install the full nbc package, you can copy just the dracut module files:
+
+```dockerfile
+FROM ghcr.io/frostyard/debian-bootc:trixie
+
+# Copy the dracut module from nbc source or a built nbc image
+COPY --from=ghcr.io/frostyard/nbc:latest \
+  /usr/lib/dracut/modules.d/95etc-overlay \
+  /usr/lib/dracut/modules.d/95etc-overlay
+
+# Regenerate initramfs with the module
+RUN for kver in /usr/lib/modules/*/; do \
+      kver=$(basename "$kver"); \
+      dracut --force --add etc-overlay \
+        /usr/lib/modules/$kver/initramfs.img $kver; \
+    done
+```
+
+### Option 3: Build Module from Source
+
+For maximum control, embed the module files directly in your Dockerfile:
+
+```dockerfile
+FROM ghcr.io/frostyard/debian-bootc:trixie
+
+# Create the dracut module directory
+RUN mkdir -p /usr/lib/dracut/modules.d/95etc-overlay
+
+# Create module-setup.sh
+RUN cat > /usr/lib/dracut/modules.d/95etc-overlay/module-setup.sh << 'EOF'
+#!/bin/bash
+check() { return 0; }
+depends() { echo "rootfs-block"; return 0; }
+install() {
+    inst_hook pre-pivot 50 "$moddir/etc-overlay-mount.sh"
+    inst_multiple mount umount mkdir
+}
+installkernel() { instmods overlay; }
+EOF
+
+# Create etc-overlay-mount.sh (the actual hook script)
+# See pkg/dracut/95etc-overlay/etc-overlay-mount.sh for full content
+COPY etc-overlay-mount.sh /usr/lib/dracut/modules.d/95etc-overlay/
+
+# Make scripts executable
+RUN chmod +x /usr/lib/dracut/modules.d/95etc-overlay/*.sh
+
+# Regenerate initramfs
+RUN for kver in /usr/lib/modules/*/; do \
+      kver=$(basename "$kver"); \
+      dracut --force --add etc-overlay \
+        /usr/lib/modules/$kver/initramfs.img $kver; \
+    done
+```
+
+### Verifying the Initramfs
+
+After building your image, verify the initramfs includes the etc-overlay module:
+
+```bash
+# Inside the container or on extracted image
+lsinitrd /usr/lib/modules/$(uname -r)/initramfs.img | grep etc-overlay
+
+# Should show something like:
+# usr/lib/dracut/hooks/pre-pivot/50etc-overlay-mount.sh
+```
+
+Or use `lsinitramfs` on Debian-based systems:
+
+```bash
+lsinitramfs /usr/lib/modules/*/initramfs.img | grep etc-overlay
+```
+
+### CI/CD Integration
+
+Example GitHub Actions workflow to verify initramfs:
+
+```yaml
+- name: Verify initramfs includes etc-overlay
+  run: |
+    # Extract and check the image
+    podman create --name temp ${{ env.IMAGE_NAME }}
+    podman cp temp:/usr/lib/modules - | tar -tf - | grep -q initramfs.img
+
+    # Check initramfs contents
+    podman run --rm ${{ env.IMAGE_NAME }} \
+      lsinitramfs /usr/lib/modules/*/initramfs.img | grep -q etc-overlay-mount.sh
+```
+
+### nbc Behavior with Pre-built Initramfs
+
+When nbc detects that an initramfs already contains the etc-overlay module, it skips regeneration:
+
+```
+  Checking initramfs for etc-overlay module...
+    ✓ Initramfs for 6.12.0-1-amd64 already has etc-overlay module
+  All initramfs images already have etc-overlay module, skipping regeneration
+```
+
+This check uses `lsinitrd` (Fedora/RHEL) or `lsinitramfs` (Debian/Ubuntu) to inspect the initramfs contents without extracting them.
+
 ## Caveats and Limitations
 
 ### Read-Write Root Requirement

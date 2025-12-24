@@ -83,7 +83,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 
 	// Safety check: when using --fix, ensure we're inside a container
 	if lintFix && !pkg.IsRunningInContainer() {
-		return fmt.Errorf("--fix requires running inside a container (no /.dockerenv or /run/.containerenv found)\n\nThis safety check prevents accidentally modifying a host system.\nIf you're sure you want to proceed, run the fix commands manually.")
+		return fmt.Errorf("--fix requires running inside a container (no /.dockerenv or /run/.containerenv found)\n\nThis safety check prevents accidentally modifying a host system.\nIf you're sure you want to proceed, run the fix commands manually")
 	}
 
 	linter := pkg.NewLinter()

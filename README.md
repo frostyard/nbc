@@ -362,7 +362,6 @@ nbc download --image quay.io/example/myimage:latest --for-install --json
 ```
 
 Staged images are stored in OCI layout format:
-
 - Installation images: `/var/cache/nbc/staged-install/` (supports multiple images)
 - Update images: `/var/cache/nbc/staged-update/` (single image)
 

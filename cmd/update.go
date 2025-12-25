@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/frostyard/nbc/pkg"
 	"github.com/spf13/cobra"
@@ -264,7 +263,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 			return err
 		}
 
-		localLayoutPath = pkg.StagedUpdateDir + "/" + strings.ReplaceAll(metadata.ImageDigest, ":", "-")
+		localLayoutPath = updateCache.GetLayoutPath(metadata.ImageDigest)
 		localMetadata = metadata
 		imageRef = metadata.ImageRef
 

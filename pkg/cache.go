@@ -77,6 +77,11 @@ func dirToDigest(dir string) string {
 	return strings.Replace(dir, "-", ":", 1)
 }
 
+// GetLayoutPath returns the full path to an image's OCI layout directory given its digest
+func (c *ImageCache) GetLayoutPath(digest string) string {
+	return filepath.Join(c.CacheDir, digestToDir(digest))
+}
+
 // Download pulls a container image and saves it to the cache in OCI layout format
 func (c *ImageCache) Download(imageRef string) (*CachedImageMetadata, error) {
 	// Parse image reference

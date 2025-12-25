@@ -102,7 +102,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 			}
 			return fmt.Errorf("failed to load local image: %w", err)
 		}
-		localLayoutPath = pkg.StagedInstallDir + "/" + strings.ReplaceAll(metadata.ImageDigest, ":", "-")
+		localLayoutPath = cache.GetLayoutPath(metadata.ImageDigest)
 		localMetadata = metadata
 		installImage = metadata.ImageRef
 		if !jsonOutput {
@@ -131,7 +131,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		if len(images) == 1 {
 			// Auto-select the only staged image
 			localMetadata = &images[0]
-			localLayoutPath = pkg.StagedInstallDir + "/" + strings.ReplaceAll(localMetadata.ImageDigest, ":", "-")
+			localLayoutPath = cache.GetLayoutPath(localMetadata.ImageDigest)
 			installImage = localMetadata.ImageRef
 			if !jsonOutput {
 				fmt.Printf("Auto-detected staged image: %s\n", localMetadata.ImageRef)

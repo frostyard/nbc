@@ -272,6 +272,7 @@ func (c *ImageCache) GetImage(digestOrRef string) (v1.Image, *CachedImageMetadat
 		// Check if this entry matches the digest prefix
 		if strings.HasPrefix(entry.Name(), digestToDir(digestOrRef)) {
 			matches = append(matches, entry.Name())
+			continue
 		}
 		// Also check by image reference in metadata
 		metadata, err := c.readMetadata(filepath.Join(c.CacheDir, entry.Name()))

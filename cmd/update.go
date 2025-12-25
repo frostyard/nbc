@@ -21,11 +21,13 @@ type UpdateCheckOutput struct {
 }
 
 var (
-	updateImage      string
-	updateDevice     string
-	updateSkipPull   bool
-	updateCheckOnly  bool
-	updateKernelArgs []string
+	updateImage        string
+	updateDevice       string
+	updateSkipPull     bool
+	updateCheckOnly    bool
+	updateKernelArgs   []string
+	updateDownloadOnly bool
+	updateLocalImage   bool
 )
 
 var updateCmd = &cobra.Command{
@@ -47,11 +49,17 @@ Use --check to only check if an update is available without installing.
 After update, reboot to activate the new system. The previous system remains
 available in the boot menu for rollback if needed.
 
+Use --download-only to download an update without applying it. The update
+will be staged in /var/cache/nbc/staged-update/ and can be applied later
+with --local-image.
+
 With --json flag, outputs streaming JSON Lines for progress updates.
 
 Example:
   nbc update
   nbc update --check              # Just check if update available
+  nbc update --download-only      # Download but don't apply
+  nbc update --local-image        # Apply staged update
   nbc update --image quay.io/example/myimage:v2.0
   nbc update --skip-pull
   nbc update --device /dev/sda    # Override auto-detection
@@ -69,6 +77,8 @@ func init() {
 	updateCmd.Flags().BoolVarP(&updateCheckOnly, "check", "c", false, "Only check if an update is available (don't install)")
 	updateCmd.Flags().StringArrayVarP(&updateKernelArgs, "karg", "k", []string{}, "Kernel argument to pass (can be specified multiple times)")
 	updateCmd.Flags().BoolP("force", "f", false, "Force reinstall even if system is up-to-date")
+	updateCmd.Flags().BoolVar(&updateDownloadOnly, "download-only", false, "Download update to cache without applying")
+	updateCmd.Flags().BoolVar(&updateLocalImage, "local-image", false, "Apply update from staged cache (/var/cache/nbc/staged-update/)")
 	_ = viper.BindPFlag("force", updateCmd.Flags().Lookup("force"))
 }
 
@@ -80,6 +90,23 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	// Create progress reporter for early error output
 	progress := pkg.NewProgressReporter(jsonOutput, 7)
+
+	// Validate mutually exclusive flags
+	if updateDownloadOnly && updateLocalImage {
+		err := fmt.Errorf("--download-only and --local-image are mutually exclusive")
+		if jsonOutput {
+			progress.Error(err, "Invalid options")
+		}
+		return err
+	}
+
+	if updateDownloadOnly && updateCheckOnly {
+		err := fmt.Errorf("--download-only and --check are mutually exclusive")
+		if jsonOutput {
+			progress.Error(err, "Invalid options")
+		}
+		return err
+	}
 
 	var device string
 	var err error
@@ -112,7 +139,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	// If image not specified, try to load from system config
 	imageRef := updateImage
-	if imageRef == "" {
+	if imageRef == "" && !updateLocalImage {
 		config, err := pkg.ReadSystemConfig()
 		if err != nil {
 			if jsonOutput {
@@ -126,12 +153,137 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Handle --download-only: download image to staged-update cache
+	if updateDownloadOnly {
+		// Read current system config to compare digests
+		config, err := pkg.ReadSystemConfig()
+		if err != nil {
+			if jsonOutput {
+				progress.Error(err, "Failed to read system config")
+			}
+			return fmt.Errorf("failed to read system config: %w", err)
+		}
+
+		// Get remote digest of new image
+		remoteDigest, err := pkg.GetRemoteImageDigest(imageRef)
+		if err != nil {
+			if jsonOutput {
+				progress.Error(err, "Failed to get remote image digest")
+			}
+			return fmt.Errorf("failed to get remote image digest: %w", err)
+		}
+
+		// Check if update is actually newer (unless force is set)
+		if !force && config.ImageDigest == remoteDigest {
+			if jsonOutput {
+				output := UpdateCheckOutput{
+					UpdateNeeded:  false,
+					Image:         imageRef,
+					Device:        device,
+					CurrentDigest: config.ImageDigest,
+					NewDigest:     remoteDigest,
+					Message:       "System is up-to-date, no download needed",
+				}
+				encoder := json.NewEncoder(os.Stdout)
+				encoder.SetIndent("", "  ")
+				return encoder.Encode(output)
+			}
+			fmt.Println("System is up-to-date, no download needed.")
+			return nil
+		}
+
+		if !jsonOutput {
+			fmt.Printf("Update available:\n")
+			fmt.Printf("  Current: %s\n", config.ImageDigest[:min(19, len(config.ImageDigest))]+"...")
+			fmt.Printf("  New:     %s\n", remoteDigest[:min(19, len(remoteDigest))]+"...")
+			fmt.Println()
+		}
+
+		// Clear any existing staged update
+		updateCache := pkg.NewStagedUpdateCache()
+		existing, _ := updateCache.GetSingle()
+		if existing != nil {
+			if verbose && !jsonOutput {
+				fmt.Printf("Removing existing staged update: %s\n", existing.ImageDigest)
+			}
+			_ = updateCache.Clear()
+		}
+
+		// Download to staged-update cache
+		updateCache.SetVerbose(verbose)
+		metadata, err := updateCache.Download(imageRef)
+		if err != nil {
+			if jsonOutput {
+				progress.Error(err, "Failed to download update")
+			}
+			return fmt.Errorf("failed to download update: %w", err)
+		}
+
+		if jsonOutput {
+			output := map[string]interface{}{
+				"success":      true,
+				"image_ref":    metadata.ImageRef,
+				"image_digest": metadata.ImageDigest,
+				"size_bytes":   metadata.SizeBytes,
+				"cache_dir":    pkg.StagedUpdateDir,
+				"message":      "Update downloaded and staged",
+			}
+			encoder := json.NewEncoder(os.Stdout)
+			encoder.SetIndent("", "  ")
+			return encoder.Encode(output)
+		}
+
+		fmt.Println()
+		fmt.Println("Update downloaded and staged!")
+		fmt.Printf("  Image:  %s\n", metadata.ImageRef)
+		fmt.Printf("  Digest: %s\n", metadata.ImageDigest)
+		fmt.Printf("  Size:   %.2f MB\n", float64(metadata.SizeBytes)/(1024*1024))
+		fmt.Println()
+		fmt.Println("Run 'nbc update --local-image' to apply the staged update.")
+		return nil
+	}
+
+	// Handle --local-image: apply update from staged cache
+	var localLayoutPath string
+	var localMetadata *pkg.CachedImageMetadata
+	if updateLocalImage {
+		updateCache := pkg.NewStagedUpdateCache()
+		metadata, err := updateCache.GetSingle()
+		if err != nil {
+			if jsonOutput {
+				progress.Error(err, "Failed to read staged update")
+			}
+			return fmt.Errorf("failed to read staged update: %w", err)
+		}
+		if metadata == nil {
+			err := fmt.Errorf("no staged update found in %s", pkg.StagedUpdateDir)
+			if jsonOutput {
+				progress.Error(err, "No staged update")
+			}
+			return err
+		}
+
+		localLayoutPath = updateCache.GetLayoutPath(metadata.ImageDigest)
+		localMetadata = metadata
+		imageRef = metadata.ImageRef
+
+		if !jsonOutput {
+			fmt.Printf("Using staged update: %s\n", metadata.ImageRef)
+			fmt.Printf("  Digest: %s\n", metadata.ImageDigest)
+		}
+	}
+
 	// Create updater
 	updater := pkg.NewSystemUpdater(device, imageRef)
 	updater.SetVerbose(verbose)
 	updater.SetDryRun(dryRun)
 	updater.SetForce(force)
 	updater.SetJSONOutput(jsonOutput)
+
+	// Set local image if using staged update
+	if localLayoutPath != "" {
+		updater.SetLocalImage(localLayoutPath, localMetadata)
+	}
 
 	// If --check flag, only check if update is needed
 	if updateCheckOnly {
@@ -182,12 +334,26 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		updater.AddKernelArg(arg)
 	}
 
-	// Run update
-	if err := updater.PerformUpdate(updateSkipPull); err != nil {
+	// Run update (skip pull if using local image)
+	skipPull := updateSkipPull || localLayoutPath != ""
+	if err := updater.PerformUpdate(skipPull); err != nil {
 		if jsonOutput {
 			progress.Error(err, "Update failed")
 		}
 		return err
+	}
+
+	// Clean up staged update cache on success
+	if localLayoutPath != "" {
+		updateCache := pkg.NewStagedUpdateCache()
+		if err := updateCache.Clear(); err != nil {
+			// Non-fatal, just warn
+			if verbose && !jsonOutput {
+				fmt.Printf("Warning: failed to clean up staged update cache: %v\n", err)
+			}
+		} else if verbose && !jsonOutput {
+			fmt.Println("Cleaned up staged update cache.")
+		}
 	}
 
 	return nil

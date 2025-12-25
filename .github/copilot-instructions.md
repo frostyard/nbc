@@ -27,6 +27,18 @@ Examples of things that must be kept in sync:
 
 When modifying installation logic, always search for the equivalent code in `update.go` and update it accordingly. The `buildKernelCmdline()` function in `update.go` must match the kernel cmdline logic in `bootloader.go`.
 
+## Critical: Run Linter Before Committing
+
+**IMPORTANT**: Always run `make lint` before committing changes.
+
+The linter enforces Go best practices including:
+
+- Error strings should not end with punctuation or newlines (ST1005)
+- Standard Go formatting
+- Other staticcheck rules
+
+Fix all linter issues before creating commits.
+
 ## Code Style & Conventions
 
 ### General Go Practices
@@ -34,6 +46,7 @@ When modifying installation logic, always search for the equivalent code in `upd
 - Follow standard Go formatting (use `gofmt`)
 - Use meaningful variable names (avoid single-letter variables except in short loops)
 - Add error context with `fmt.Errorf("context: %w", err)` for error wrapping
+- Error strings should not end with punctuation or newlines
 - Prefer explicit error handling over panics
 - Use structured logging with clear context
 

@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/layout"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"golang.org/x/term"
@@ -142,10 +143,16 @@ func (c *ImageCache) Download(imageRef string) (*CachedImageMetadata, error) {
 	digestStr := digest.String()
 	imageDir := filepath.Join(c.CacheDir, digestToDir(digestStr))
 
-	// Check if already cached
+	// Check if already cached (with valid metadata)
 	if _, err := os.Stat(imageDir); err == nil {
-		fmt.Printf("Image already cached: %s\n", digestStr)
-		return c.readMetadata(imageDir)
+		metadata, err := c.readMetadata(imageDir)
+		if err == nil {
+			fmt.Printf("Image already cached: %s\n", digestStr)
+			return metadata, nil
+		}
+		// Directory exists but metadata is missing/invalid - cleanup and re-download
+		fmt.Printf("Cleaning up incomplete cache entry: %s\n", digestStr)
+		_ = os.RemoveAll(imageDir)
 	}
 
 	fmt.Printf("Saving image to cache: %s\n", digestStr)
@@ -156,7 +163,7 @@ func (c *ImageCache) Download(imageRef string) (*CachedImageMetadata, error) {
 	}
 
 	// Write OCI layout
-	layoutPath, err := layout.Write(imageDir, nil)
+	layoutPath, err := layout.Write(imageDir, empty.Index)
 	if err != nil {
 		_ = os.RemoveAll(imageDir)
 		return nil, fmt.Errorf("failed to create OCI layout: %w", err)

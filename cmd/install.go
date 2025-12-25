@@ -139,11 +139,12 @@ func runInstall(cmd *cobra.Command, args []string) error {
 			}
 		} else {
 			// Multiple staged images - user must choose
-			msg := "multiple staged images found, use --local-image to select one:"
+			var b strings.Builder
+			b.WriteString("multiple staged images found, use --local-image to select one:\n")
 			for _, img := range images {
-				msg += fmt.Sprintf("\n  %s (%s)", img.ImageDigest, img.ImageRef)
+				fmt.Fprintf(&b, "  %s (%s)\n", img.ImageDigest, img.ImageRef)
 			}
-			err := fmt.Errorf("%s", msg)
+			err := fmt.Errorf("%s", b.String())
 			if jsonOutput {
 				progress.Error(err, "Multiple staged images found")
 			}

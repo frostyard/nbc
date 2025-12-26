@@ -33,29 +33,7 @@ jobs:
         with:
           distribution: goreleaser-pro
           version: "~> v2"
-          args: release --snapshot --clean
+          args: release --nightly --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
-
-      - name: Delete existing continuous release
-        run: gh release delete continuous --yes --cleanup-tag || true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create continuous release
-        run: |
-          gh release create continuous \
-            --title "Continuous Build" \
-            --notes "Automated snapshot build from the latest commit on main.
-
-          **⚠️ This is a development build and may be unstable.**
-
-          Commit: ${{ github.sha }}
-          Built: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-
-          These binaries are automatically replaced on every push to main." \
-            --prerelease \
-            dist/*.tar.gz dist/*.deb dist/*.rpm dist/*.apk dist/checksums.txt
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -11,7 +11,10 @@ import (
 )
 
 var (
+	commit  string
+	date    string
 	cfgFile string
+	builtBy string
 	rootCmd = &cobra.Command{
 		Use:   "nbc",
 		Short: "A bootc container installer for physical disks",
@@ -25,12 +28,27 @@ func SetVersion(version string) {
 	rootCmd.Version = version
 }
 
+func SetCommit(incoming_commit string) {
+	commit = incoming_commit
+}
+
+func SetDate(incoming_date string) {
+	date = incoming_date
+}
+func SetBuiltBy(incoming_builtBy string) {
+	builtBy = incoming_builtBy
+}
+
+func makeVersionString() string {
+	return fmt.Sprintf("%s (Commit: %s) (Date: %s) (Built by: %s)", rootCmd.Version, commit, date, builtBy)
+}
+
 // Execute runs the root command
 func Execute() error {
 	if err := fang.Execute(
 		context.Background(),
 		rootCmd,
-		fang.WithVersion(rootCmd.Version),
+		fang.WithVersion(makeVersionString()),
 		fang.WithNotifySignal(os.Interrupt, os.Kill),
 	); err != nil {
 		return err

@@ -11,16 +11,17 @@ import (
 )
 
 var (
-	installImage      string
-	installDevice     string
-	installSkipPull   bool
-	installKernelArgs []string
-	installFilesystem string
-	installEncrypt    bool
-	installPassphrase string
-	installKeyfile    string
-	installTPM2       bool
-	installLocalImage string
+	installImage            string
+	installDevice           string
+	installSkipPull         bool
+	installKernelArgs       []string
+	installFilesystem       string
+	installEncrypt          bool
+	installPassphrase       string
+	installKeyfile          string
+	installTPM2             bool
+	installLocalImage       string
+	installRootPasswordFile string
 )
 
 var installCmd = &cobra.Command{
@@ -66,6 +67,7 @@ func init() {
 	installCmd.Flags().StringVar(&installKeyfile, "keyfile", "", "Path to file containing LUKS passphrase (alternative to --passphrase)")
 	installCmd.Flags().BoolVar(&installTPM2, "tpm2", false, "Enroll TPM2 for automatic LUKS unlock (no PCR binding)")
 	installCmd.Flags().StringVar(&installLocalImage, "local-image", "", "Use staged local image by digest (auto-detects from /var/cache/nbc/staged-install/ if not specified)")
+	installCmd.Flags().StringVar(&installRootPasswordFile, "root-password-file", "", "Path to file containing root password to set during installation")
 
 	// Don't mark image as required - we auto-detect staged images
 	_ = installCmd.MarkFlagRequired("device")
@@ -232,6 +234,19 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	// Set encryption options
 	if installEncrypt {
 		installer.SetEncryption(installPassphrase, installKeyfile, installTPM2)
+	}
+
+	// Set root password if provided
+	if installRootPasswordFile != "" {
+		passwordData, err := os.ReadFile(installRootPasswordFile)
+		if err != nil {
+			err = fmt.Errorf("failed to read root password file: %w", err)
+			if jsonOutput {
+				progress.Error(err, "Failed to read root password file")
+			}
+			return err
+		}
+		installer.SetRootPassword(strings.TrimRight(string(passwordData), "\n\r"))
 	}
 
 	// Run installation (skip pull if using local image)

@@ -27,6 +27,7 @@ type BootcInstaller struct {
 	Encryption      *LUKSConfig          // Encryption configuration
 	LocalLayoutPath string               // Path to OCI layout directory for local image
 	LocalMetadata   *CachedImageMetadata // Metadata from cached image
+	RootPassword    string               // Root password to set (optional)
 }
 
 // NewBootcInstaller creates a new BootcInstaller
@@ -89,6 +90,39 @@ func (b *BootcInstaller) SetLocalImage(layoutPath string, metadata *CachedImageM
 	if metadata != nil {
 		b.ImageRef = metadata.ImageRef
 	}
+}
+
+// SetRootPassword sets the root password to configure during installation
+func (b *BootcInstaller) SetRootPassword(password string) {
+	b.RootPassword = password
+}
+
+// SetRootPasswordInTarget sets the root password in the installed system using chpasswd
+// The password is passed via stdin for security (not visible in process list)
+func SetRootPasswordInTarget(targetDir, password string, dryRun bool) error {
+	if password == "" {
+		return nil // No password to set
+	}
+
+	if dryRun {
+		fmt.Println("  [DRY RUN] Would set root password")
+		return nil
+	}
+
+	fmt.Println("  Setting root password...")
+
+	// Use chpasswd with -R flag to handle chroot internally
+	// Password is passed via stdin for security
+	cmd := exec.Command("chpasswd", "-R", targetDir)
+	cmd.Stdin = strings.NewReader(fmt.Sprintf("root:%s\n", password))
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to set root password: %w", err)
+	}
+
+	fmt.Println("  Root password set successfully")
+	return nil
 }
 
 // CheckRequiredTools checks if required tools are available
@@ -294,6 +328,13 @@ func (b *BootcInstaller) Install() error {
 	// Save pristine /etc for future updates
 	if err := SavePristineEtc(b.MountPoint, b.DryRun); err != nil {
 		return fmt.Errorf("failed to save pristine /etc: %w", err)
+	}
+
+	// Set root password if provided
+	if b.RootPassword != "" {
+		if err := SetRootPasswordInTarget(b.MountPoint, b.RootPassword, b.DryRun); err != nil {
+			return fmt.Errorf("failed to set root password: %w", err)
+		}
 	}
 
 	// Get image digest for tracking updates

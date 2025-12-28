@@ -166,11 +166,11 @@ else
     # Check if root is mounted read-only (ro kernel parameter)
     # We need to temporarily remount rw to move /etc
     # /proc/mounts format: device mountpoint fstype options dump pass
-    # The 'ro' option is in the 4th field (options), as "ro" or "ro,..."
+    # The 'ro' option is in the 4th field (options), as a comma-separated entry that can
+    # appear anywhere in the list (e.g., "ro", "relatime,ro", "defaults,ro,noatime")
     ROOT_WAS_RO=0
-    # Use grep to find the mount line for $SYSROOT and check for ro option
-    # Pattern: mountpoint followed by fstype and options starting with 'ro,' or 'ro '
-    if grep -E "^[^ ]+ $SYSROOT [^ ]+ (ro,|ro )" /proc/mounts >/dev/null 2>&1; then
+    # Use grep to find the mount line for $SYSROOT and check for a 'ro' option anywhere
+    if grep -E "^[^ ]+ $SYSROOT [^ ]+ ([^ ]*,)?ro(,[^ ]*)?( |$)" /proc/mounts >/dev/null 2>&1; then
         info "etc-overlay: Root is mounted read-only, temporarily remounting rw"
         ROOT_WAS_RO=1
         if ! mount -o remount,rw "$SYSROOT"; then

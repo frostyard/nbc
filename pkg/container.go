@@ -364,8 +364,8 @@ func SetupSystemDirectories(targetDir string) error {
 	}
 
 	// Set proper permissions for tmp directories (sticky bit + 0777)
-	_ = os.Chmod(filepath.Join(targetDir, "tmp"), os.ModeSticky|0777)
-	_ = os.Chmod(filepath.Join(targetDir, "var", "tmp"), os.ModeSticky|0777)
+	_ = os.Chmod(filepath.Join(targetDir, "tmp"), 0o1777)
+	_ = os.Chmod(filepath.Join(targetDir, "var", "tmp"), 0o1777)
 	fmt.Println("System directories created")
 	return nil
 }

@@ -2,12 +2,64 @@ package pkg
 
 import (
 	"bufio"
+	"embed"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 )
+
+// Embed the dracut module files directly into the nbc binary.
+// This ensures nbc always installs its own version of the dracut module,
+// regardless of what's in the container image.
+//
+//go:embed dracut/95etc-overlay/module-setup.sh dracut/95etc-overlay/etc-overlay-mount.sh
+var dracutModuleFS embed.FS
+
+// InstallDracutEtcOverlay installs the embedded etc-overlay dracut module to the target filesystem.
+// This overwrites any existing module from the container image to ensure the nbc binary's
+// version is used (which may have fixes not yet in the published container image).
+func InstallDracutEtcOverlay(targetDir string, dryRun bool) error {
+	if dryRun {
+		fmt.Println("[DRY RUN] Would install etc-overlay dracut module")
+		return nil
+	}
+
+	fmt.Println("  Installing etc-overlay dracut module...")
+
+	moduleDir := filepath.Join(targetDir, "usr", "lib", "dracut", "modules.d", "95etc-overlay")
+
+	// Create the module directory
+	if err := os.MkdirAll(moduleDir, 0755); err != nil {
+		return fmt.Errorf("failed to create dracut module directory: %w", err)
+	}
+
+	// Files to install from embedded FS
+	files := []string{
+		"dracut/95etc-overlay/module-setup.sh",
+		"dracut/95etc-overlay/etc-overlay-mount.sh",
+	}
+
+	for _, srcPath := range files {
+		content, err := dracutModuleFS.ReadFile(srcPath)
+		if err != nil {
+			return fmt.Errorf("failed to read embedded file %s: %w", srcPath, err)
+		}
+
+		// Extract just the filename for the destination
+		filename := filepath.Base(srcPath)
+		dstPath := filepath.Join(moduleDir, filename)
+
+		// Write the file with executable permissions
+		if err := os.WriteFile(dstPath, content, 0755); err != nil {
+			return fmt.Errorf("failed to write %s: %w", dstPath, err)
+		}
+	}
+
+	fmt.Println("  ✓ Dracut etc-overlay module installed")
+	return nil
+}
 
 // InitramfsHasEtcOverlay checks if the initramfs at the given path contains
 // the etc-overlay dracut module. This is used to skip regenerating the

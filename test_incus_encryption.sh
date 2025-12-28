@@ -214,9 +214,9 @@ incus exec ${VM_NAME} -- bash -c "
 echo -e "${GREEN}✓ LUKS encryption verified${NC}\n"
 
 # ============================================================================
-# Test 3: Verify crypttab exists
+# Test 3: Verify crypttab and root filesystem setup
 # ============================================================================
-echo -e "${BLUE}=== Test 3: Verify Crypttab ===${NC}"
+echo -e "${BLUE}=== Test 3: Verify Crypttab and Root Filesystem ===${NC}"
 incus exec ${VM_NAME} -- bash -c "
     # Open LUKS to mount and check
     ROOT1=\$(lsblk -nlo NAME,PARTLABEL $TEST_DISK | grep 'root1' | head -1 | awk '{print \"/dev/\" \$1}')
@@ -245,23 +245,43 @@ incus exec ${VM_NAME} -- bash -c "
         fi
     fi
 
+    echo ''
+    echo 'Checking read-only root filesystem setup...'
+    # Check .etc.lower directory exists
+    if [ -d /mnt/test-root/.etc.lower ]; then
+        echo '✓ .etc.lower directory exists (for etc overlay)'
+    else
+        echo '✗ .etc.lower directory missing'
+        exit 1
+    fi
+
+    # Check machine-id is set to uninitialized
+    if [ -f /mnt/test-root/etc/machine-id ]; then
+        MACHINE_ID=\$(cat /mnt/test-root/etc/machine-id)
+        if [ \"\$MACHINE_ID\" = \"uninitialized\" ]; then
+            echo '✓ machine-id is uninitialized (ready for first boot)'
+        else
+            echo \"⚠ machine-id is set: \$MACHINE_ID\"
+        fi
+    fi
+
     umount /mnt/test-root
     cryptsetup luksClose test-root
     rmdir /mnt/test-root
 " 2>&1 | sed 's/^/  /'
-echo -e "${GREEN}✓ Crypttab verified${NC}\n"
+echo -e "${GREEN}✓ Crypttab and root filesystem verified${NC}\n"
 
 # ============================================================================
-# Test 4: Verify kernel command line has LUKS parameters
+# Test 4: Verify Boot Entry LUKS Parameters and Read-Only Root
 # ============================================================================
-echo -e "${BLUE}=== Test 4: Verify Boot Entry LUKS Parameters ===${NC}"
+echo -e "${BLUE}=== Test 4: Verify Boot Entry LUKS Parameters and Read-Only Root ===${NC}"
 incus exec ${VM_NAME} -- bash -c "
     mkdir -p /mnt/test-boot
     BOOT_PART=\$(lsblk -nlo NAME,PARTLABEL $TEST_DISK | grep 'boot' | head -1 | awk '{print \"/dev/\" \$1}')
 
     mount \$BOOT_PART /mnt/test-boot
 
-    echo 'Checking boot entries for LUKS parameters...'
+    echo 'Checking boot entries for LUKS parameters and ro...'
 
     # Check systemd-boot entries
     if [ -d /mnt/test-boot/loader/entries ]; then
@@ -280,6 +300,14 @@ incus exec ${VM_NAME} -- bash -c "
                     echo '  ✓ rd.luks.name found'
                 else
                     echo '  ⚠ rd.luks.name not found'
+                fi
+
+                # Check for ro (read-only root)
+                if grep -q ' ro ' \"\$entry\" || grep -q ' ro\$' \"\$entry\"; then
+                    echo '  ✓ ro (read-only root) found'
+                else
+                    echo '  ✗ ro NOT found (root should be read-only)'
+                    exit 1
                 fi
             fi
         done
@@ -351,8 +379,8 @@ echo -e "${GREEN}=== All Encryption Tests Passed ===${NC}\n"
 echo -e "${BLUE}Test Summary:${NC}"
 echo "  ✓ Install with LUKS encryption"
 echo "  ✓ Verify LUKS encryption on partitions"
-echo "  ✓ Verify crypttab configuration"
-echo "  ✓ Verify boot entry LUKS parameters"
+echo "  ✓ Verify crypttab and root filesystem setup (.etc.lower, machine-id)"
+echo "  ✓ Verify boot entry LUKS parameters and read-only root"
 echo "  ✓ Test LUKS unlock with passphrase"
 echo ""
 

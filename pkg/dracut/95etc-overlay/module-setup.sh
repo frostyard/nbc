@@ -24,9 +24,10 @@ depends() {
 install() {
     # Install the hook script
     inst_hook pre-pivot 50 "$moddir/etc-overlay-mount.sh"
-    
+
     # Install required binaries
-    inst_multiple mount umount mkdir
+    # grep is needed to detect read-only root mount in /proc/mounts
+    inst_multiple mount umount mkdir grep
 }
 
 installkernel() {

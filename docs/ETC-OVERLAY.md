@@ -299,13 +299,37 @@ This check uses `lsinitrd` (Fedora/RHEL) or `lsinitramfs` (Debian/Ubuntu) to ins
 
 ## Caveats and Limitations
 
-### Read-Write Root Requirement
+### Read-Only Root Filesystem
 
-The root filesystem is currently mounted read-write (`rw`). While the overlay provides persistent `/etc`, the root itself is writable. A fully read-only root (`ro`) requires additional work:
+The root filesystem is mounted read-only (`ro`) for immutability, similar to how bootc/ostree systems work. This provides:
 
-- systemd needs `/etc/machine-id` to exist before `/var` is mounted
-- With read-only root, `/etc/machine-id` cannot be created at first boot
-- Workarounds (like pre-populating with "uninitialized") have timing issues
+- **Protection from accidental modifications**: System files cannot be altered
+- **Atomic updates**: The entire root is replaced during A/B updates
+- **Reproducibility**: The root filesystem always matches the container image
+
+The `/etc` overlay allows user configuration to persist despite the read-only root.
+
+#### How the Overlay Works with Read-Only Root
+
+During early boot, the dracut etc-overlay module:
+
+1. Temporarily remounts root read-write
+2. Moves `/etc` to `/.etc.lower` (the overlay lower layer)
+3. Mounts the overlay on `/etc`
+4. Remounts root back to read-only
+
+This ensures `/etc` modifications work while the rest of root stays immutable.
+
+#### /etc/machine-id Handling
+
+For read-only root to work with systemd's first-boot detection:
+
+- nbc pre-populates `/etc/machine-id` with "uninitialized" during installation
+- On first boot, systemd detects this and generates a real machine-id
+- The generated machine-id is written to the overlay upper layer (on `/var`)
+- Subsequent boots read the machine-id from the overlay
+
+**Important**: Container images should NOT have a populated `/etc/machine-id`. Use `nbc lint` to detect and fix this issue.
 
 ### First Boot Behavior
 

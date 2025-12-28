@@ -135,12 +135,32 @@ incus exec ${VM_NAME} -- bash -c "
     mount \$ROOT /mnt/check
     [ -f /mnt/check/etc/nbc/config.json ] && echo '✓ Config exists' || exit 1
     [ -d /mnt/check/usr/lib/dracut/modules.d/95etc-overlay ] && echo '✓ Dracut module exists' || exit 1
+    [ -d /mnt/check/.etc.lower ] && echo '✓ .etc.lower directory exists' || exit 1
+
+    # Verify machine-id is set to uninitialized
+    if [ -f /mnt/check/etc/machine-id ]; then
+        MACHINE_ID=\$(cat /mnt/check/etc/machine-id)
+        if [ \"\$MACHINE_ID\" = \"uninitialized\" ]; then
+            echo '✓ machine-id is uninitialized (ready for first boot)'
+        else
+            echo \"⚠ machine-id is set: \$MACHINE_ID\"
+        fi
+    fi
     umount /mnt/check
 
-    # Check boot partition
+    # Check boot partition and verify ro kernel parameter
     BOOT=\$(lsblk -nlo NAME,PARTLABEL $TEST_DISK | grep boot | awk '{print \"/dev/\"\$1}')
     mount \$BOOT /mnt/check
     ls /mnt/check/vmlinuz-* >/dev/null 2>&1 && echo '✓ Kernel exists' || exit 1
+
+    # Check for ro in boot config
+    if grep -r ' ro ' /mnt/check/loader/entries/*.conf 2>/dev/null || \
+       grep -r ' ro ' /mnt/check/grub/grub.cfg 2>/dev/null || \
+       grep -r ' ro ' /mnt/check/grub2/grub.cfg 2>/dev/null; then
+        echo '✓ ro (read-only root) in boot config'
+    else
+        echo '⚠ ro not found in boot config (checking for ro parameter)'
+    fi
     umount /mnt/check
     rmdir /mnt/check
 " 2>&1 | sed 's/^/  /'

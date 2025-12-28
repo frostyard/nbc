@@ -574,6 +574,55 @@ incus exec ${VM_NAME} -- bash -c "
 " 2>&1 | sed 's/^/  /'
 echo -e "${GREEN}✓ /etc overlay setup verified${NC}\n"
 
+# Test 10.6: Switch boot entry to root1 (initial install)
+# After the A/B update, the default boot entry points to root2 which has the
+# container's dracut module. For testing the local nbc's dracut module,
+# we need to boot from root1 (the initial install with local nbc).
+echo -e "${BLUE}=== Test 10.6: Configure Boot for root1 ===${NC}"
+echo "Switching boot entry to root1 (initial install) for boot test..."
+incus exec ${VM_NAME} -- bash -c "
+    mkdir -p /mnt/test-boot
+    BOOT_PART=\$(lsblk -nlo NAME,PARTLABEL $TEST_DISK | grep 'boot' | head -1 | awk '{print \"/dev/\" \$1}')
+    ROOT1=\$(lsblk -nlo NAME,PARTLABEL $TEST_DISK | grep 'root1' | head -1 | awk '{print \"/dev/\" \$1}')
+
+    mount \$BOOT_PART /mnt/test-boot
+
+    # Get root1 UUID
+    ROOT1_UUID=\$(blkid -s UUID -o value \$ROOT1)
+    echo \"Root1 UUID: \$ROOT1_UUID\"
+
+    # Update systemd-boot entry if exists
+    if [ -d /mnt/test-boot/loader/entries ]; then
+        for entry in /mnt/test-boot/loader/entries/*.conf; do
+            if [ -f \"\$entry\" ] && ! echo \"\$entry\" | grep -q rollback; then
+                echo \"Updating boot entry: \$(basename \$entry)\"
+                # Replace the root UUID with root1's UUID
+                sed -i \"s/root=UUID=[a-f0-9-]*/root=UUID=\$ROOT1_UUID/\" \"\$entry\"
+                echo \"Updated entry:\"
+                cat \"\$entry\"
+            fi
+        done
+    fi
+
+    # Update GRUB config if exists
+    GRUB_CFG=''
+    if [ -f /mnt/test-boot/grub2/grub.cfg ]; then
+        GRUB_CFG='/mnt/test-boot/grub2/grub.cfg'
+    elif [ -f /mnt/test-boot/grub/grub.cfg ]; then
+        GRUB_CFG='/mnt/test-boot/grub/grub.cfg'
+    fi
+
+    if [ -n \"\$GRUB_CFG\" ]; then
+        echo \"Updating GRUB config...\"
+        sed -i \"s/root=UUID=[a-f0-9-]*/root=UUID=\$ROOT1_UUID/g\" \"\$GRUB_CFG\"
+    fi
+
+    umount /mnt/test-boot
+    rmdir /mnt/test-boot
+    echo '✓ Boot entry updated to use root1'
+" 2>&1 | sed 's/^/  /'
+echo -e "${GREEN}✓ Boot configured for root1${NC}\n"
+
 # Test 11: Boot from installed disk
 echo -e "${BLUE}=== Test 11: Boot Test ===${NC}"
 echo "Creating new VM to boot from installed disk..."
@@ -676,6 +725,30 @@ OVERLAY_CHECK=$(timeout 30 incus exec ${BOOT_VM_NAME} -- bash -c "
         echo '✗ rd.etc.overlay not in kernel cmdline'
         cat /proc/cmdline
         exit 1
+    fi
+
+    # Verify ro (read-only root) is in kernel cmdline
+    if grep -qE '(^| )ro( |$)' /proc/cmdline; then
+        echo '✓ ro (read-only root) present in kernel cmdline'
+    else
+        echo '✗ ro not in kernel cmdline'
+        cat /proc/cmdline
+        exit 1
+    fi
+
+    echo ''
+    echo '=== Read-only root verification ==='
+    # Check if root is mounted read-only
+    ROOT_MOUNT=\$(findmnt -n -o OPTIONS / 2>/dev/null | grep -o 'ro\\|rw' | head -1)
+    if [ \"\$ROOT_MOUNT\" = \"ro\" ]; then
+        echo '✓ Root filesystem is mounted read-only'
+    elif [ \"\$ROOT_MOUNT\" = \"rw\" ]; then
+        echo '⚠ Root filesystem is mounted read-write (expected ro)'
+        echo '  Note: This may be expected if etc-overlay remounted it temporarily'
+        findmnt /
+    else
+        echo '⚠ Could not determine root mount options'
+        findmnt / || mount | grep ' / '
     fi
 
     echo ''

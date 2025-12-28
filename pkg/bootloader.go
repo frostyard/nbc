@@ -82,7 +82,7 @@ func (b *BootloaderInstaller) buildKernelCmdline() ([]string, error) {
 
 		// Root via device mapper
 		kernelCmdline = append(kernelCmdline, "root=/dev/mapper/root1")
-		kernelCmdline = append(kernelCmdline, "rw")
+		kernelCmdline = append(kernelCmdline, "ro")
 
 		// LUKS UUIDs for initramfs to discover and unlock
 		kernelCmdline = append(kernelCmdline, "rd.luks.uuid="+rootDev.LUKSUUID)
@@ -119,7 +119,7 @@ func (b *BootloaderInstaller) buildKernelCmdline() ([]string, error) {
 		}
 
 		kernelCmdline = append(kernelCmdline, "root=UUID="+rootUUID)
-		kernelCmdline = append(kernelCmdline, "rw")
+		kernelCmdline = append(kernelCmdline, "ro")
 		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=UUID="+varUUID+":/var:"+fsType+":defaults")
 		varSpec = "UUID=" + varUUID
 	}

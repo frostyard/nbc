@@ -162,13 +162,35 @@ if [ -d "$ETC_LOWER_DIR" ] && [ "$(ls -A "$ETC_LOWER_DIR" 2>/dev/null)" ]; then
     fi
 else
     # First boot or lower dir is empty/missing - move /etc to lower dir
+
+    # Check if root is mounted read-only (ro kernel parameter)
+    # We need to temporarily remount rw to move /etc
+    # /proc/mounts format: device mountpoint fstype options dump pass
+    # The 'ro' option is in the 4th field (options), as "ro" or "ro,..."
+    ROOT_WAS_RO=0
+    # Use grep to find the mount line for $SYSROOT and check for ro option
+    # Pattern: mountpoint followed by fstype and options starting with 'ro,' or 'ro '
+    if grep -E "^[^ ]+ $SYSROOT [^ ]+ (ro,|ro )" /proc/mounts >/dev/null 2>&1; then
+        info "etc-overlay: Root is mounted read-only, temporarily remounting rw"
+        ROOT_WAS_RO=1
+        if ! mount -o remount,rw "$SYSROOT"; then
+            warn "etc-overlay: Failed to remount root rw, cannot setup overlay"
+            return 0
+        fi
+    fi
+
+    # Remove empty .etc.lower if it exists (created by nbc during install)
+    # This must happen AFTER the ro remount check above
     if [ -d "$ETC_LOWER_DIR" ]; then
-        # Empty lower dir exists, remove it
         rm -rf "$ETC_LOWER_DIR"
     fi
 
     if ! mv "$ETC_LOWER" "$ETC_LOWER_DIR"; then
         warn "etc-overlay: Failed to move original /etc"
+        # Restore ro if we changed it
+        if [ "$ROOT_WAS_RO" = "1" ]; then
+            mount -o remount,ro "$SYSROOT" 2>/dev/null || true
+        fi
         return 0
     fi
 fi
@@ -186,10 +208,22 @@ if mount -t overlay overlay \
     # This prevents users from seeing the duplicate /etc contents at /.etc.lower
     mount -t tmpfs -o size=0,mode=000 tmpfs "$ETC_LOWER_DIR" 2>/dev/null || true
     info "etc-overlay: Hidden lower directory at /.etc.lower"
+
+    # Restore root to read-only if we changed it
+    if [ "${ROOT_WAS_RO:-0}" = "1" ]; then
+        info "etc-overlay: Restoring root to read-only"
+        if ! mount -o remount,ro "$SYSROOT"; then
+            warn "etc-overlay: Failed to remount root ro"
+        fi
+    fi
 else
     warn "etc-overlay: Failed to mount overlay, restoring original /etc"
     rmdir "$ETC_LOWER" 2>/dev/null
     mv "$ETC_LOWER_DIR" "$ETC_LOWER"
+    # Restore ro if we changed it
+    if [ "${ROOT_WAS_RO:-0}" = "1" ]; then
+        mount -o remount,ro "$SYSROOT" 2>/dev/null || true
+    fi
     return 0
 fi
 

@@ -287,7 +287,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	// If --check flag, only check if update is needed
 	if updateCheckOnly {
-		needed, digest, err := updater.IsUpdateNeeded()
+		needed, digest, err := updater.IsUpdateNeeded(true)
 		if err != nil {
 			if jsonOutput {
 				progress.Error(err, "Failed to check for updates")

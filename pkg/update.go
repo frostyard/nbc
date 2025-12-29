@@ -431,9 +431,14 @@ func (u *SystemUpdater) PullImage() error {
 // IsUpdateNeeded checks if the remote image differs from the currently installed image.
 // Returns true if an update is needed, false if the system is already up-to-date.
 // Also returns the remote digest for use during the update process.
-func (u *SystemUpdater) IsUpdateNeeded() (bool, string, error) {
+func (u *SystemUpdater) IsUpdateNeeded(short bool) (bool, string, error) {
 	p := u.Progress
-	p.MessagePlain("Checking if update is needed...")
+	if short {
+		u.Config.Verbose = false
+	}
+	if !short {
+		p.MessagePlain("Checking if update is needed...")
+	}
 
 	// Get the image digest - from local cache or remote
 	var remoteDigest string
@@ -480,14 +485,18 @@ func (u *SystemUpdater) IsUpdateNeeded() (bool, string, error) {
 	}
 
 	if config.ImageDigest == remoteDigest {
-		p.Message("✓ System is already up-to-date")
-		p.Message("Installed: %s", config.ImageDigest)
+		if !short {
+			p.Message("✓ System is already up-to-date")
+			p.Message("Installed: %s", config.ImageDigest)
+		}
 		return false, remoteDigest, nil
 	}
 
-	p.Message("Update available:")
-	p.Message("Installed: %s", config.ImageDigest)
-	p.Message("Available: %s", remoteDigest)
+	if !short {
+		p.Message("Update available:")
+		p.Message("Installed: %s", config.ImageDigest)
+		p.Message("Available: %s", remoteDigest)
+	}
 	return true, remoteDigest, nil
 }
 
@@ -1113,7 +1122,7 @@ func (u *SystemUpdater) PerformUpdate(skipPull bool) error {
 	}
 
 	// Check if update is actually needed (compare digests)
-	needed, digest, err := u.IsUpdateNeeded()
+	needed, digest, err := u.IsUpdateNeeded(false)
 	if err != nil {
 		p.Warning("could not check if update needed: %v", err)
 		// Continue with update anyway

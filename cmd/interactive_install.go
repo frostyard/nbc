@@ -12,17 +12,17 @@ import (
 
 // interactiveInstallOptions holds all the options collected from the interactive form
 type interactiveInstallOptions struct {
-	imageSource     string // "remote", "staged"
-	image           string
-	stagedImage     string
-	device          string
-	filesystem      string
-	encrypt         bool
-	passphrase      string
-	passphraseConf  string
-	tpm2            bool
-	kernelArgs      string
-	rootPassword    string
+	imageSource      string // "remote", "staged"
+	image            string
+	stagedImage      string
+	device           string
+	filesystem       string
+	encrypt          bool
+	passphrase       string
+	passphraseConf   string
+	tpm2             bool
+	kernelArgs       string
+	rootPassword     string
 	rootPasswordConf string
 }
 

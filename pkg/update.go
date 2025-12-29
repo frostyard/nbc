@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -62,6 +63,35 @@ func GetActiveRootPartition() (string, error) {
 	}
 
 	return "", fmt.Errorf("could not determine active root partition from kernel command line")
+}
+
+// IsRootMountedReadOnly checks if the root partition is mounted read-only
+// Returns "ro" for read-only, "rw" for read-write, or empty string if unable to determine
+func IsRootMountedReadOnly() string {
+	// Read /proc/mounts to check mount options
+	mounts, err := os.ReadFile("/proc/mounts")
+	if err != nil {
+		return ""
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(string(mounts)))
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) >= 4 && fields[1] == "/" {
+			// fields[3] contains mount options
+			options := strings.Split(fields[3], ",")
+			for _, opt := range options {
+				switch opt {
+				case "ro":
+					return "ro"
+				case "rw":
+					return "rw"
+				}
+			}
+		}
+	}
+
+	return ""
 }
 
 // findPartitionByUUID finds a partition device path by its UUID

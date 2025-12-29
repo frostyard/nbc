@@ -16,6 +16,7 @@ type StatusOutput struct {
 	Device         string        `json:"device"`
 	ActiveRoot     string        `json:"active_root,omitempty"`
 	ActiveSlot     string        `json:"active_slot,omitempty"`
+	RootMountMode  string        `json:"root_mount_mode,omitempty"`
 	BootloaderType string        `json:"bootloader_type"`
 	FilesystemType string        `json:"filesystem_type"`
 	InstallDate    string        `json:"install_date,omitempty"`
@@ -97,6 +98,9 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Check if root is mounted read-only or read-write
+	rootMountMode := pkg.IsRootMountedReadOnly()
+
 	if jsonOutput {
 		output := StatusOutput{
 			Image:          config.ImageRef,
@@ -104,6 +108,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			Device:         config.Device,
 			ActiveRoot:     activeRoot,
 			ActiveSlot:     activeSlot,
+			RootMountMode:  rootMountMode,
 			BootloaderType: config.BootloaderType,
 			FilesystemType: config.FilesystemType,
 			InstallDate:    config.InstallDate,
@@ -175,6 +180,13 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			fmt.Printf(" [Slot %s]", activeSlot)
 		}
 		fmt.Println()
+	}
+	if rootMountMode != "" {
+		mountModeDesc := "read-write"
+		if rootMountMode == "ro" {
+			mountModeDesc = "read-only"
+		}
+		fmt.Printf("Root Mount:  %s\n", mountModeDesc)
 	}
 	fmt.Printf("Bootloader:  %s\n", config.BootloaderType)
 	if config.FilesystemType != "" {

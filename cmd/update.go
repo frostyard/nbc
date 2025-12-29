@@ -28,6 +28,7 @@ var (
 	updateKernelArgs   []string
 	updateDownloadOnly bool
 	updateLocalImage   bool
+	updateAuto         bool
 )
 
 var updateCmd = &cobra.Command{
@@ -51,7 +52,7 @@ available in the boot menu for rollback if needed.
 
 Use --download-only to download an update without applying it. The update
 will be staged in /var/cache/nbc/staged-update/ and can be applied later
-with --local-image.
+with --local-image or --auto.
 
 With --json flag, outputs streaming JSON Lines for progress updates.
 
@@ -60,6 +61,7 @@ Example:
   nbc update --check              # Just check if update available
   nbc update --download-only      # Download but don't apply
   nbc update --local-image        # Apply staged update
+  nbc update --auto               # Use staged update if available, else pull
   nbc update --image quay.io/example/myimage:v2.0
   nbc update --skip-pull
   nbc update --device /dev/sda    # Override auto-detection
@@ -79,6 +81,7 @@ func init() {
 	updateCmd.Flags().BoolP("force", "f", false, "Force reinstall even if system is up-to-date")
 	updateCmd.Flags().BoolVar(&updateDownloadOnly, "download-only", false, "Download update to cache without applying")
 	updateCmd.Flags().BoolVar(&updateLocalImage, "local-image", false, "Apply update from staged cache (/var/cache/nbc/staged-update/)")
+	updateCmd.Flags().BoolVar(&updateAuto, "auto", false, "Automatically use staged update if available, otherwise pull from registry")
 	_ = viper.BindPFlag("force", updateCmd.Flags().Lookup("force"))
 }
 
@@ -94,6 +97,22 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	// Validate mutually exclusive flags
 	if updateDownloadOnly && updateLocalImage {
 		err := fmt.Errorf("--download-only and --local-image are mutually exclusive")
+		if jsonOutput {
+			progress.Error(err, "Invalid options")
+		}
+		return err
+	}
+
+	if updateDownloadOnly && updateAuto {
+		err := fmt.Errorf("--download-only and --auto are mutually exclusive")
+		if jsonOutput {
+			progress.Error(err, "Invalid options")
+		}
+		return err
+	}
+
+	if updateLocalImage && updateAuto {
+		err := fmt.Errorf("--local-image and --auto are mutually exclusive")
 		if jsonOutput {
 			progress.Error(err, "Invalid options")
 		}
@@ -270,6 +289,28 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		if !jsonOutput {
 			fmt.Printf("Using staged update: %s\n", metadata.ImageRef)
 			fmt.Printf("  Digest: %s\n", metadata.ImageDigest)
+		}
+	}
+
+	// Handle --auto: use staged update if available, otherwise pull from registry
+	if updateAuto {
+		updateCache := pkg.NewStagedUpdateCache()
+		metadata, err := updateCache.GetSingle()
+		if err == nil && metadata != nil {
+			// Staged update is available, use it
+			localLayoutPath = updateCache.GetLayoutPath(metadata.ImageDigest)
+			localMetadata = metadata
+			imageRef = metadata.ImageRef
+
+			if !jsonOutput {
+				fmt.Printf("Using staged update: %s\n", metadata.ImageRef)
+				fmt.Printf("  Digest: %s\n", metadata.ImageDigest)
+			}
+		} else {
+			// No staged update available, will pull from registry
+			if verbose && !jsonOutput {
+				fmt.Println("No staged update found, will pull from registry")
+			}
 		}
 	}
 

@@ -13,7 +13,6 @@ import (
 var (
 	commit  string
 	date    string
-	cfgFile string
 	builtBy string
 	rootCmd = &cobra.Command{
 		Use:   "nbc",
@@ -57,9 +56,7 @@ func Execute() error {
 }
 
 func init() {
-	cobra.OnInitialize(initConfig)
 
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.nbc.yaml)")
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")
 	rootCmd.PersistentFlags().BoolP("dry-run", "n", false, "dry run mode (no actual changes)")
 	rootCmd.PersistentFlags().Bool("json", false, "output in JSON format for machine-readable output")
@@ -69,26 +66,3 @@ func init() {
 	_ = viper.BindPFlag("json", rootCmd.PersistentFlags().Lookup("json"))
 }
 
-func initConfig() {
-	if cfgFile != "" {
-		viper.SetConfigFile(cfgFile)
-	} else {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error getting home directory: %v\n", err)
-			os.Exit(1)
-		}
-
-		viper.AddConfigPath(home)
-		viper.SetConfigType("yaml")
-		viper.SetConfigName(".nbc")
-	}
-
-	viper.AutomaticEnv()
-
-	if err := viper.ReadInConfig(); err == nil {
-		if viper.GetBool("verbose") {
-			fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
-		}
-	}
-}

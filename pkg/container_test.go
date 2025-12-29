@@ -380,3 +380,156 @@ func TestVerifyExtraction_EmptyDirectory(t *testing.T) {
 		t.Error("VerifyExtraction should fail for empty directory")
 	}
 }
+
+func TestSetupSystemDirectories(t *testing.T) {
+	targetDir := t.TempDir()
+
+	err := SetupSystemDirectories(targetDir)
+	if err != nil {
+		t.Fatalf("SetupSystemDirectories failed: %v", err)
+	}
+
+	// Check all expected directories exist
+	expectedDirs := []string{
+		"dev",
+		"proc",
+		"sys",
+		"run",
+		"tmp",
+		"var/tmp",
+		"boot/efi",
+		".etc.lower",
+		"mnt",
+		"media",
+		"opt",
+		"srv",
+	}
+
+	for _, dir := range expectedDirs {
+		path := filepath.Join(targetDir, dir)
+		info, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			t.Errorf("expected directory %s to exist", dir)
+			continue
+		}
+		if err != nil {
+			t.Errorf("error checking directory %s: %v", dir, err)
+			continue
+		}
+		if !info.IsDir() {
+			t.Errorf("expected %s to be a directory", dir)
+		}
+	}
+
+	// Check tmp directories have sticky bit
+	tmpInfo, _ := os.Stat(filepath.Join(targetDir, "tmp"))
+	if tmpInfo.Mode()&os.ModeSticky == 0 {
+		t.Error("tmp directory should have sticky bit set")
+	}
+
+	varTmpInfo, _ := os.Stat(filepath.Join(targetDir, "var", "tmp"))
+	if varTmpInfo.Mode()&os.ModeSticky == 0 {
+		t.Error("var/tmp directory should have sticky bit set")
+	}
+}
+
+func TestPrepareMachineID(t *testing.T) {
+	t.Run("creates uninitialized when file does not exist", func(t *testing.T) {
+		targetDir := t.TempDir()
+		etcDir := filepath.Join(targetDir, "etc")
+		if err := os.MkdirAll(etcDir, 0755); err != nil {
+			t.Fatalf("failed to create etc dir: %v", err)
+		}
+
+		err := PrepareMachineID(targetDir)
+		if err != nil {
+			t.Fatalf("PrepareMachineID failed: %v", err)
+		}
+
+		content, err := os.ReadFile(filepath.Join(etcDir, "machine-id"))
+		if err != nil {
+			t.Fatalf("failed to read machine-id: %v", err)
+		}
+
+		if string(content) != "uninitialized\n" {
+			t.Errorf("machine-id = %q, want %q", string(content), "uninitialized\n")
+		}
+	})
+
+	t.Run("sets uninitialized when file is empty", func(t *testing.T) {
+		targetDir := t.TempDir()
+		etcDir := filepath.Join(targetDir, "etc")
+		if err := os.MkdirAll(etcDir, 0755); err != nil {
+			t.Fatalf("failed to create etc dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(etcDir, "machine-id"), []byte(""), 0444); err != nil {
+			t.Fatalf("failed to create empty machine-id: %v", err)
+		}
+
+		err := PrepareMachineID(targetDir)
+		if err != nil {
+			t.Fatalf("PrepareMachineID failed: %v", err)
+		}
+
+		content, err := os.ReadFile(filepath.Join(etcDir, "machine-id"))
+		if err != nil {
+			t.Fatalf("failed to read machine-id: %v", err)
+		}
+
+		if string(content) != "uninitialized\n" {
+			t.Errorf("machine-id = %q, want %q", string(content), "uninitialized\n")
+		}
+	})
+
+	t.Run("preserves existing uninitialized", func(t *testing.T) {
+		targetDir := t.TempDir()
+		etcDir := filepath.Join(targetDir, "etc")
+		if err := os.MkdirAll(etcDir, 0755); err != nil {
+			t.Fatalf("failed to create etc dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(etcDir, "machine-id"), []byte("uninitialized\n"), 0444); err != nil {
+			t.Fatalf("failed to create machine-id: %v", err)
+		}
+
+		err := PrepareMachineID(targetDir)
+		if err != nil {
+			t.Fatalf("PrepareMachineID failed: %v", err)
+		}
+
+		content, err := os.ReadFile(filepath.Join(etcDir, "machine-id"))
+		if err != nil {
+			t.Fatalf("failed to read machine-id: %v", err)
+		}
+
+		if string(content) != "uninitialized\n" {
+			t.Errorf("machine-id = %q, want %q", string(content), "uninitialized\n")
+		}
+	})
+
+	t.Run("leaves existing real machine-id unchanged", func(t *testing.T) {
+		targetDir := t.TempDir()
+		etcDir := filepath.Join(targetDir, "etc")
+		if err := os.MkdirAll(etcDir, 0755); err != nil {
+			t.Fatalf("failed to create etc dir: %v", err)
+		}
+		realID := "abc123def456abc123def456abc123de\n"
+		if err := os.WriteFile(filepath.Join(etcDir, "machine-id"), []byte(realID), 0444); err != nil {
+			t.Fatalf("failed to create machine-id: %v", err)
+		}
+
+		err := PrepareMachineID(targetDir)
+		if err != nil {
+			t.Fatalf("PrepareMachineID failed: %v", err)
+		}
+
+		content, err := os.ReadFile(filepath.Join(etcDir, "machine-id"))
+		if err != nil {
+			t.Fatalf("failed to read machine-id: %v", err)
+		}
+
+		// Should be unchanged (with warning printed)
+		if string(content) != realID {
+			t.Errorf("machine-id = %q, want %q (should be unchanged)", string(content), realID)
+		}
+	})
+}

@@ -347,6 +347,13 @@ func SetupSystemDirectories(targetDir string) error {
 		"tmp",
 		"var/tmp",
 		"boot/efi",
+		".etc.lower", // Overlay lower layer for /etc (used by dracut etc-overlay module)
+		// Common bind-mount targets - must exist on ro root for bind mounts to work
+		// These may be bind-mounted from /var (e.g., /home -> /var/home)
+		"mnt",
+		"media",
+		"opt",
+		"srv",
 	}
 
 	for _, dir := range directories {
@@ -356,10 +363,41 @@ func SetupSystemDirectories(targetDir string) error {
 		}
 	}
 
-	// Set proper permissions for tmp directories
-	_ = os.Chmod(filepath.Join(targetDir, "tmp"), 01777)
-	_ = os.Chmod(filepath.Join(targetDir, "var", "tmp"), 01777)
+	// Set proper permissions for tmp directories (sticky bit + 0777)
+	// Note: os.Chmod with 0o1777 doesn't set sticky bit in Go; must use os.ModeSticky
+	_ = os.Chmod(filepath.Join(targetDir, "tmp"), os.ModeSticky|0777)
+	_ = os.Chmod(filepath.Join(targetDir, "var", "tmp"), os.ModeSticky|0777)
 	fmt.Println("System directories created")
+	return nil
+}
+
+// PrepareMachineID ensures /etc/machine-id contains "uninitialized" for first-boot detection.
+// This is required for read-only root filesystems where systemd cannot create the file at boot.
+// systemd will detect "uninitialized" and properly initialize the machine-id on first boot.
+func PrepareMachineID(targetDir string) error {
+	machineIDPath := filepath.Join(targetDir, "etc", "machine-id")
+
+	// Check current state
+	content, err := os.ReadFile(machineIDPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read machine-id: %w", err)
+	}
+
+	// If file doesn't exist, is empty, or already "uninitialized", set it correctly
+	trimmed := strings.TrimSpace(string(content))
+	if trimmed == "" || trimmed == "uninitialized" || os.IsNotExist(err) {
+		// Remove existing file first (may be read-only 0444)
+		_ = os.Remove(machineIDPath)
+		if err := os.WriteFile(machineIDPath, []byte("uninitialized\n"), 0444); err != nil {
+			return fmt.Errorf("failed to write machine-id: %w", err)
+		}
+		fmt.Println("Prepared /etc/machine-id for first boot")
+		return nil
+	}
+
+	// File has a real machine-id - this shouldn't happen for clean container images
+	// The lint check should have caught this, but warn and continue
+	fmt.Printf("Warning: /etc/machine-id already has a value, leaving unchanged\n")
 	return nil
 }
 

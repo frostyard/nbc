@@ -266,7 +266,7 @@ func (u *SystemUpdater) buildKernelCmdline(rootUUID, varUUID, fsType string, isT
 
 		// Root via device mapper
 		kernelCmdline = append(kernelCmdline, "root=/dev/mapper/"+rootMapperName)
-		kernelCmdline = append(kernelCmdline, "rw")
+		kernelCmdline = append(kernelCmdline, "ro")
 
 		// LUKS UUIDs for initramfs to discover and unlock
 		kernelCmdline = append(kernelCmdline, "rd.luks.uuid="+rootLUKSUUID)
@@ -292,7 +292,7 @@ func (u *SystemUpdater) buildKernelCmdline(rootUUID, varUUID, fsType string, isT
 	} else {
 		// Non-encrypted system - use UUID
 		kernelCmdline = append(kernelCmdline, "root=UUID="+rootUUID)
-		kernelCmdline = append(kernelCmdline, "rw")
+		kernelCmdline = append(kernelCmdline, "ro")
 		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=UUID="+varUUID+":/var:"+fsType+":defaults")
 
 		// Enable /etc overlay persistence
@@ -579,10 +579,10 @@ func (u *SystemUpdater) Update() error {
 		return fmt.Errorf("container extraction verification failed: %w\n\nThe target partition may be in an inconsistent state.\nThe previous installation is still bootable - do NOT reboot.\nRe-run the update to try again", err)
 	}
 
-	// Verify dracut module for /etc overlay persistence exists
-	// The module is installed via nbc deb/rpm package
-	if err := VerifyDracutEtcOverlay(u.Config.MountPoint, u.Config.DryRun); err != nil {
-		return fmt.Errorf("dracut etc-overlay module not found: %w", err)
+	// Install the embedded dracut module for /etc overlay persistence
+	// This ensures we use nbc's version of the module, not the container's
+	if err := InstallDracutEtcOverlay(u.Config.MountPoint, u.Config.DryRun); err != nil {
+		return fmt.Errorf("failed to install dracut etc-overlay module: %w", err)
 	}
 
 	// Regenerate initramfs to include the etc-overlay module
@@ -613,6 +613,11 @@ func (u *SystemUpdater) Update() error {
 	p.Step(5, "Setting up system directories")
 	if err := SetupSystemDirectories(u.Config.MountPoint); err != nil {
 		return fmt.Errorf("failed to setup directories: %w", err)
+	}
+
+	// Prepare /etc/machine-id for first boot on read-only root
+	if err := PrepareMachineID(u.Config.MountPoint); err != nil {
+		return fmt.Errorf("failed to prepare machine-id: %w", err)
 	}
 
 	// Install tmpfiles.d config for /run/nbc-booted marker

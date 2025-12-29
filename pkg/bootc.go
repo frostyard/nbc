@@ -270,10 +270,10 @@ func (b *BootcInstaller) Install() error {
 		}
 	}
 
-	// Verify dracut module for /etc overlay persistence exists
-	// The module is installed via nbc deb/rpm package
-	if err := VerifyDracutEtcOverlay(b.MountPoint, b.DryRun); err != nil {
-		return fmt.Errorf("dracut etc-overlay module not found: %w", err)
+	// Install the embedded dracut module for /etc overlay persistence
+	// This ensures we use nbc's version of the module, not the container's
+	if err := InstallDracutEtcOverlay(b.MountPoint, b.DryRun); err != nil {
+		return fmt.Errorf("failed to install dracut etc-overlay module: %w", err)
 	}
 
 	// Regenerate initramfs to include the etc-overlay module
@@ -311,6 +311,11 @@ func (b *BootcInstaller) Install() error {
 	// Setup system directories
 	if err := SetupSystemDirectories(b.MountPoint); err != nil {
 		return fmt.Errorf("failed to setup directories: %w", err)
+	}
+
+	// Prepare /etc/machine-id for first boot on read-only root
+	if err := PrepareMachineID(b.MountPoint); err != nil {
+		return fmt.Errorf("failed to prepare machine-id: %w", err)
 	}
 
 	// Install tmpfiles.d config for /run/nbc-booted marker

@@ -65,4 +65,3 @@ func init() {
 	_ = viper.BindPFlag("dry-run", rootCmd.PersistentFlags().Lookup("dry-run"))
 	_ = viper.BindPFlag("json", rootCmd.PersistentFlags().Lookup("json"))
 }
-

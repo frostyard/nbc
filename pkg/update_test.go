@@ -430,3 +430,191 @@ func unmountSinglePartition(mountPoint string) error {
 	_ = exec.Command("umount", mountPoint).Run()
 	return nil
 }
+
+func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
+	testutil.RequireRoot(t)
+	testutil.RequireTools(t, "losetup", "sgdisk", "mkfs.vfat", "mkfs.ext4")
+
+	// Create a test disk with actual partitions
+	disk, err := testutil.CreateTestDisk(t, 30) // 30GB disk
+	if err != nil {
+		t.Fatalf("Failed to create test disk: %v", err)
+	}
+
+	// Create partitions
+	scheme, err := CreatePartitions(disk.GetDevice(), false)
+	if err != nil {
+		t.Fatalf("Failed to create partitions: %v", err)
+	}
+
+	// Format partitions so they have UUIDs
+	if err := FormatPartitions(scheme, false); err != nil {
+		t.Fatalf("Failed to format partitions: %v", err)
+	}
+
+	// Wait for devices to settle
+	_ = testutil.WaitForDevice(scheme.BootPartition)
+	_ = testutil.WaitForDevice(scheme.Root1Partition)
+	_ = testutil.WaitForDevice(scheme.Root2Partition)
+	_ = testutil.WaitForDevice(scheme.VarPartition)
+
+	// Get actual UUIDs
+	bootUUID, err := GetPartitionUUID(scheme.BootPartition)
+	if err != nil {
+		t.Fatalf("Failed to get boot UUID: %v", err)
+	}
+	root1UUID, err := GetPartitionUUID(scheme.Root1Partition)
+	if err != nil {
+		t.Fatalf("Failed to get root1 UUID: %v", err)
+	}
+	root2UUID, err := GetPartitionUUID(scheme.Root2Partition)
+	if err != nil {
+		t.Fatalf("Failed to get root2 UUID: %v", err)
+	}
+	varUUID, err := GetPartitionUUID(scheme.VarPartition)
+	if err != nil {
+		t.Fatalf("Failed to get var UUID: %v", err)
+	}
+
+	t.Run("non-encrypted includes boot mount for target root", func(t *testing.T) {
+		updater := &SystemUpdater{
+			Config: UpdaterConfig{
+				Device: disk.GetDevice(),
+			},
+			Scheme: scheme,
+			Active: true, // root1 is active, so target is root2
+		}
+
+		cmdline := updater.buildKernelCmdline(root2UUID, varUUID, "ext4", true)
+		cmdlineStr := strings.Join(cmdline, " ")
+		t.Logf("Generated target cmdline: %s", cmdlineStr)
+
+		// Check for boot mount parameter
+		expectedBootMount := fmt.Sprintf("systemd.mount-extra=UUID=%s:/boot:vfat:defaults", bootUUID)
+		if !strings.Contains(cmdlineStr, expectedBootMount) {
+			t.Errorf("Missing boot mount parameter.\nExpected: %s\nGot cmdline: %s", expectedBootMount, cmdlineStr)
+		}
+
+		// Check for var mount parameter
+		expectedVarMount := fmt.Sprintf("systemd.mount-extra=UUID=%s:/var:", varUUID)
+		if !strings.Contains(cmdlineStr, expectedVarMount) {
+			t.Errorf("Missing var mount parameter.\nExpected substring: %s\nGot cmdline: %s", expectedVarMount, cmdlineStr)
+		}
+
+		// Check for root parameter (should be root2)
+		expectedRoot := fmt.Sprintf("root=UUID=%s", root2UUID)
+		if !strings.Contains(cmdlineStr, expectedRoot) {
+			t.Errorf("Missing root parameter.\nExpected: %s\nGot cmdline: %s", expectedRoot, cmdlineStr)
+		}
+	})
+
+	t.Run("non-encrypted includes boot mount for active root", func(t *testing.T) {
+		updater := &SystemUpdater{
+			Config: UpdaterConfig{
+				Device: disk.GetDevice(),
+			},
+			Scheme: scheme,
+			Active: true, // root1 is active
+		}
+
+		cmdline := updater.buildKernelCmdline(root1UUID, varUUID, "ext4", false)
+		cmdlineStr := strings.Join(cmdline, " ")
+		t.Logf("Generated active cmdline: %s", cmdlineStr)
+
+		// Check for boot mount parameter
+		expectedBootMount := fmt.Sprintf("systemd.mount-extra=UUID=%s:/boot:vfat:defaults", bootUUID)
+		if !strings.Contains(cmdlineStr, expectedBootMount) {
+			t.Errorf("Missing boot mount parameter.\nExpected: %s\nGot cmdline: %s", expectedBootMount, cmdlineStr)
+		}
+
+		// Check for root parameter (should be root1)
+		expectedRoot := fmt.Sprintf("root=UUID=%s", root1UUID)
+		if !strings.Contains(cmdlineStr, expectedRoot) {
+			t.Errorf("Missing root parameter.\nExpected: %s\nGot cmdline: %s", expectedRoot, cmdlineStr)
+		}
+	})
+
+	t.Run("encrypted includes boot mount", func(t *testing.T) {
+		// Setup LUKS encryption
+		passphrase := "test-passphrase"
+		if err := SetupLUKS(scheme, passphrase, false); err != nil {
+			t.Fatalf("Failed to setup LUKS: %v", err)
+		}
+		defer scheme.CloseLUKSDevices()
+
+		root1Dev := scheme.GetLUKSDevice("root1")
+		root2Dev := scheme.GetLUKSDevice("root2")
+		varDev := scheme.GetLUKSDevice("var")
+
+		updater := &SystemUpdater{
+			Config: UpdaterConfig{
+				Device: disk.GetDevice(),
+			},
+			Scheme: scheme,
+			Active: true, // root1 is active, target is root2
+			Encryption: &EncryptionConfig{
+				Enabled:       true,
+				TPM2:          false,
+				Root1LUKSUUID: root1Dev.LUKSUUID,
+				Root2LUKSUUID: root2Dev.LUKSUUID,
+				VarLUKSUUID:   varDev.LUKSUUID,
+			},
+		}
+
+		cmdline := updater.buildKernelCmdline(root2UUID, varUUID, "ext4", true)
+		cmdlineStr := strings.Join(cmdline, " ")
+		t.Logf("Generated encrypted cmdline: %s", cmdlineStr)
+
+		// Check for boot mount parameter (boot is never encrypted)
+		expectedBootMount := fmt.Sprintf("systemd.mount-extra=UUID=%s:/boot:vfat:defaults", bootUUID)
+		if !strings.Contains(cmdlineStr, expectedBootMount) {
+			t.Errorf("Missing boot mount parameter in encrypted setup.\nExpected: %s\nGot cmdline: %s", expectedBootMount, cmdlineStr)
+		}
+
+		// Check for encrypted var mount parameter
+		if !strings.Contains(cmdlineStr, "systemd.mount-extra=/dev/mapper/var:/var:") {
+			t.Errorf("Missing encrypted var mount parameter.\nGot cmdline: %s", cmdlineStr)
+		}
+
+		// Check for LUKS parameters
+		if !strings.Contains(cmdlineStr, "rd.luks.uuid=") {
+			t.Errorf("Missing LUKS parameters.\nGot cmdline: %s", cmdlineStr)
+		}
+
+		// Verify boot is referenced by UUID, not mapper device
+		if strings.Contains(cmdlineStr, "/dev/mapper/boot") {
+			t.Errorf("Boot partition should not be referenced as mapper device")
+		}
+	})
+
+	t.Run("boot mount parameter appears before var mount", func(t *testing.T) {
+		updater := &SystemUpdater{
+			Config: UpdaterConfig{
+				Device: disk.GetDevice(),
+			},
+			Scheme: scheme,
+			Active: true,
+		}
+
+		cmdline := updater.buildKernelCmdline(root2UUID, varUUID, "ext4", true)
+		cmdlineStr := strings.Join(cmdline, " ")
+
+		// Find the positions of boot and var mount parameters
+		bootMount := fmt.Sprintf("systemd.mount-extra=UUID=%s:/boot:vfat:defaults", bootUUID)
+		varMount := fmt.Sprintf("systemd.mount-extra=UUID=%s:/var:", varUUID)
+
+		bootIdx := strings.Index(cmdlineStr, bootMount)
+		varIdx := strings.Index(cmdlineStr, varMount)
+
+		if bootIdx == -1 {
+			t.Errorf("Boot mount parameter not found")
+		}
+		if varIdx == -1 {
+			t.Errorf("Var mount parameter not found")
+		}
+		if bootIdx > varIdx {
+			t.Errorf("Boot mount should appear before var mount.\nBoot index: %d, Var index: %d\nCmdline: %s",
+				bootIdx, varIdx, cmdlineStr)
+		}
+	})
+}

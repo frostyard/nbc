@@ -1,9 +1,13 @@
 package pkg
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/frostyard/nbc/pkg/testutil"
 )
 
 func TestBootloaderType(t *testing.T) {
@@ -137,6 +141,130 @@ func TestBuildKernelCmdline_NonEncrypted(t *testing.T) {
 		_, err := installer.buildKernelCmdline()
 		if err == nil {
 			t.Error("buildKernelCmdline should fail with empty root partition")
+		}
+	})
+}
+
+func TestBuildKernelCmdline_BootloaderWithBootMount(t *testing.T) {
+	testutil.RequireRoot(t)
+	testutil.RequireTools(t, "losetup", "sgdisk", "mkfs.vfat", "mkfs.ext4")
+
+	// Create a test disk with actual partitions
+	disk, err := testutil.CreateTestDisk(t, 30) // 30GB disk
+	if err != nil {
+		t.Fatalf("Failed to create test disk: %v", err)
+	}
+
+	// Create partitions
+	scheme, err := CreatePartitions(disk.GetDevice(), false)
+	if err != nil {
+		t.Fatalf("Failed to create partitions: %v", err)
+	}
+
+	// Format boot and var partitions so they have UUIDs
+	if err := FormatPartitions(scheme, false); err != nil {
+		t.Fatalf("Failed to format partitions: %v", err)
+	}
+
+	// Wait for devices to settle
+	_ = testutil.WaitForDevice(scheme.BootPartition)
+	_ = testutil.WaitForDevice(scheme.Root1Partition)
+	_ = testutil.WaitForDevice(scheme.VarPartition)
+
+	// Get actual UUIDs
+	bootUUID, err := GetPartitionUUID(scheme.BootPartition)
+	if err != nil {
+		t.Fatalf("Failed to get boot UUID: %v", err)
+	}
+	rootUUID, err := GetPartitionUUID(scheme.Root1Partition)
+	if err != nil {
+		t.Fatalf("Failed to get root UUID: %v", err)
+	}
+	varUUID, err := GetPartitionUUID(scheme.VarPartition)
+	if err != nil {
+		t.Fatalf("Failed to get var UUID: %v", err)
+	}
+
+	t.Run("non-encrypted includes boot mount", func(t *testing.T) {
+		installer := NewBootloaderInstaller("/mnt", disk.GetDevice(), scheme, "Test OS")
+		cmdline, err := installer.buildKernelCmdline()
+		if err != nil {
+			t.Fatalf("buildKernelCmdline failed: %v", err)
+		}
+
+		// Convert to string for easier checking
+		cmdlineStr := strings.Join(cmdline, " ")
+		t.Logf("Generated cmdline: %s", cmdlineStr)
+
+		// Check for boot mount parameter
+		expectedBootMount := fmt.Sprintf("systemd.mount-extra=UUID=%s:/boot:vfat:defaults", bootUUID)
+		if !strings.Contains(cmdlineStr, expectedBootMount) {
+			t.Errorf("Missing boot mount parameter.\nExpected: %s\nGot cmdline: %s", expectedBootMount, cmdlineStr)
+		}
+
+		// Check for var mount parameter
+		expectedVarMount := fmt.Sprintf("systemd.mount-extra=UUID=%s:/var:", varUUID)
+		if !strings.Contains(cmdlineStr, expectedVarMount) {
+			t.Errorf("Missing var mount parameter.\nExpected substring: %s\nGot cmdline: %s", expectedVarMount, cmdlineStr)
+		}
+
+		// Check for root parameter
+		expectedRoot := fmt.Sprintf("root=UUID=%s", rootUUID)
+		if !strings.Contains(cmdlineStr, expectedRoot) {
+			t.Errorf("Missing root parameter.\nExpected: %s\nGot cmdline: %s", expectedRoot, cmdlineStr)
+		}
+
+		// Verify boot mount comes before var mount (order matters for systemd)
+		bootIdx := strings.Index(cmdlineStr, expectedBootMount)
+		varIdx := strings.Index(cmdlineStr, "systemd.mount-extra=UUID="+varUUID)
+		if bootIdx > varIdx {
+			t.Errorf("Boot mount should come before var mount in cmdline")
+		}
+	})
+
+	t.Run("encrypted includes boot mount", func(t *testing.T) {
+		// Setup LUKS encryption for testing
+		passphrase := "test-passphrase"
+		if err := SetupLUKS(scheme, passphrase, false); err != nil {
+			t.Fatalf("Failed to setup LUKS: %v", err)
+		}
+		defer scheme.CloseLUKSDevices()
+
+		installer := NewBootloaderInstaller("/mnt", disk.GetDevice(), scheme, "Test OS")
+
+		// Set encryption config
+		installer.SetEncryption(&LUKSConfig{
+			Enabled: true,
+			TPM2:    false,
+		})
+
+		cmdline, err := installer.buildKernelCmdline()
+		if err != nil {
+			t.Fatalf("buildKernelCmdline failed: %v", err)
+		}
+
+		cmdlineStr := strings.Join(cmdline, " ")
+		t.Logf("Generated encrypted cmdline: %s", cmdlineStr)
+
+		// Check for boot mount parameter (boot is never encrypted)
+		expectedBootMount := fmt.Sprintf("systemd.mount-extra=UUID=%s:/boot:vfat:defaults", bootUUID)
+		if !strings.Contains(cmdlineStr, expectedBootMount) {
+			t.Errorf("Missing boot mount parameter in encrypted setup.\nExpected: %s\nGot cmdline: %s", expectedBootMount, cmdlineStr)
+		}
+
+		// Check for encrypted var mount parameter
+		if !strings.Contains(cmdlineStr, "systemd.mount-extra=/dev/mapper/var:/var:") {
+			t.Errorf("Missing encrypted var mount parameter.\nGot cmdline: %s", cmdlineStr)
+		}
+
+		// Check for LUKS parameters
+		if !strings.Contains(cmdlineStr, "rd.luks.uuid=") {
+			t.Errorf("Missing LUKS parameters.\nGot cmdline: %s", cmdlineStr)
+		}
+
+		// Verify boot is referenced by UUID, not mapper device
+		if strings.Contains(cmdlineStr, "/dev/mapper/"+scheme.BootPartition) {
+			t.Errorf("Boot partition should not be referenced as mapper device")
 		}
 	})
 }

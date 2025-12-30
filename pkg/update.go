@@ -312,6 +312,14 @@ func (u *SystemUpdater) buildKernelCmdline(rootUUID, varUUID, fsType string, isT
 			kernelCmdline = append(kernelCmdline, "rd.luks.options="+u.Encryption.VarLUKSUUID+"=tpm2-device=auto")
 		}
 
+		// Get boot partition UUID (always FAT32, never encrypted)
+		bootUUID, err := GetPartitionUUID(u.Scheme.BootPartition)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to get boot UUID: %v\n", err)
+		} else {
+			kernelCmdline = append(kernelCmdline, "systemd.mount-extra=UUID="+bootUUID+":/boot:vfat:defaults")
+		}
+
 		// Mount /var via systemd.mount-extra using mapper device
 		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=/dev/mapper/var:/var:"+fsType+":defaults")
 
@@ -321,6 +329,14 @@ func (u *SystemUpdater) buildKernelCmdline(rootUUID, varUUID, fsType string, isT
 		kernelCmdline = append(kernelCmdline, "rd.etc.overlay.var=/dev/mapper/var")
 	} else {
 		// Non-encrypted system - use UUID
+		// Get boot partition UUID (always FAT32, never encrypted)
+		bootUUID, err := GetPartitionUUID(u.Scheme.BootPartition)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to get boot UUID: %v\n", err)
+		} else {
+			kernelCmdline = append(kernelCmdline, "systemd.mount-extra=UUID="+bootUUID+":/boot:vfat:defaults")
+		}
+
 		kernelCmdline = append(kernelCmdline, "root=UUID="+rootUUID)
 		kernelCmdline = append(kernelCmdline, "ro")
 		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=UUID="+varUUID+":/var:"+fsType+":defaults")

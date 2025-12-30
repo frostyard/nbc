@@ -640,16 +640,25 @@ func (u *SystemUpdater) Update() error {
 		return fmt.Errorf("container extraction verification failed: %w\n\nThe target partition may be in an inconsistent state.\nThe previous installation is still bootable - do NOT reboot.\nRe-run the update to try again", err)
 	}
 
-	// Install the embedded dracut module for /etc overlay persistence
-	// This ensures we use nbc's version of the module, not the container's
-	if err := InstallDracutEtcOverlay(u.Config.MountPoint, u.Config.DryRun); err != nil {
-		return fmt.Errorf("failed to install dracut etc-overlay module: %w", err)
-	}
+	// Check if container already has the etc-overlay dracut module installed
+	// If it does, we can skip both installing our embedded module and regenerating initramfs
+	dracutModuleDir := filepath.Join(u.Config.MountPoint, "usr", "lib", "dracut", "modules.d", "95etc-overlay")
+	moduleSetupSh := filepath.Join(dracutModuleDir, "module-setup.sh")
 
-	// Regenerate initramfs to include the etc-overlay module
-	if err := RegenerateInitramfs(u.Config.MountPoint, u.Config.DryRun, u.Config.Verbose); err != nil {
-		p.Warning("initramfs regeneration failed: %v", err)
-		p.Warning("Boot may fail if container's initramfs lacks etc-overlay support")
+	if _, err := os.Stat(moduleSetupSh); err == nil {
+		p.Message("Container already has etc-overlay dracut module, skipping regeneration")
+	} else {
+		p.Message("Installing etc-overlay dracut module and regenerating initramfs")
+		// Install the embedded dracut module for /etc overlay persistence
+		if err := InstallDracutEtcOverlay(u.Config.MountPoint, u.Config.DryRun); err != nil {
+			return fmt.Errorf("failed to install dracut etc-overlay module: %w", err)
+		}
+
+		// Regenerate initramfs to include the etc-overlay module
+		if err := RegenerateInitramfs(u.Config.MountPoint, u.Config.DryRun, u.Config.Verbose); err != nil {
+			p.Warning("initramfs regeneration failed: %v", err)
+			p.Warning("Boot may fail if container's initramfs lacks etc-overlay support")
+		}
 	}
 
 	// Step 4: Merge /etc configuration from active system

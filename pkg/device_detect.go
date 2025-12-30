@@ -22,7 +22,7 @@ import (
 //   1. Reading kernel cmdline to find active root partition (root=UUID=... or root=/dev/mapper/...)
 //   2. For LUKS: Using cryptsetup status to find backing device
 //   3. Extracting parent disk from partition path
-//   4. Verifying against stored disk IDg.json (set during install)
+//   4. Verifying against stored disk ID in /etc/nbc/config.json (set during install)
 // - Disk ID from /dev/disk/by-id is stored and verified to detect disk replacement
 // - For encrypted systems, device names map to /dev/mapper/<name> at runtime
 //

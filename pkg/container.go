@@ -9,9 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/docker/docker/client"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/daemon"
 	"github.com/google/go-containerregistry/pkg/v1/layout"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
@@ -66,11 +68,71 @@ func (c *ContainerExtractor) Extract() error {
 			return fmt.Errorf("failed to parse image reference: %w", err)
 		}
 
-		// Pull image
-		fmt.Println("  Pulling image...")
-		img, err = remote.Image(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain))
-		if err != nil {
-			return fmt.Errorf("failed to pull image: %w", err)
+		// For localhost images, try local daemon first (podman/docker)
+		if strings.HasPrefix(c.ImageRef, "localhost/") {
+			fmt.Println("  Checking local daemon...")
+
+			// Try podman CLI first for localhost images (more reliable than daemon API)
+			// Check if podman is available and image exists
+			checkCmd := exec.Command("podman", "image", "exists", c.ImageRef)
+			if checkCmd.Run() == nil {
+				// Image exists in podman, save it to OCI layout directory for extraction
+				fmt.Println("  Found image in podman, using local copy")
+				tmpLayout := filepath.Join(os.TempDir(), fmt.Sprintf("nbc-oci-%d", os.Getpid()))
+				defer func() {
+					if err := os.RemoveAll(tmpLayout); err != nil {
+						fmt.Printf("Warning: failed to remove temporary OCI layout: %v\n", err)
+					}
+				}()
+
+				// Create the layout directory
+				if err := os.MkdirAll(tmpLayout, 0755); err == nil {
+					saveCmd := exec.Command("podman", "image", "save", "--format=oci-dir", "-o", tmpLayout, c.ImageRef)
+					if err := saveCmd.Run(); err == nil {
+						// Load from the OCI layout directory
+						img, err = LoadImageFromOCILayout(tmpLayout)
+						if err == nil {
+							fmt.Println("  Successfully loaded image from podman")
+						}
+					}
+				}
+			}
+
+			// If podman approach failed, try daemon API with both sockets
+			if img == nil {
+				sockets := []string{
+					"unix:///var/run/podman/podman.sock",
+					"unix:///var/run/docker.sock",
+				}
+
+				for _, sock := range sockets {
+					cli, err := client.NewClientWithOpts(client.WithHost(sock), client.WithAPIVersionNegotiation())
+					if err != nil {
+						continue
+					}
+
+					// Try to get the image using this client
+					img, err = daemon.Image(ref, daemon.WithClient(cli))
+					if err == nil {
+						fmt.Println("  Using image from local daemon")
+						break
+					}
+					_ = cli.Close()
+				}
+			}
+
+			if img == nil && c.Verbose {
+				fmt.Println("  Local lookup failed, will try registry")
+			}
+		}
+
+		// If not found locally or not a localhost image, pull from registry
+		if img == nil {
+			fmt.Println("  Pulling image...")
+			img, err = remote.Image(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+			if err != nil {
+				return fmt.Errorf("failed to pull image: %w", err)
+			}
 		}
 	}
 

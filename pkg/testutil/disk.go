@@ -129,11 +129,12 @@ func CreateMockContainer(t *testing.T, imageName string) error {
 
 	// Create minimal /etc files
 	etcFiles := map[string]string{
-		"etc/hostname":   "test-container\n",
-		"etc/os-release": "ID=test\nNAME=\"Test OS\"\nVERSION_ID=1.0\nPRETTY_NAME=\"Test OS 1.0\"\n",
-		"etc/passwd":     "root:x:0:0:root:/root:/bin/sh\n",
-		"etc/group":      "root:x:0:\n",
-		"etc/shells":     "/bin/sh\n/bin/bash\n",
+		"etc/hostname":       "test-container\n",
+		"etc/os-release":     "ID=test\nNAME=\"Test OS\"\nVERSION_ID=1.0\nPRETTY_NAME=\"Test OS 1.0\"\n",
+		"usr/lib/os-release": "ID=test\nNAME=\"Test OS\"\nVERSION_ID=1.0\nPRETTY_NAME=\"Test OS 1.0\"\n",
+		"etc/passwd":         "root:x:0:0:root:/root:/bin/sh\n",
+		"etc/group":          "root:x:0:\n",
+		"etc/shells":         "/bin/sh\n/bin/bash\n",
 	}
 
 	for path, content := range etcFiles {

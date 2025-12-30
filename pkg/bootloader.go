@@ -103,6 +103,13 @@ func (b *BootloaderInstaller) buildKernelCmdline() ([]string, error) {
 			fmt.Printf("  TPM2 options not added: Encryption=%v, TPM2=%v\n", b.Encryption != nil, b.Encryption != nil && b.Encryption.TPM2)
 		}
 
+		// Mount boot partition via systemd.mount-extra (always FAT32, never encrypted)
+		bootUUID, err := GetPartitionUUID(b.Scheme.BootPartition)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get boot UUID: %w", err)
+		}
+		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=UUID="+bootUUID+":/boot:vfat:defaults")
+
 		// Mount /var via systemd.mount-extra using mapper device
 		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=/dev/mapper/var:/var:"+fsType+":defaults")
 		varSpec = "/dev/mapper/var"
@@ -118,8 +125,15 @@ func (b *BootloaderInstaller) buildKernelCmdline() ([]string, error) {
 			return nil, fmt.Errorf("failed to get var UUID: %w", err)
 		}
 
+		// Get boot partition UUID (always FAT32, never encrypted)
+		bootUUID, err := GetPartitionUUID(b.Scheme.BootPartition)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get boot UUID: %w", err)
+		}
+
 		kernelCmdline = append(kernelCmdline, "root=UUID="+rootUUID)
 		kernelCmdline = append(kernelCmdline, "ro")
+		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=UUID="+bootUUID+":/boot:vfat:defaults")
 		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=UUID="+varUUID+":/var:"+fsType+":defaults")
 		varSpec = "UUID=" + varUUID
 	}

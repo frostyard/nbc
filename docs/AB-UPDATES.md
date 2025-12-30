@@ -63,16 +63,16 @@ sudo nbc update --check
 
 ```bash
 sudo nbc update \
-  --image quay.io/example/myimage:latest \
-  --device /dev/sda
+  --image quay.io/example/myimage:latest
 ```
+
+The device is automatically detected from the running system. Override with `--device` if needed.
 
 ### Update with Custom Kernel Arguments
 
 ```bash
 sudo nbc update \
   --image localhost/custom-image \
-  --device /dev/nvme0n1 \
   --karg console=ttyS0 \
   --karg quiet
 ```
@@ -82,7 +82,6 @@ sudo nbc update \
 ```bash
 sudo nbc update \
   --image localhost/myimage \
-  --device /dev/sda \
   --skip-pull
 ```
 
@@ -102,13 +101,13 @@ Apply the staged update later:
 
 ```bash
 # Apply the previously downloaded update
-sudo nbc update --device /dev/sda --local-image
+sudo nbc update --local-image
 ```
 
 Check staged update status:
 
 ```bash
-nbc status --device /dev/sda --json
+nbc status --json
 ```
 
 The staged update cache is automatically cleared after successful application.
@@ -118,7 +117,6 @@ The staged update cache is automatically cleared after successful application.
 ```bash
 nbc update \
   --image test/image \
-  --device /dev/sda \
   --dry-run
 ```
 

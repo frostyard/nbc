@@ -7,6 +7,23 @@ import (
 	"strings"
 )
 
+// Device Detection and Naming Stability
+//
+// This file provides device detection for the update command, which auto-detects
+// the boot device from the running system. The install command requires an explicit
+// --device argument since it's installing to a (potentially empty) disk.
+//
+// Design Notes on Device Naming Stability:
+//
+// - Device names like /dev/nvme0n1 or /dev/sda can change between boots
+// - The RUNNING SYSTEM uses UUIDs everywhere (kernel cmdline, fstab, bootloader)
+// - Device names are only used during install/update operations, not at boot time
+// - Auto-detection reads the device from /etc/nbc/system.json (set during install)// - Disk ID from /dev/disk/by-id is stored and verified to detect disk replacement// - For encrypted systems, device names map to /dev/mapper/<name> at runtime
+//
+// This means the system boots reliably using UUIDs, while install/update commands
+// use device names only during their execution (which is safe since you know the
+// device at that moment).
+
 // GetBootDeviceFromPartition extracts the parent disk device from a partition path
 // Example: /dev/sda3 -> /dev/sda, /dev/nvme0n1p3 -> /dev/nvme0n1
 func GetBootDeviceFromPartition(partition string) (string, error) {
@@ -49,6 +66,21 @@ func GetCurrentBootDevice() (string, error) {
 	if err == nil && config.Device != "" {
 		// Verify the device exists
 		if _, err := os.Stat(config.Device); err == nil {
+			// Verify disk ID if available
+			if config.DiskID != "" {
+				match, verifyErr := VerifyDiskID(config.Device, config.DiskID)
+				if verifyErr != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to verify disk ID: %v\n", verifyErr)
+				} else if !match {
+					actualID, _ := GetDiskID(config.Device)
+					fmt.Fprintf(os.Stderr, "Warning: disk ID mismatch!\n")
+					fmt.Fprintf(os.Stderr, "  Device: %s\n", config.Device)
+					fmt.Fprintf(os.Stderr, "  Expected disk ID: %s\n", config.DiskID)
+					fmt.Fprintf(os.Stderr, "  Actual disk ID:   %s\n", actualID)
+					fmt.Fprintf(os.Stderr, "  This may indicate the wrong disk or disk replacement.\n")
+					fmt.Fprintf(os.Stderr, "  Proceeding with caution - verify before updating!\n")
+				}
+			}
 			return config.Device, nil
 		}
 	}

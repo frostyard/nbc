@@ -685,9 +685,24 @@ func (u *SystemUpdater) Update() error {
 		if err != nil {
 			p.Warning("failed to read existing config: %v", err)
 		} else {
-			// Update the image reference and digest
+			// Update the image reference, digest, and device
 			existingConfig.ImageRef = u.Config.ImageRef
 			existingConfig.ImageDigest = u.Config.ImageDigest
+			existingConfig.Device = u.Config.Device
+
+			// Update or add disk ID (migration path for older installations)
+			if diskID, err := GetDiskID(u.Config.Device); err == nil {
+				if existingConfig.DiskID == "" {
+					p.Message("Adding disk ID to config: %s", diskID)
+					existingConfig.DiskID = diskID
+				} else if existingConfig.DiskID != diskID {
+					p.Warning("updating disk ID in config (was: %s, now: %s)", existingConfig.DiskID, diskID)
+					existingConfig.DiskID = diskID
+				}
+			} else if u.Config.Verbose {
+				p.Warning("could not determine disk ID: %v", err)
+			}
+
 			// Write to target partition
 			if err := WriteSystemConfigToTarget(u.Config.MountPoint, existingConfig, false); err != nil {
 				p.Warning("failed to write config to target: %v", err)

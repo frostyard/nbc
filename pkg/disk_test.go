@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -141,5 +142,89 @@ func TestGetDiskByPath(t *testing.T) {
 				t.Errorf("GetDiskByPath() = %v, validation failed", got)
 			}
 		})
+	}
+}
+
+func TestGetDiskID(t *testing.T) {
+	// This test requires /dev/disk/by-id to exist
+	if _, err := os.Stat("/dev/disk/by-id"); os.IsNotExist(err) {
+		t.Skip("Skipping test: /dev/disk/by-id does not exist")
+	}
+
+	// Try to get disk ID for common devices
+	testDevices := []string{
+		"/dev/sda",
+		"/dev/nvme0n1",
+		"/dev/vda",
+	}
+
+	foundOne := false
+	for _, device := range testDevices {
+		if _, err := os.Stat(device); os.IsNotExist(err) {
+			continue
+		}
+
+		diskID, err := GetDiskID(device)
+		if err != nil {
+			t.Logf("Could not get disk ID for %s: %v", device, err)
+			continue
+		}
+
+		foundOne = true
+		t.Logf("Device: %s -> Disk ID: %s", device, diskID)
+
+		// Verify the disk ID doesn't contain partition suffix
+		if strings.Contains(diskID, "-part") {
+			t.Errorf("Disk ID should not contain partition suffix: %s", diskID)
+		}
+	}
+
+	if !foundOne {
+		t.Skip("No testable devices found")
+	}
+}
+
+func TestVerifyDiskID(t *testing.T) {
+	// Test with empty disk ID (should always pass)
+	match, err := VerifyDiskID("/dev/sda", "")
+	if err != nil {
+		t.Errorf("VerifyDiskID with empty ID failed: %v", err)
+	}
+	if !match {
+		t.Errorf("VerifyDiskID with empty ID should return true")
+	}
+
+	// Test with a device that exists
+	testDevices := []string{"/dev/sda", "/dev/nvme0n1", "/dev/vda"}
+	for _, device := range testDevices {
+		if _, err := os.Stat(device); os.IsNotExist(err) {
+			continue
+		}
+
+		// Get the actual disk ID
+		diskID, err := GetDiskID(device)
+		if err != nil {
+			t.Logf("Could not get disk ID for %s: %v", device, err)
+			continue
+		}
+
+		// Verify it matches itself
+		match, err := VerifyDiskID(device, diskID)
+		if err != nil {
+			t.Errorf("VerifyDiskID failed for %s: %v", device, err)
+		}
+		if !match {
+			t.Errorf("VerifyDiskID should match for %s with its own disk ID %s", device, diskID)
+		}
+
+		// Verify it doesn't match a different ID
+		fakeDiskID := "fake-disk-id-that-does-not-exist"
+		match, err = VerifyDiskID(device, fakeDiskID)
+		if err == nil && match {
+			t.Errorf("VerifyDiskID should not match for %s with fake disk ID", device)
+		}
+
+		t.Logf("✓ VerifyDiskID works correctly for %s (disk ID: %s)", device, diskID)
+		break // Only test one device
 	}
 }

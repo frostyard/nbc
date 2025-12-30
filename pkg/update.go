@@ -668,16 +668,18 @@ func (u *SystemUpdater) Update() error {
 		return fmt.Errorf("failed to setup directories: %w", err)
 	}
 
-	// Populate /.etc.lower with new container's /etc for overlay lower layer
-	// This must be done after container extraction to ensure the new image's
-	// /etc is available as the read-only base layer for the overlay
-	if err := PopulateEtcLower(u.Config.MountPoint, u.Config.DryRun); err != nil {
-		return fmt.Errorf("failed to populate .etc.lower: %w", err)
-	}
-
 	// Prepare /etc/machine-id for first boot on read-only root
+	// IMPORTANT: Must be done BEFORE PopulateEtcLower so the lower layer
+	// contains the "uninitialized" machine-id for systemd first-boot
 	if err := PrepareMachineID(u.Config.MountPoint); err != nil {
 		return fmt.Errorf("failed to prepare machine-id: %w", err)
+	}
+
+	// Populate /.etc.lower with new container's /etc for overlay lower layer
+	// This must be done after PrepareMachineID to ensure lower layer has
+	// the correct "uninitialized" machine-id for first-boot initialization
+	if err := PopulateEtcLower(u.Config.MountPoint, u.Config.DryRun); err != nil {
+		return fmt.Errorf("failed to populate .etc.lower: %w", err)
 	}
 
 	// Install tmpfiles.d config for /run/nbc-booted marker

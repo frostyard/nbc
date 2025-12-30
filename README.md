@@ -278,16 +278,16 @@ nbc install \
 
 ### Update System
 
-The A/B update system allows you to safely update your system by installing to an inactive root partition:
+The A/B update system allows you to safely update your system by installing to an inactive root partition.
+
+**The boot device is automatically detected** - no need to specify `--device` when running on the installed system:
 
 ```bash
-# Update to latest version of the installed image
-nbc update --device /dev/sda
+# Update to latest version of the installed image (auto-detects device)
+nbc update
 
 # Update to a specific image
-nbc update \
-  --image quay.io/my-org/my-image:v2.0 \
-  --device /dev/sda
+nbc update --image quay.io/my-org/my-image:v2.0
 
 # Check if an update is available (without installing)
 nbc update --check
@@ -295,22 +295,21 @@ nbc update --check
 # Skip pulling (use already pulled image)
 nbc update \
   --image localhost/my-image:latest \
-  --device /dev/sda \
   --skip-pull
 
 # Force update without confirmation
-nbc update \
-  --device /dev/sda \
-  --force
+nbc update --force
 
 # Force reinstall even if already up-to-date
 nbc update --force
 
 # Add custom kernel arguments for the new system
 nbc update \
-  --device /dev/sda \
   --karg console=ttyS0 \
   --karg debug
+
+# Override auto-detection (rarely needed)
+nbc update --device /dev/sda
 ```
 
 The update command automatically compares the installed image digest with the remote image. If they match, the update is skipped (unless `--force` is used).

@@ -147,6 +147,103 @@ func TestSystemUpdater_EtcPersistence(t *testing.T) {
 	t.Log("/etc persistence test completed successfully")
 }
 
+func TestSystemUpdater_DeviceFieldPersistence(t *testing.T) {
+	testutil.RequireRoot(t)
+	testutil.RequireTools(t, "losetup", "sgdisk", "mkfs.vfat", "mkfs.ext4", "podman", "mount", "umount")
+
+	// Install initial system
+	t.Log("Installing initial system")
+	disk, scheme, _ := installTestSystem(t, "v1")
+
+	// Verify initial config has correct device
+	t.Log("Verifying initial config device")
+	mountPoint := filepath.Join(t.TempDir(), "root1")
+	if err := os.MkdirAll(mountPoint, 0755); err != nil {
+		t.Fatalf("Failed to create mount point: %v", err)
+	}
+	defer testutil.CleanupMounts(t, mountPoint)
+
+	if err := mountSinglePartition(scheme.Root1Partition, mountPoint); err != nil {
+		t.Fatalf("Failed to mount root1: %v", err)
+	}
+
+	configPath := filepath.Join(mountPoint, "etc", "nbc", "config.json")
+	initialConfig, err := readConfigFromFile(configPath)
+	if err != nil {
+		t.Fatalf("Failed to read initial config: %v", err)
+	}
+
+	if initialConfig.Device != disk.GetDevice() {
+		t.Errorf("Initial config device mismatch: got %q, want %q", initialConfig.Device, disk.GetDevice())
+	}
+	t.Logf("✓ Initial config has correct device: %s", initialConfig.Device)
+
+	_ = unmountSinglePartition(mountPoint)
+
+	// Create updated container image
+	t.Log("Creating updated container")
+	updatedImageName := "localhost/nbc-test-device:v2"
+	if err := createUpdatedMockContainer(t, updatedImageName); err != nil {
+		t.Fatalf("Failed to create updated container: %v", err)
+	}
+
+	// Perform update with the same device
+	t.Log("Performing update with same device")
+	updater := NewSystemUpdater(disk.GetDevice(), updatedImageName)
+	updater.SetVerbose(true)
+	updater.SetDryRun(false)
+	updater.SetForce(true)
+
+	if err := updater.PerformUpdate(true); err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+
+	// Verify config on root2 has correct device
+	t.Log("Verifying updated config device on root2")
+	verifyMount := filepath.Join(t.TempDir(), "root2")
+	if err := os.MkdirAll(verifyMount, 0755); err != nil {
+		t.Fatalf("Failed to create verify mount: %v", err)
+	}
+	defer testutil.CleanupMounts(t, verifyMount)
+
+	if err := mountSinglePartition(scheme.Root2Partition, verifyMount); err != nil {
+		t.Fatalf("Failed to mount root2: %v", err)
+	}
+	defer func() { _ = unmountSinglePartition(verifyMount) }()
+
+	updatedConfigPath := filepath.Join(verifyMount, "etc", "nbc", "config.json")
+	updatedConfig, err := readConfigFromFile(updatedConfigPath)
+	if err != nil {
+		t.Fatalf("Failed to read updated config: %v", err)
+	}
+
+	// Verify device field was correctly updated
+	if updatedConfig.Device != disk.GetDevice() {
+		t.Errorf("Updated config device mismatch: got %q, want %q", updatedConfig.Device, disk.GetDevice())
+	} else {
+		t.Logf("✓ Updated config has correct device: %s", updatedConfig.Device)
+	}
+
+	// Verify image reference was updated
+	if updatedConfig.ImageRef != updatedImageName {
+		t.Errorf("Updated config image mismatch: got %q, want %q", updatedConfig.ImageRef, updatedImageName)
+	} else {
+		t.Logf("✓ Updated config has correct image: %s", updatedConfig.ImageRef)
+	}
+
+	// Verify image digest was updated
+	switch updatedConfig.ImageDigest {
+	case "":
+		t.Errorf("Updated config has empty digest")
+	case initialConfig.ImageDigest:
+		t.Errorf("Updated config digest unchanged: both are %q", updatedConfig.ImageDigest)
+	default:
+		t.Logf("✓ Updated config has new digest: %s", updatedConfig.ImageDigest)
+	}
+
+	t.Log("Device field persistence test completed successfully")
+}
+
 // Helper functions
 
 func installTestSystem(t *testing.T, version string) (*testutil.TestDisk, *PartitionScheme, string) {

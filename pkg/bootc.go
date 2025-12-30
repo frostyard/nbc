@@ -372,6 +372,16 @@ func (b *BootcInstaller) Install() error {
 		FilesystemType: b.FilesystemType,
 	}
 
+	// Get stable disk ID for future verification
+	if diskID, err := GetDiskID(b.Device); err == nil {
+		config.DiskID = diskID
+		if b.Verbose {
+			p.Message("Disk ID: %s", diskID)
+		}
+	} else if b.Verbose {
+		p.Warning("could not determine disk ID: %v", err)
+	}
+
 	// Store encryption config if enabled (needed for A/B updates)
 	if b.Encryption != nil && b.Encryption.Enabled && len(scheme.LUKSDevices) > 0 {
 		config.Encryption = &EncryptionConfig{

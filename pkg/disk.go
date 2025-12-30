@@ -264,3 +264,73 @@ func ParseDeviceName(device string) (string, error) {
 
 	return "", fmt.Errorf("unrecognized device name format: %s", device)
 }
+
+// GetDiskID returns the stable disk identifier from /dev/disk/by-id for a given device
+// Returns the by-id path (e.g., "nvme-Samsung_SSD_980_PRO_2TB_S1234567890") or empty string if not found
+func GetDiskID(device string) (string, error) {
+	// Normalize device path
+	device = strings.TrimPrefix(device, "/dev/")
+
+	// Read /dev/disk/by-id directory
+	byIDDir := "/dev/disk/by-id"
+	entries, err := os.ReadDir(byIDDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to read %s: %w", byIDDir, err)
+	}
+
+	// Find entries that point to our device
+	var candidates []string
+	for _, entry := range entries {
+		// Skip partition entries (contain -part)
+		if strings.Contains(entry.Name(), "-part") {
+			continue
+		}
+
+		// Resolve the symlink
+		linkPath := filepath.Join(byIDDir, entry.Name())
+		target, err := filepath.EvalSymlinks(linkPath)
+		if err != nil {
+			continue
+		}
+
+		// Check if this points to our device
+		targetBase := filepath.Base(target)
+		if targetBase == device {
+			candidates = append(candidates, entry.Name())
+		}
+	}
+
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("no disk ID found for device %s", device)
+	}
+
+	// Prefer specific IDs over generic ones
+	// Priority: nvme-* > ata-* > scsi-* > wwn-*
+	for _, prefix := range []string{"nvme-", "ata-", "scsi-"} {
+		for _, candidate := range candidates {
+			if strings.HasPrefix(candidate, prefix) && !strings.HasPrefix(candidate, prefix+"eui.") {
+				return candidate, nil
+			}
+		}
+	}
+
+	// Return the first candidate if no preferred match
+	return candidates[0], nil
+}
+
+// VerifyDiskID checks if a device matches the expected disk ID
+// Returns true if they match, false otherwise
+func VerifyDiskID(device, expectedDiskID string) (bool, error) {
+	if expectedDiskID == "" {
+		// No disk ID to verify against
+		return true, nil
+	}
+
+	actualDiskID, err := GetDiskID(device)
+	if err != nil {
+		// Can't get disk ID, but we have one stored - this is suspicious
+		return false, fmt.Errorf("failed to get disk ID for %s: %w", device, err)
+	}
+
+	return actualDiskID == expectedDiskID, nil
+}

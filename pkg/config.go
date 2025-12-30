@@ -79,7 +79,8 @@ type EncryptionConfig struct {
 type SystemConfig struct {
 	ImageRef       string            `json:"image_ref"`            // Container image reference
 	ImageDigest    string            `json:"image_digest"`         // Container image digest (sha256:...)
-	Device         string            `json:"device"`               // Installation device
+	Device         string            `json:"device"`               // Installation device (e.g. /dev/sda, /dev/nvme0n1)
+	DiskID         string            `json:"disk_id,omitempty"`    // Stable disk identifier from /dev/disk/by-id
 	InstallDate    string            `json:"install_date"`         // Installation timestamp
 	KernelArgs     []string          `json:"kernel_args"`          // Custom kernel arguments
 	BootloaderType string            `json:"bootloader_type"`      // Bootloader type (grub2, systemd-boot)

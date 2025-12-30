@@ -194,37 +194,45 @@ func runInteractiveInstall(cmd *cobra.Command, args []string) error {
 
 	// If encryption is enabled, get passphrase
 	if opts.encrypt {
-		passphraseForm := huh.NewForm(
-			huh.NewGroup(
-				huh.NewInput().
-					Title("LUKS Passphrase").
-					Description("Enter the passphrase for disk encryption").
-					EchoMode(huh.EchoModePassword).
-					Value(&opts.passphrase).
-					Validate(func(s string) error {
-						if len(s) < 8 {
-							return fmt.Errorf("passphrase must be at least 8 characters")
-						}
-						return nil
-					}),
+		// Build passphrase form fields
+		passphraseFields := []huh.Field{
+			huh.NewInput().
+				Title("LUKS Passphrase").
+				Description("Enter the passphrase for disk encryption").
+				EchoMode(huh.EchoModePassword).
+				Value(&opts.passphrase).
+				Validate(func(s string) error {
+					if len(s) < 8 {
+						return fmt.Errorf("passphrase must be at least 8 characters")
+					}
+					return nil
+				}),
 
-				huh.NewInput().
-					Title("Confirm Passphrase").
-					Description("Re-enter the passphrase to confirm").
-					EchoMode(huh.EchoModePassword).
-					Value(&opts.passphraseConf).
-					Validate(func(s string) error {
-						if s != opts.passphrase {
-							return fmt.Errorf("passphrases do not match")
-						}
-						return nil
-					}),
+			huh.NewInput().
+				Title("Confirm Passphrase").
+				Description("Re-enter the passphrase to confirm").
+				EchoMode(huh.EchoModePassword).
+				Value(&opts.passphraseConf).
+				Validate(func(s string) error {
+					if s != opts.passphrase {
+						return fmt.Errorf("passphrases do not match")
+					}
+					return nil
+				}),
+		}
 
+		// Only add TPM2 prompt if TPM is available
+		if pkg.IsTPMAvailable() {
+			passphraseFields = append(passphraseFields,
 				huh.NewConfirm().
 					Title("Enable TPM2?").
-					Description("Enroll TPM2 for automatic unlock (if available)").
+					Description("Enroll TPM2 for automatic unlock").
 					Value(&opts.tpm2),
-			),
+			)
+		}
+
+		passphraseForm := huh.NewForm(
+			huh.NewGroup(passphraseFields...),
 		)
 
 		if err := passphraseForm.Run(); err != nil {

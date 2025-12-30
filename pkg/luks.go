@@ -251,6 +251,23 @@ func ValidateInitramfsSupport(targetDir string, tpm2Enabled bool) []string {
 	return warnings
 }
 
+// IsTPMAvailable checks if a TPM device is available on the system
+func IsTPMAvailable() bool {
+	// Check for TPM2 device nodes
+	tpmDevices := []string{
+		"/dev/tpm0",
+		"/dev/tpmrm0",
+	}
+
+	for _, device := range tpmDevices {
+		if _, err := os.Stat(device); err == nil {
+			return true
+		}
+	}
+
+	return false
+}
+
 // GenerateCrypttab generates /etc/crypttab entries for the LUKS devices
 func GenerateCrypttab(devices []*LUKSDevice, tpm2Enabled bool) string {
 	var lines []string

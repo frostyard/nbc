@@ -688,6 +688,31 @@ OVERLAY_CHECK=$(timeout 30 incus exec ${BOOT_VM_NAME} -- bash -c "
     fi
 
     echo ''
+    echo '=== Checking .etc.lower content ==='
+    # Unmount tmpfs to see actual .etc.lower content
+    if mountpoint -q /.etc.lower 2>/dev/null; then
+        echo 'Temporarily unmounting tmpfs to check .etc.lower content...'
+        umount /.etc.lower 2>/dev/null || true
+    fi
+
+    if [ -d /.etc.lower ]; then
+        FILE_COUNT=\$(ls -A /.etc.lower 2>/dev/null | wc -l)
+        if [ \$FILE_COUNT -gt 0 ]; then
+            echo \"✓ .etc.lower contains \$FILE_COUNT entries (container's /etc)\"
+            echo '  Sample files:'
+            ls -1 /.etc.lower 2>/dev/null | head -5 | sed 's/^/    /'
+        else
+            echo '✗ .etc.lower is empty (BUG: should contain container /etc)'
+            exit 1
+        fi
+        # Remount tmpfs to hide it again
+        mount -t tmpfs -o size=0,mode=000 tmpfs /.etc.lower 2>/dev/null || true
+    else
+        echo '✗ .etc.lower directory does not exist (BUG: should be created during install)'
+        exit 1
+    fi
+
+    echo ''
     echo '=== Checking hidden lower directory ==='
     if mountpoint -q /.etc.lower 2>/dev/null; then
         echo '✓ Lower directory is hidden (tmpfs mounted)'

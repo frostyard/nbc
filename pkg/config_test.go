@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -49,10 +50,10 @@ func TestInstallTmpfilesConfig(t *testing.T) {
 		}
 
 		// Verify content contains the marker creation line
-		if !contains(string(content), "/run/nbc-booted") {
+		if !strings.Contains(string(content), "/run/nbc-booted") {
 			t.Error("tmpfiles.d config should reference /run/nbc-booted")
 		}
-		if !contains(string(content), "f /run/nbc-booted") {
+		if !strings.Contains(string(content), "f /run/nbc-booted") {
 			t.Error("tmpfiles.d config should use 'f' type for file creation")
 		}
 	})
@@ -150,7 +151,7 @@ func TestSystemConfig(t *testing.T) {
 		}
 
 		// Verify encryption field is omitted from JSON
-		if contains(string(data), "encryption") {
+		if strings.Contains(string(data), "encryption") {
 			t.Error("encryption field should be omitted when nil")
 		}
 	})
@@ -200,18 +201,4 @@ func TestWriteSystemConfigToTarget(t *testing.T) {
 			t.Errorf("ImageRef mismatch: got %q, want %q", parsed.ImageRef, config.ImageRef)
 		}
 	})
-}
-
-// Helper function
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

@@ -135,7 +135,20 @@ incus exec ${VM_NAME} -- bash -c "
     mount \$ROOT /mnt/check
     [ -f /mnt/check/etc/nbc/config.json ] && echo '✓ Config exists' || exit 1
     [ -d /mnt/check/usr/lib/dracut/modules.d/95etc-overlay ] && echo '✓ Dracut module exists' || exit 1
-    [ -d /mnt/check/.etc.lower ] && echo '✓ .etc.lower directory exists' || exit 1
+
+    # Verify .etc.lower exists and has content
+    if [ -d /mnt/check/.etc.lower ]; then
+        FILE_COUNT=\$(ls -A /mnt/check/.etc.lower | wc -l)
+        if [ \$FILE_COUNT -gt 0 ]; then
+            echo \"✓ .etc.lower directory exists with \$FILE_COUNT entries\"
+        else
+            echo '✗ .etc.lower directory is empty!'
+            exit 1
+        fi
+    else
+        echo '✗ .etc.lower directory missing'
+        exit 1
+    fi
 
     # Verify machine-id is set to uninitialized
     if [ -f /mnt/check/etc/machine-id ]; then

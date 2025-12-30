@@ -135,6 +135,7 @@ func CheckRequiredTools() error {
 		"umount",
 		"blkid",
 		"partprobe",
+		"rsync",
 	}
 
 	for _, tool := range tools {
@@ -314,8 +315,17 @@ func (b *BootcInstaller) Install() error {
 	}
 
 	// Prepare /etc/machine-id for first boot on read-only root
+	// IMPORTANT: Must be done BEFORE PopulateEtcLower so the lower layer
+	// contains the "uninitialized" machine-id for systemd first-boot
 	if err := PrepareMachineID(b.MountPoint); err != nil {
 		return fmt.Errorf("failed to prepare machine-id: %w", err)
+	}
+
+	// Populate /.etc.lower with container's /etc for overlay lower layer
+	// This must be done after PrepareMachineID to ensure lower layer has
+	// the correct "uninitialized" machine-id for first-boot initialization
+	if err := PopulateEtcLower(b.MountPoint, b.DryRun); err != nil {
+		return fmt.Errorf("failed to populate .etc.lower: %w", err)
 	}
 
 	// Install tmpfiles.d config for /run/nbc-booted marker

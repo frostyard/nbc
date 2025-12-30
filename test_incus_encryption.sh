@@ -242,6 +242,7 @@ incus exec ${VM_NAME} -- bash -c "
             grep -A5 'encryption' /mnt/test-root/etc/nbc/config.json | sed 's/^/  /'
         else
             echo '✗ Encryption not marked as enabled in config'
+            exit 1
         fi
     fi
 
@@ -249,7 +250,13 @@ incus exec ${VM_NAME} -- bash -c "
     echo 'Checking read-only root filesystem setup...'
     # Check .etc.lower directory exists
     if [ -d /mnt/test-root/.etc.lower ]; then
-        echo '✓ .etc.lower directory exists (for etc overlay)'
+        FILE_COUNT=$(ls -A /mnt/test-root/.etc.lower | wc -l)
+        if [ $FILE_COUNT -gt 0 ]; then
+            echo "✓ .etc.lower directory exists with $FILE_COUNT entries -- for etc overlay"
+        else
+            echo '✗ .etc.lower directory is empty!'
+            exit 1
+        fi
     else
         echo '✗ .etc.lower directory missing'
         exit 1
@@ -294,6 +301,7 @@ incus exec ${VM_NAME} -- bash -c "
                     grep 'rd.luks' \"\$entry\" | sed 's/^/    /'
                 else
                     echo '  ✗ rd.luks.uuid NOT found'
+                    exit 1
                 fi
 
                 if grep -q 'rd.luks.name' \"\$entry\"; then
@@ -327,6 +335,7 @@ incus exec ${VM_NAME} -- bash -c "
             echo '  ✓ rd.luks.uuid found in GRUB config'
         else
             echo '  ✗ rd.luks.uuid NOT found in GRUB config'
+            exit 1
         fi
     fi
 

@@ -669,8 +669,17 @@ func (u *SystemUpdater) Update() error {
 	}
 
 	// Prepare /etc/machine-id for first boot on read-only root
+	// IMPORTANT: Must be done BEFORE PopulateEtcLower so the lower layer
+	// contains the "uninitialized" machine-id for systemd first-boot
 	if err := PrepareMachineID(u.Config.MountPoint); err != nil {
 		return fmt.Errorf("failed to prepare machine-id: %w", err)
+	}
+
+	// Populate /.etc.lower with new container's /etc for overlay lower layer
+	// This must be done after PrepareMachineID to ensure lower layer has
+	// the correct "uninitialized" machine-id for first-boot initialization
+	if err := PopulateEtcLower(u.Config.MountPoint, u.Config.DryRun); err != nil {
+		return fmt.Errorf("failed to populate .etc.lower: %w", err)
 	}
 
 	// Install tmpfiles.d config for /run/nbc-booted marker
@@ -699,10 +708,11 @@ func (u *SystemUpdater) Update() error {
 		if err != nil {
 			p.Warning("failed to read existing config: %v", err)
 		} else {
-			// Update the image reference, digest, and device
+			// Update the image reference and digest
 			existingConfig.ImageRef = u.Config.ImageRef
 			existingConfig.ImageDigest = u.Config.ImageDigest
-			existingConfig.Device = u.Config.Device
+			// NOTE: Do NOT update Device field - device names can change between boots
+			// due to enumeration order. The disk_id field provides stable identification.
 
 			// Update or add disk ID (migration path for older installations)
 			diskIDUpdated := false

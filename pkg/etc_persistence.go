@@ -102,6 +102,64 @@ func InstallEtcMountUnit(targetDir string, dryRun bool) error {
 	return SetupEtcPersistence(targetDir, dryRun)
 }
 
+// PopulateEtcLower copies the container's /etc to /.etc.lower for use as the overlay lower layer.
+// This must be called after container extraction to ensure the dracut etc-overlay module
+// finds a populated /.etc.lower directory on first boot.
+//
+// The dracut module checks if /.etc.lower exists and has content:
+// - If it exists with content: uses it as the overlay lowerdir
+// - If it's empty or missing: moves /etc to /.etc.lower and uses it
+//
+// By populating /.etc.lower during install/update, we ensure consistent behavior
+// and the container's /etc is preserved as the read-only base layer.
+func PopulateEtcLower(targetDir string, dryRun bool) error {
+	if dryRun {
+		fmt.Printf("[DRY RUN] Would populate /.etc.lower with container /etc\n")
+		return nil
+	}
+
+	fmt.Println("  Populating /.etc.lower with container /etc...")
+
+	etcSource := filepath.Join(targetDir, "etc")
+	etcLowerDest := filepath.Join(targetDir, ".etc.lower")
+
+	// Verify source /etc exists and has content
+	if _, err := os.Stat(etcSource); os.IsNotExist(err) {
+		return fmt.Errorf("/etc does not exist at %s", etcSource)
+	}
+
+	entries, err := os.ReadDir(etcSource)
+	if err != nil {
+		return fmt.Errorf("failed to read /etc directory: %w", err)
+	}
+	if len(entries) == 0 {
+		return fmt.Errorf("/etc is empty at %s", etcSource)
+	}
+
+	// Create /.etc.lower if it doesn't exist
+	if err := os.MkdirAll(etcLowerDest, 0755); err != nil {
+		return fmt.Errorf("failed to create .etc.lower directory: %w", err)
+	}
+
+	// Use rsync to copy /etc to /.etc.lower
+	cmd := exec.Command("rsync", "-a", "--delete", etcSource+"/", etcLowerDest+"/")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to populate .etc.lower: %w\nOutput: %s", err, string(output))
+	}
+
+	// Verify /.etc.lower has content
+	lowerEntries, err := os.ReadDir(etcLowerDest)
+	if err != nil {
+		return fmt.Errorf("failed to verify .etc.lower: %w", err)
+	}
+	if len(lowerEntries) == 0 {
+		return fmt.Errorf(".etc.lower is empty after copy")
+	}
+
+	fmt.Printf("  Populated /.etc.lower with %d entries from container /etc\n", len(lowerEntries))
+	return nil
+}
+
 // SavePristineEtc saves a copy of the pristine /etc after installation
 // This is used to detect user modifications during updates
 func SavePristineEtc(targetDir string, dryRun bool) error {

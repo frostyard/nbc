@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/frostyard/nbc/pkg/testutil"
@@ -277,7 +278,7 @@ func TestIntegration_TmpfilesConfig(t *testing.T) {
 		t.Fatalf("Failed to read tmpfiles.d config: %v", err)
 	}
 
-	if !containsString(string(content), "/run/nbc-booted") {
+	if !strings.Contains(string(content), "/run/nbc-booted") {
 		t.Error("tmpfiles.d config missing /run/nbc-booted reference")
 	}
 }
@@ -342,22 +343,12 @@ func TestIntegration_SystemConfig(t *testing.T) {
 		t.Fatalf("Failed to read config: %v", err)
 	}
 
-	if !containsString(string(data), "ghcr.io/test/bootc:latest") {
+	if !strings.Contains(string(data), "ghcr.io/test/bootc:latest") {
 		t.Error("Config missing image reference")
 	}
-	if !containsString(string(data), "systemd-boot") {
+	if !strings.Contains(string(data), "systemd-boot") {
 		t.Error("Config missing bootloader type")
 	}
-}
-
-// Helper function
-func containsString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 // TestIntegration_ValidateLUKSInitramfs tests LUKS support detection
@@ -380,7 +371,7 @@ func TestIntegration_ValidateLUKSInitramfs(t *testing.T) {
 
 		warnings := ValidateInitramfsSupport(targetDir, false)
 		for _, w := range warnings {
-			if containsString(w, "LUKS initramfs support") {
+			if strings.Contains(w, "LUKS initramfs support") {
 				t.Error("Should not warn when crypt module exists")
 			}
 		}
@@ -445,12 +436,267 @@ func TestIntegration_Crypttab(t *testing.T) {
 		t.Fatalf("Failed to read crypttab: %v", err)
 	}
 
-	if !containsString(string(content), "tpm2-device=auto") {
+	if !strings.Contains(string(content), "tpm2-device=auto") {
 		t.Error("crypttab missing TPM2 option")
 	}
-	if !containsString(string(content), "UUID=test-uuid-root1") {
+	if !strings.Contains(string(content), "UUID=test-uuid-root1") {
 		t.Error("crypttab missing root1 UUID")
 	}
+}
+
+// TestIntegration_PopulateEtcLower tests that .etc.lower is populated during install
+func TestIntegration_PopulateEtcLower_Install(t *testing.T) {
+	testutil.RequireRoot(t)
+	testutil.RequireTools(t, "rsync")
+
+	// Create temporary mount point
+	mountPoint := t.TempDir()
+
+	// Create /etc directory with some files
+	etcDir := filepath.Join(mountPoint, "etc")
+	if err := os.MkdirAll(etcDir, 0755); err != nil {
+		t.Fatalf("Failed to create /etc: %v", err)
+	}
+
+	// Create test files in /etc
+	testFiles := map[string]string{
+		"passwd":      "root:x:0:0:root:/root:/bin/bash\n",
+		"group":       "root:x:0:\n",
+		"os-release":  "NAME=TestOS\nVERSION=1.0\n",
+		"hostname":    "test-host\n",
+		"resolv.conf": "nameserver 8.8.8.8\n",
+	}
+
+	for name, content := range testFiles {
+		path := filepath.Join(etcDir, name)
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to create %s: %v", name, err)
+		}
+	}
+
+	// Create subdirectory with file
+	sshDir := filepath.Join(etcDir, "ssh")
+	if err := os.MkdirAll(sshDir, 0755); err != nil {
+		t.Fatalf("Failed to create ssh dir: %v", err)
+	}
+	keyPath := filepath.Join(sshDir, "ssh_host_rsa_key")
+	if err := os.WriteFile(keyPath, []byte("fake-private-key"), 0600); err != nil {
+		t.Fatalf("Failed to create ssh key: %v", err)
+	}
+
+	// Run PopulateEtcLower
+	if err := PopulateEtcLower(mountPoint, false); err != nil {
+		t.Fatalf("PopulateEtcLower failed: %v", err)
+	}
+
+	// Verify .etc.lower exists and contains all files
+	etcLower := filepath.Join(mountPoint, ".etc.lower")
+	info, err := os.Stat(etcLower)
+	if err != nil {
+		t.Fatalf(".etc.lower does not exist: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatal(".etc.lower is not a directory")
+	}
+
+	// Check all test files were copied
+	for name, expectedContent := range testFiles {
+		path := filepath.Join(etcLower, name)
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Errorf("File %s missing in .etc.lower: %v", name, err)
+			continue
+		}
+		if string(content) != expectedContent {
+			t.Errorf("File %s content mismatch in .etc.lower:\ngot: %q\nwant: %q", name, string(content), expectedContent)
+		}
+	}
+
+	// Check subdirectory and file
+	lowerKeyPath := filepath.Join(etcLower, "ssh", "ssh_host_rsa_key")
+	keyContent, err := os.ReadFile(lowerKeyPath)
+	if err != nil {
+		t.Errorf("SSH key missing in .etc.lower: %v", err)
+	} else if string(keyContent) != "fake-private-key" {
+		t.Error("SSH key content mismatch in .etc.lower")
+	}
+
+	// Verify permissions preserved on private key
+	keyInfo, err := os.Stat(lowerKeyPath)
+	if err != nil {
+		t.Fatalf("Cannot stat key in .etc.lower: %v", err)
+	}
+	if keyInfo.Mode().Perm() != 0600 {
+		t.Errorf("Key permissions not preserved: got %o, want 0600", keyInfo.Mode().Perm())
+	}
+
+	// Count total files in .etc.lower
+	var fileCount int
+	err = filepath.Walk(etcLower, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			fileCount++
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Failed to walk .etc.lower: %v", err)
+	}
+
+	expectedFileCount := len(testFiles) + 1 // +1 for ssh_host_rsa_key
+	if fileCount != expectedFileCount {
+		t.Errorf("File count mismatch in .etc.lower: got %d, want %d", fileCount, expectedFileCount)
+	}
+
+	t.Logf("✓ .etc.lower populated with %d files", fileCount)
+}
+
+// TestIntegration_PopulateEtcLower_Update tests that .etc.lower is repopulated during update
+func TestIntegration_PopulateEtcLower_Update(t *testing.T) {
+	testutil.RequireRoot(t)
+	testutil.RequireTools(t, "rsync")
+
+	mountPoint := t.TempDir()
+
+	// Simulate first installation with original /etc
+	etcDir := filepath.Join(mountPoint, "etc")
+	if err := os.MkdirAll(etcDir, 0755); err != nil {
+		t.Fatalf("Failed to create /etc: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(etcDir, "passwd"), []byte("original-passwd"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(etcDir, "file1"), []byte("original-file1"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create old .etc.lower
+	if err := PopulateEtcLower(mountPoint, false); err != nil {
+		t.Fatalf("Initial PopulateEtcLower failed: %v", err)
+	}
+
+	etcLower := filepath.Join(mountPoint, ".etc.lower")
+
+	// Verify old content exists
+	oldContent, err := os.ReadFile(filepath.Join(etcLower, "passwd"))
+	if err != nil {
+		t.Fatal("Old passwd missing")
+	}
+	if string(oldContent) != "original-passwd" {
+		t.Error("Old passwd content wrong")
+	}
+
+	// Simulate update: change /etc content (new container image)
+	if err := os.WriteFile(filepath.Join(etcDir, "passwd"), []byte("updated-passwd"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Remove file1 from new image
+	if err := os.Remove(filepath.Join(etcDir, "file1")); err != nil {
+		t.Fatal(err)
+	}
+	// Add new file2 in new image
+	if err := os.WriteFile(filepath.Join(etcDir, "file2"), []byte("new-file2"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run PopulateEtcLower again (simulating update)
+	if err := PopulateEtcLower(mountPoint, false); err != nil {
+		t.Fatalf("Update PopulateEtcLower failed: %v", err)
+	}
+
+	// Verify .etc.lower now has updated content
+	newContent, err := os.ReadFile(filepath.Join(etcLower, "passwd"))
+	if err != nil {
+		t.Fatal("Updated passwd missing")
+	}
+	if string(newContent) != "updated-passwd" {
+		t.Errorf("passwd not updated in .etc.lower: got %q, want %q", string(newContent), "updated-passwd")
+	}
+
+	// Verify file1 was removed (rsync --delete)
+	if _, err := os.Stat(filepath.Join(etcLower, "file1")); !os.IsNotExist(err) {
+		t.Error("file1 should have been deleted from .etc.lower")
+	}
+
+	// Verify file2 was added
+	file2Content, err := os.ReadFile(filepath.Join(etcLower, "file2"))
+	if err != nil {
+		t.Error("file2 missing in updated .etc.lower")
+	} else if string(file2Content) != "new-file2" {
+		t.Error("file2 content wrong in .etc.lower")
+	}
+
+	t.Log("✓ .etc.lower successfully updated with new container /etc")
+}
+
+// TestIntegration_EtcLowerWithSymlinks tests symlink handling in .etc.lower
+func TestIntegration_EtcLowerWithSymlinks(t *testing.T) {
+	testutil.RequireRoot(t)
+	testutil.RequireTools(t, "rsync")
+
+	mountPoint := t.TempDir()
+
+	// Create /etc with symlinks
+	etcDir := filepath.Join(mountPoint, "etc")
+	if err := os.MkdirAll(etcDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create target file
+	targetFile := filepath.Join(etcDir, "timezone.real")
+	if err := os.WriteFile(targetFile, []byte("America/New_York"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create symlink
+	symlink := filepath.Join(etcDir, "localtime")
+	if err := os.Symlink("timezone.real", symlink); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create absolute symlink
+	absSymlink := filepath.Join(etcDir, "resolv.conf")
+	if err := os.Symlink("/run/systemd/resolve/stub-resolv.conf", absSymlink); err != nil {
+		t.Fatal(err)
+	}
+
+	// Populate .etc.lower
+	if err := PopulateEtcLower(mountPoint, false); err != nil {
+		t.Fatalf("PopulateEtcLower failed: %v", err)
+	}
+
+	etcLower := filepath.Join(mountPoint, ".etc.lower")
+
+	// Verify relative symlink was copied
+	lowerSymlink := filepath.Join(etcLower, "localtime")
+	info, err := os.Lstat(lowerSymlink)
+	if err != nil {
+		t.Fatalf("localtime symlink missing in .etc.lower: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Error("localtime is not a symlink in .etc.lower")
+	}
+	target, err := os.Readlink(lowerSymlink)
+	if err != nil {
+		t.Fatalf("Cannot read localtime symlink: %v", err)
+	}
+	if target != "timezone.real" {
+		t.Errorf("Symlink target wrong: got %q, want %q", target, "timezone.real")
+	}
+
+	// Verify absolute symlink was copied
+	lowerAbsSymlink := filepath.Join(etcLower, "resolv.conf")
+	absTarget, err := os.Readlink(lowerAbsSymlink)
+	if err != nil {
+		t.Fatalf("Cannot read resolv.conf symlink: %v", err)
+	}
+	if absTarget != "/run/systemd/resolve/stub-resolv.conf" {
+		t.Errorf("Absolute symlink target wrong: got %q", absTarget)
+	}
+
+	t.Log("✓ Symlinks correctly preserved in .etc.lower")
 }
 
 // RequireCommand checks if a command is available

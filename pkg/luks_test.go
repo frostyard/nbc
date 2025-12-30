@@ -264,12 +264,4 @@ func TestIsTPMAvailable(t *testing.T) {
 		}
 	})
 
-	t.Run("checks both device nodes", func(t *testing.T) {
-		// This test verifies the function checks for both /dev/tpm0 and /dev/tpmrm0
-		// The actual implementation checks both device nodes
-		result := IsTPMAvailable()
-
-		// Verify the function returns a boolean
-		_ = result
-	})
 }

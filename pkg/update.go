@@ -691,13 +691,16 @@ func (u *SystemUpdater) Update() error {
 			existingConfig.Device = u.Config.Device
 
 			// Update or add disk ID (migration path for older installations)
+			diskIDUpdated := false
 			if diskID, err := GetDiskID(u.Config.Device); err == nil {
 				if existingConfig.DiskID == "" {
 					p.Message("Adding disk ID to config: %s", diskID)
 					existingConfig.DiskID = diskID
+					diskIDUpdated = true
 				} else if existingConfig.DiskID != diskID {
 					p.Warning("updating disk ID in config (was: %s, now: %s)", existingConfig.DiskID, diskID)
 					existingConfig.DiskID = diskID
+					diskIDUpdated = true
 				}
 			} else if u.Config.Verbose {
 				p.Warning("could not determine disk ID: %v", err)
@@ -706,6 +709,16 @@ func (u *SystemUpdater) Update() error {
 			// Write to target partition
 			if err := WriteSystemConfigToTarget(u.Config.MountPoint, existingConfig, false); err != nil {
 				p.Warning("failed to write config to target: %v", err)
+			}
+
+			// Also update the running system's config if disk ID was added/changed
+			// This ensures the migration happens immediately, not just after reboot
+			if diskIDUpdated {
+				if err := WriteSystemConfig(existingConfig, false); err != nil {
+					p.Warning("failed to update running system config: %v", err)
+				} else {
+					p.Message("Updated running system config with disk ID")
+				}
 			}
 		}
 	}

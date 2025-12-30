@@ -683,33 +683,8 @@ func (u *SystemUpdater) Update() error {
 		return fmt.Errorf("failed to prepare machine-id: %w", err)
 	}
 
-	// Populate /.etc.lower with new container's /etc for overlay lower layer
-	// This must be done after PrepareMachineID to ensure lower layer has
-	// the correct "uninitialized" machine-id for first-boot initialization
-	if err := PopulateEtcLower(u.Config.MountPoint, u.Config.DryRun); err != nil {
-		return fmt.Errorf("failed to populate .etc.lower: %w", err)
-	}
-
-	// Install tmpfiles.d config for /run/nbc-booted marker
-	// This ensures the marker exists after boot on the new root
-	if err := InstallTmpfilesConfig(u.Config.MountPoint, u.Config.DryRun); err != nil {
-		return fmt.Errorf("failed to install tmpfiles config: %w", err)
-	}
-
-	// Step 6: Install new kernel and initramfs if present
-	p.Step(6, "Checking for new kernel and initramfs")
-	if err := u.InstallKernelAndInitramfs(); err != nil {
-		return fmt.Errorf("failed to install kernel/initramfs: %w", err)
-	}
-
-	// Step 7: Update bootloader configuration
-	p.Step(7, "Updating bootloader configuration")
-	if err := u.UpdateBootloader(); err != nil {
-		return fmt.Errorf("failed to update bootloader: %w", err)
-	}
-
-	// Write updated system config to target partition
-	// This must be done before unmounting the target
+	// Write updated system config to /etc BEFORE PopulateEtcLower
+	// This ensures the config is included when /etc is copied to /.etc.lower
 	if !u.Config.DryRun {
 		// Read current config
 		existingConfig, err := ReadSystemConfig()
@@ -738,7 +713,7 @@ func (u *SystemUpdater) Update() error {
 				p.Warning("could not determine disk ID: %v", err)
 			}
 
-			// Write to target partition
+			// Write to target partition's /etc
 			if err := WriteSystemConfigToTarget(u.Config.MountPoint, existingConfig, false); err != nil {
 				p.Warning("failed to write config to target: %v", err)
 			}
@@ -753,6 +728,47 @@ func (u *SystemUpdater) Update() error {
 				}
 			}
 		}
+	}
+
+	// Populate /.etc.lower with new container's /etc for overlay lower layer
+	// This copies /etc (including the config we just wrote) to /.etc.lower
+	if err := PopulateEtcLower(u.Config.MountPoint, u.Config.DryRun); err != nil {
+		return fmt.Errorf("failed to populate .etc.lower: %w", err)
+	}
+
+	// Delete /etc/nbc from the root filesystem to prevent dracut from copying it
+	// to the overlay upper layer at boot. The config is now safely in /.etc.lower.
+	// Also remove any old /etc/nbc from the overlay upper layer on /var.
+	if !u.Config.DryRun {
+		etcNbcPath := filepath.Join(u.Config.MountPoint, "etc", "nbc")
+		if err := os.RemoveAll(etcNbcPath); err != nil && !os.IsNotExist(err) {
+			p.Warning("failed to remove /etc/nbc: %v", err)
+		}
+
+		overlayUpperNbc := filepath.Join(u.Config.MountPoint, "var", "lib", "nbc", "etc-overlay", "upper", "nbc")
+		if err := os.RemoveAll(overlayUpperNbc); err != nil && !os.IsNotExist(err) {
+			p.Warning("failed to remove old /etc/nbc from overlay upper: %v", err)
+		} else if err == nil {
+			p.Message("Removed old /etc/nbc from overlay upper layer")
+		}
+	}
+
+	// Install tmpfiles.d config for /run/nbc-booted marker
+	// This ensures the marker exists after boot on the new root
+	if err := InstallTmpfilesConfig(u.Config.MountPoint, u.Config.DryRun); err != nil {
+		return fmt.Errorf("failed to install tmpfiles config: %w", err)
+	}
+
+	// Step 6: Install new kernel and initramfs if present
+	p.Step(6, "Checking for new kernel and initramfs")
+	if err := u.InstallKernelAndInitramfs(); err != nil {
+		return fmt.Errorf("failed to install kernel/initramfs: %w", err)
+	}
+
+	// Step 7: Update bootloader configuration
+	p.Step(7, "Updating bootloader configuration")
+	if err := u.UpdateBootloader(); err != nil {
+		return fmt.Errorf("failed to update bootloader: %w", err)
 	}
 
 	return nil

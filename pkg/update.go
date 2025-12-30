@@ -708,10 +708,11 @@ func (u *SystemUpdater) Update() error {
 		if err != nil {
 			p.Warning("failed to read existing config: %v", err)
 		} else {
-			// Update the image reference, digest, and device
+			// Update the image reference and digest
 			existingConfig.ImageRef = u.Config.ImageRef
 			existingConfig.ImageDigest = u.Config.ImageDigest
-			existingConfig.Device = u.Config.Device
+			// NOTE: Do NOT update Device field - device names can change between boots
+			// due to enumeration order. The disk_id field provides stable identification.
 
 			// Update or add disk ID (migration path for older installations)
 			diskIDUpdated := false

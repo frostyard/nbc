@@ -408,8 +408,8 @@ func SetupSystemDirectories(targetDir string) error {
 		"run",
 		"tmp",
 		"var/tmp",
-		"boot/efi",
-		".etc.lower", // Overlay lower layer for /etc (used by dracut etc-overlay module)
+		"boot",
+		// Note: .etc.lower is populated separately by PopulateEtcLower()
 		// Common bind-mount targets - must exist on ro root for bind mounts to work
 		// These may be bind-mounted from /var (e.g., /home -> /var/home)
 		"mnt",

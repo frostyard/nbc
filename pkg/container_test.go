@@ -397,8 +397,8 @@ func TestSetupSystemDirectories(t *testing.T) {
 		"run",
 		"tmp",
 		"var/tmp",
-		"boot/efi",
-		".etc.lower",
+		"boot",
+		// Note: .etc.lower is now created by PopulateEtcLower(), not SetupSystemDirectories()
 		"mnt",
 		"media",
 		"opt",

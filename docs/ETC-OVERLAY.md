@@ -24,11 +24,12 @@ This approach uses Linux's overlayfs filesystem to layer a writable directory on
 
 When the system boots:
 
-1. **Dracut module** (`95etc-overlay`) runs during initramfs, before pivot_root
-2. Original `/etc` is moved to `/.etc.lower` (hidden by tmpfs mount)
-3. Overlayfs mounts over `/etc` with the container's `/etc` as lower layer
+1. **Installation/Update**: `nbc` populates `/.etc.lower` with the container's `/etc`
+2. **Dracut module** (`95etc-overlay`) runs during initramfs, before pivot_root
+3. Overlayfs mounts over `/etc` with `/.etc.lower` as the lower layer
 4. User writes go to `/var/lib/nbc/etc-overlay/upper`
 5. Reads see merged view: user modifications overlay container files
+6. `/.etc.lower` is hidden by a tmpfs mount to prevent accidental modification
 
 ### Kernel Parameters
 
@@ -336,12 +337,12 @@ For read-only root to work with systemd's first-boot detection:
 On first boot:
 
 - Overlay directories are created automatically if missing
-- Original `/etc` is moved to `/.etc.lower`
+- `/.etc.lower` contains the container's `/etc` (populated during install/update)
 - System generates `/etc/machine-id` (written to overlay upper)
 
 ### Hidden Lower Layer
 
-The original `/etc` at `/.etc.lower` is hidden by an empty tmpfs mount to:
+The container's `/etc` at `/.etc.lower` is hidden by an empty tmpfs mount to:
 
 - Prevent confusion from seeing duplicate `/etc` contents
 - Avoid accidental modifications to the read-only layer

@@ -9,6 +9,21 @@ nbc is a Go-based tool for installing bootc (bootable container) systems to disk
 - Bootloader installation (GRUB2 and systemd-boot)
 - System configuration for immutable/atomic OS deployments
 
+## CRITICAL: Complete All Changes Before Finishing
+
+**IMPORTANT**: Before marking any task as complete or ending your turn:
+
+1. **Run `make fmt`** - Format all code
+2. **Run `make lint`** - Check for linting issues and fix them
+3. **Run appropriate tests**:
+   - `make test-unit` for unit tests (fast, during development)
+   - `make test-integration` for integration tests (before committing)
+   - `make test` to run all tests
+4. **Verify all tests pass** - Do not complete with failing tests
+5. **Fix any issues** found by the above steps
+
+**Never complete a feature or change without running these checks.** This ensures code quality and prevents breaking changes from being committed.
+
 ## Critical: Install and Update Parity
 
 **IMPORTANT**: nbc has TWO code paths that must stay in sync:
@@ -27,9 +42,41 @@ Examples of things that must be kept in sync:
 
 When modifying installation logic, always search for the equivalent code in `update.go` and update it accordingly. The `buildKernelCmdline()` function in `update.go` must match the kernel cmdline logic in `bootloader.go`.
 
-## Critical: Run Linter Before Committing
+## Critical: Use Makefile for Development Tasks
 
-**IMPORTANT**: Always run `make lint` before committing changes.
+**IMPORTANT**: Always use the Makefile targets for development tasks. Do NOT run `go test`, `go fmt`, or linter commands directly.
+
+### Required Makefile Targets
+
+- **`make fmt`**: Format all Go code (ALWAYS run before committing)
+- **`make lint`**: Run linter checks (ALWAYS run before committing)
+- **`make test`**: Run all tests
+- **`make test-unit`**: Run only unit tests (no root required)
+- **`make test-integration`**: Run integration tests (requires root, handles sudo automatically)
+- **`make test-all`**: Run unit tests followed by integration tests
+- **`make build`**: Build the binary
+
+### Testing Guidelines
+
+When implementing or fixing features:
+
+1. Write unit tests in `*_test.go` files alongside the code
+2. Add integration tests for disk/partition operations in `pkg/integration_test.go`
+3. Update Incus tests in `test_incus*.sh` for end-to-end validation
+4. Run `make test-unit` during development (fast, no root needed)
+5. Run `make test-integration` before committing (slower, requires root)
+6. Run `make lint` and `make fmt` before every commit
+
+**Never** run `go test ./...` directly - use `make test` or specific targets like `make test-unit`.
+
+## Critical: Run Linter and Formatter Before Committing
+
+**IMPORTANT**: Always run BOTH commands before committing changes:
+
+```bash
+make fmt   # Format code
+make lint  # Check for issues
+```
 
 The linter enforces Go best practices including:
 
@@ -44,6 +91,7 @@ Fix all linter issues before creating commits.
 ### General Go Practices
 
 - Follow standard Go formatting (use `gofmt`)
+- **Prefer Go standard library over custom implementations** - use `strings.Contains()` instead of custom helper functions
 - Use meaningful variable names (avoid single-letter variables except in short loops)
 - Add error context with `fmt.Errorf("context: %w", err)` for error wrapping
 - Error strings should not end with punctuation or newlines

@@ -313,6 +313,12 @@ func (b *BootcInstaller) Install() error {
 		return fmt.Errorf("failed to setup directories: %w", err)
 	}
 
+	// Populate /.etc.lower with container's /etc for overlay lower layer
+	// This must be done after container extraction and before SavePristineEtc
+	if err := PopulateEtcLower(b.MountPoint, b.DryRun); err != nil {
+		return fmt.Errorf("failed to populate .etc.lower: %w", err)
+	}
+
 	// Prepare /etc/machine-id for first boot on read-only root
 	if err := PrepareMachineID(b.MountPoint); err != nil {
 		return fmt.Errorf("failed to prepare machine-id: %w", err)

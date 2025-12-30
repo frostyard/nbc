@@ -5,6 +5,7 @@ go 1.24.2
 require (
 	github.com/charmbracelet/fang v0.4.4
 	github.com/charmbracelet/huh v0.8.0
+	github.com/docker/docker v28.5.2+incompatible
 	github.com/google/go-containerregistry v0.20.7
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
@@ -41,7 +42,6 @@ require (
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/cli v29.0.3+incompatible // indirect
 	github.com/docker/distribution v2.8.3+incompatible // indirect
-	github.com/docker/docker v28.5.2+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.9.3 // indirect
 	github.com/docker/go-connections v0.5.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect

@@ -3,6 +3,7 @@ package pkg
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -17,8 +18,11 @@ import (
 //
 // - Device names like /dev/nvme0n1 or /dev/sda can change between boots
 // - The RUNNING SYSTEM uses UUIDs everywhere (kernel cmdline, fstab, bootloader)
-// - Device names are only used during install/update operations, not at boot time
-// - Auto-detection reads the device from /etc/nbc/config.json (set during install)
+// - Device names are only used during install/update operations, not at boot time. Auto-detection now works by:
+//   1. Reading kernel cmdline to find active root partition (root=UUID=... or root=/dev/mapper/...)
+//   2. For LUKS: Using cryptsetup status to find backing device
+//   3. Extracting parent disk from partition path
+//   4. Verifying against stored disk ID in /etc/nbc/config.json (set during install)
 // - Disk ID from /dev/disk/by-id is stored and verified to detect disk replacement
 // - For encrypted systems, device names map to /dev/mapper/<name> at runtime
 //
@@ -60,60 +64,94 @@ func GetBootDeviceFromPartition(partition string) (string, error) {
 	return "/dev/" + deviceName, nil
 }
 
-// GetCurrentBootDevice determines the disk device that the system booted from
-func GetCurrentBootDevice() (string, error) {
-	// First, try to read the device from the system config
-	// This is the most reliable method, especially for encrypted systems
-	config, err := ReadSystemConfig()
-	if err == nil && config.Device != "" {
-		// Verify the device exists
-		if _, err := os.Stat(config.Device); err == nil {
-			// Verify disk ID if available
-			if config.DiskID != "" {
-				match, verifyErr := VerifyDiskID(config.Device, config.DiskID)
-				if verifyErr != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to verify disk ID: %v\n", verifyErr)
-				} else if !match {
-					actualID, _ := GetDiskID(config.Device)
-					fmt.Fprintf(os.Stderr, "Warning: disk ID mismatch!\n")
-					fmt.Fprintf(os.Stderr, "  Device: %s\n", config.Device)
-					fmt.Fprintf(os.Stderr, "  Expected disk ID: %s\n", config.DiskID)
-					fmt.Fprintf(os.Stderr, "  Actual disk ID:   %s\n", actualID)
-					fmt.Fprintf(os.Stderr, "  This may indicate the wrong disk or disk replacement.\n")
-					fmt.Fprintf(os.Stderr, "  Proceeding with caution - verify before updating!\n")
-				}
+// getLUKSBackingDevice gets the underlying physical device for a LUKS mapper device
+// For example: /dev/mapper/root1 -> /dev/nvme0n1p2
+func getLUKSBackingDevice(mapperDevice string) (string, error) {
+	// Extract mapper name (e.g., "root1" from "/dev/mapper/root1")
+	mapperName := strings.TrimPrefix(mapperDevice, "/dev/mapper/")
+
+	// Use cryptsetup status to get device info
+	cmd := exec.Command("cryptsetup", "status", mapperName)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get cryptsetup status for %s: %w", mapperName, err)
+	}
+
+	// Parse output to find "device:" line
+	// Example line: "  device:  /dev/nvme0n1p3"
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "device:") {
+			// Extract device path after "device:"
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				return parts[1], nil
 			}
-			return config.Device, nil
 		}
 	}
 
-	// Fall back to parsing kernel command line
-	// Get the active root partition
+	return "", fmt.Errorf("could not find device line in cryptsetup status output for %s", mapperName)
+}
+
+// GetCurrentBootDevice determines the disk device that the system booted from
+func GetCurrentBootDevice() (string, error) {
+	// Get the active root partition from kernel command line
 	rootPartition, err := GetActiveRootPartition()
 	if err != nil {
 		return "", fmt.Errorf("failed to determine active root partition: %w", err)
 	}
 
+	var physicalPartition string
+
 	// Handle device mapper paths (encrypted systems)
 	// For /dev/mapper/root1 or /dev/mapper/root2, we need to find the underlying device
 	if strings.HasPrefix(rootPartition, "/dev/mapper/") {
-		// Try to get device from system config (already tried above, but let's be explicit)
-		if config != nil && config.Device != "" {
-			return config.Device, nil
+		// Use cryptsetup to find the backing device
+		backingDevice, err := getLUKSBackingDevice(rootPartition)
+		if err != nil {
+			// Fall back to config file if cryptsetup fails
+			config, configErr := ReadSystemConfig()
+			if configErr == nil && config.Device != "" {
+				if _, statErr := os.Stat(config.Device); statErr == nil {
+					fmt.Fprintf(os.Stderr, "Warning: could not auto-detect device from LUKS (%v), using config: %s\n", err, config.Device)
+					return config.Device, nil
+				}
+			}
+			return "", fmt.Errorf("encrypted root detected (%s) but could not determine backing device: %w", rootPartition, err)
 		}
-		// Cannot determine underlying device without config
-		return "", fmt.Errorf("encrypted root detected (%s) but no system config found - use --device to specify", rootPartition)
+		physicalPartition = backingDevice
+	} else {
+		// Non-encrypted system, use partition directly
+		physicalPartition = rootPartition
 	}
 
-	// Extract the parent device
-	device, err := GetBootDeviceFromPartition(rootPartition)
+	// Extract the parent device from the partition
+	device, err := GetBootDeviceFromPartition(physicalPartition)
 	if err != nil {
-		return "", fmt.Errorf("failed to extract device from partition %s: %w", rootPartition, err)
+		return "", fmt.Errorf("failed to extract device from partition %s: %w", physicalPartition, err)
 	}
 
 	// Verify the device exists
 	if _, err := os.Stat(device); os.IsNotExist(err) {
 		return "", fmt.Errorf("device %s does not exist", device)
+	}
+
+	// Verify against config if available (for disk replacement detection)
+	config, err := ReadSystemConfig()
+	if err == nil && config.DiskID != "" {
+		match, verifyErr := VerifyDiskID(device, config.DiskID)
+		if verifyErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to verify disk ID: %v\n", verifyErr)
+		} else if !match {
+			actualID, _ := GetDiskID(device)
+			fmt.Fprintf(os.Stderr, "Warning: disk ID mismatch!\n")
+			fmt.Fprintf(os.Stderr, "  Auto-detected device: %s\n", device)
+			fmt.Fprintf(os.Stderr, "  Expected disk ID: %s\n", config.DiskID)
+			fmt.Fprintf(os.Stderr, "  Actual disk ID:   %s\n", actualID)
+			fmt.Fprintf(os.Stderr, "  This may indicate the wrong disk or disk replacement.\n")
+			fmt.Fprintf(os.Stderr, "  Proceeding with caution - verify before updating!\n")
+		}
 	}
 
 	return device, nil

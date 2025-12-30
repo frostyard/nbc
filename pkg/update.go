@@ -345,6 +345,14 @@ func (u *SystemUpdater) buildKernelCmdline(rootUUID, varUUID, fsType string, isT
 		kernelCmdline = append(kernelCmdline, "rd.etc.overlay.var=UUID="+varUUID)
 	}
 
+	// HACK: Disable NVMe multipath to ensure stable device naming across reboots
+	// Modern kernels have CONFIG_NVME_MULTIPATH=y by default, causing nvme0/nvme1
+	// to swap between boots due to non-deterministic controller enumeration order.
+	// This is a workaround - ideally we should always use /dev/disk/by-id/* or UUIDs
+	// everywhere and not rely on /dev/nvmeXnY naming at all.
+	// TODO: Audit all code for hardcoded /dev/nvme* paths and migrate to stable identifiers
+	kernelCmdline = append(kernelCmdline, "nvme_core.multipath=N")
+
 	// Add user-specified kernel arguments
 	kernelCmdline = append(kernelCmdline, u.Config.KernelArgs...)
 

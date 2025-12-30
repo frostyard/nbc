@@ -18,7 +18,7 @@ import (
 //
 // - Device names like /dev/nvme0n1 or /dev/sda can change between boots
 // - The RUNNING SYSTEM uses UUIDs everywhere (kernel cmdline, fstab, bootloader)
-// - Device names arworks by:
+// - Device names are only used during install/update operations, not at boot time. Auto-detection now works by:
 //   1. Reading kernel cmdline to find active root partition (root=UUID=... or root=/dev/mapper/...)
 //   2. For LUKS: Using cryptsetup status to find backing device
 //   3. Extracting parent disk from partition path

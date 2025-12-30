@@ -18,7 +18,9 @@ import (
 // - Device names like /dev/nvme0n1 or /dev/sda can change between boots
 // - The RUNNING SYSTEM uses UUIDs everywhere (kernel cmdline, fstab, bootloader)
 // - Device names are only used during install/update operations, not at boot time
-// - Auto-detection reads the device from /etc/nbc/system.json (set during install)// - Disk ID from /dev/disk/by-id is stored and verified to detect disk replacement// - For encrypted systems, device names map to /dev/mapper/<name> at runtime
+// - Auto-detection reads the device from /etc/nbc/system.json (set during install)
+// - Disk ID from /dev/disk/by-id is stored and verified to detect disk replacement
+// - For encrypted systems, device names map to /dev/mapper/<name> at runtime
 //
 // This means the system boots reliably using UUIDs, while install/update commands
 // use device names only during their execution (which is safe since you know the

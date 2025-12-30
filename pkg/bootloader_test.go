@@ -263,7 +263,7 @@ func TestBuildKernelCmdline_BootloaderWithBootMount(t *testing.T) {
 		}
 
 		// Verify boot is referenced by UUID, not mapper device
-		if strings.Contains(cmdlineStr, "/dev/mapper/"+scheme.BootPartition) {
+		if strings.Contains(cmdlineStr, "/dev/mapper/boot") {
 			t.Errorf("Boot partition should not be referenced as mapper device")
 		}
 	})

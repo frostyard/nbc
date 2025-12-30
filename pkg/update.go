@@ -262,7 +262,7 @@ func (u *SystemUpdater) SetLocalImage(layoutPath string, metadata *CachedImageMe
 
 // buildKernelCmdline builds the kernel command line with proper LUKS support if encrypted
 // isTarget indicates if this is for the target (new) root or the active (previous) root
-func (u *SystemUpdater) buildKernelCmdline(rootUUID, varUUID, fsType string, isTarget bool) []string {
+func (u *SystemUpdater) buildKernelCmdline(rootUUID, varUUID, fsType string, isTarget bool) ([]string, error) {
 	var kernelCmdline []string
 
 	if u.Encryption != nil && u.Encryption.Enabled {
@@ -315,10 +315,9 @@ func (u *SystemUpdater) buildKernelCmdline(rootUUID, varUUID, fsType string, isT
 		// Get boot partition UUID (always FAT32, never encrypted)
 		bootUUID, err := GetPartitionUUID(u.Scheme.BootPartition)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to get boot UUID: %v\n", err)
-		} else {
-			kernelCmdline = append(kernelCmdline, "systemd.mount-extra=UUID="+bootUUID+":/boot:vfat:defaults")
+			return nil, fmt.Errorf("failed to get boot UUID: %w", err)
 		}
+		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=UUID="+bootUUID+":/boot:vfat:defaults")
 
 		// Mount /var via systemd.mount-extra using mapper device
 		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=/dev/mapper/var:/var:"+fsType+":defaults")
@@ -332,10 +331,9 @@ func (u *SystemUpdater) buildKernelCmdline(rootUUID, varUUID, fsType string, isT
 		// Get boot partition UUID (always FAT32, never encrypted)
 		bootUUID, err := GetPartitionUUID(u.Scheme.BootPartition)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to get boot UUID: %v\n", err)
-		} else {
-			kernelCmdline = append(kernelCmdline, "systemd.mount-extra=UUID="+bootUUID+":/boot:vfat:defaults")
+			return nil, fmt.Errorf("failed to get boot UUID: %w", err)
 		}
+		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=UUID="+bootUUID+":/boot:vfat:defaults")
 
 		kernelCmdline = append(kernelCmdline, "root=UUID="+rootUUID)
 		kernelCmdline = append(kernelCmdline, "ro")
@@ -350,7 +348,7 @@ func (u *SystemUpdater) buildKernelCmdline(rootUUID, varUUID, fsType string, isT
 	// Add user-specified kernel arguments
 	kernelCmdline = append(kernelCmdline, u.Config.KernelArgs...)
 
-	return kernelCmdline
+	return kernelCmdline, nil
 }
 
 // PrepareUpdate prepares for an update by detecting partitions and determining target
@@ -999,7 +997,10 @@ func (u *SystemUpdater) updateGRUBBootloader() error {
 	}
 
 	// Build kernel command line
-	kernelCmdline := u.buildKernelCmdline(targetUUID, varUUID, fsType, true)
+	kernelCmdline, err := u.buildKernelCmdline(targetUUID, varUUID, fsType, true)
+	if err != nil {
+		return fmt.Errorf("failed to build kernel cmdline: %w", err)
+	}
 
 	// Get OS name from the updated system
 	osName := ParseOSRelease(u.Config.MountPoint)
@@ -1031,7 +1032,10 @@ func (u *SystemUpdater) updateGRUBBootloader() error {
 	activeUUID, _ := GetPartitionUUID(activeRoot)
 
 	// Build previous kernel command line (for the currently active root)
-	previousCmdline := u.buildKernelCmdline(activeUUID, varUUID, fsType, false)
+	previousCmdline, err := u.buildKernelCmdline(activeUUID, varUUID, fsType, false)
+	if err != nil {
+		return fmt.Errorf("failed to build previous kernel cmdline: %w", err)
+	}
 
 	grubCfg := fmt.Sprintf(`set timeout=5
 set default=0
@@ -1105,7 +1109,10 @@ func (u *SystemUpdater) updateSystemdBootBootloader() error {
 	}
 
 	// Build kernel command line
-	kernelCmdline := u.buildKernelCmdline(targetUUID, varUUID, fsType, true)
+	kernelCmdline, err := u.buildKernelCmdline(targetUUID, varUUID, fsType, true)
+	if err != nil {
+		return fmt.Errorf("failed to build kernel cmdline: %w", err)
+	}
 
 	// Get OS name from the updated system
 	osName := ParseOSRelease(u.Config.MountPoint)
@@ -1131,7 +1138,10 @@ options %s
 	}
 
 	// Build previous kernel command line (for the currently active root)
-	previousCmdline := u.buildKernelCmdline(activeUUID, varUUID, fsType, false)
+	previousCmdline, err := u.buildKernelCmdline(activeUUID, varUUID, fsType, false)
+	if err != nil {
+		return fmt.Errorf("failed to build previous kernel cmdline: %w", err)
+	}
 
 	// Create/update rollback boot entry (points to previous system)
 	previousEntry := fmt.Sprintf(`title   %s (Previous)

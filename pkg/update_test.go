@@ -485,7 +485,10 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 			Active: true, // root1 is active, so target is root2
 		}
 
-		cmdline := updater.buildKernelCmdline(root2UUID, varUUID, "ext4", true)
+		cmdline, err := updater.buildKernelCmdline(root2UUID, varUUID, "ext4", true)
+		if err != nil {
+			t.Fatalf("buildKernelCmdline failed: %v", err)
+		}
 		cmdlineStr := strings.Join(cmdline, " ")
 		t.Logf("Generated target cmdline: %s", cmdlineStr)
 
@@ -517,7 +520,10 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 			Active: true, // root1 is active
 		}
 
-		cmdline := updater.buildKernelCmdline(root1UUID, varUUID, "ext4", false)
+		cmdline, err := updater.buildKernelCmdline(root1UUID, varUUID, "ext4", false)
+		if err != nil {
+			t.Fatalf("buildKernelCmdline failed: %v", err)
+		}
 		cmdlineStr := strings.Join(cmdline, " ")
 		t.Logf("Generated active cmdline: %s", cmdlineStr)
 
@@ -561,7 +567,10 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 			},
 		}
 
-		cmdline := updater.buildKernelCmdline(root2UUID, varUUID, "ext4", true)
+		cmdline, err := updater.buildKernelCmdline(root2UUID, varUUID, "ext4", true)
+		if err != nil {
+			t.Fatalf("buildKernelCmdline failed: %v", err)
+		}
 		cmdlineStr := strings.Join(cmdline, " ")
 		t.Logf("Generated encrypted cmdline: %s", cmdlineStr)
 
@@ -596,7 +605,10 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 			Active: true,
 		}
 
-		cmdline := updater.buildKernelCmdline(root2UUID, varUUID, "ext4", true)
+		cmdline, err := updater.buildKernelCmdline(root2UUID, varUUID, "ext4", true)
+		if err != nil {
+			t.Fatalf("buildKernelCmdline failed: %v", err)
+		}
 		cmdlineStr := strings.Join(cmdline, " ")
 
 		// Find the positions of boot and var mount parameters

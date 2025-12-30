@@ -135,6 +135,7 @@ func CheckRequiredTools() error {
 		"umount",
 		"blkid",
 		"partprobe",
+		"rsync",
 	}
 
 	for _, tool := range tools {

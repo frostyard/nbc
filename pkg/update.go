@@ -104,6 +104,17 @@ func findPartitionByUUID(uuid string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
+// findPartitionByLUKSUUID finds a partition device path by its LUKS UUID
+func findPartitionByLUKSUUID(luksUUID string) (string, error) {
+	// blkid can search for LUKS UUID using TYPE and UUID together
+	cmd := exec.Command("blkid", "-t", "UUID="+luksUUID, "-o", "device")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to find partition with LUKS UUID %s: %w", luksUUID, err)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
 // GetInactiveRootPartition returns the inactive root partition given a partition scheme
 func GetInactiveRootPartition(scheme *PartitionScheme) (string, bool, error) {
 	active, err := GetActiveRootPartition()
@@ -685,6 +696,75 @@ func (u *SystemUpdater) Update() error {
 		return fmt.Errorf("failed to setup directories: %w", err)
 	}
 
+	// Mount the /var partition at {MountPoint}/var
+	// This is needed to write config to /var/lib/nbc/state/
+	// The var partition is shared between A/B roots - same partition mounted at /var on running system
+	varMountPoint := filepath.Join(u.Config.MountPoint, "var")
+	varDevice := u.Scheme.VarPartition
+	varLUKSOpened := false // Track if we opened var LUKS (need to close it on cleanup)
+
+	// For encrypted systems, open var LUKS container if not already open
+	if u.Encryption != nil && u.Encryption.Enabled {
+		varMapperPath := "/dev/mapper/var"
+
+		// Check if var LUKS is already open (running system uses it)
+		if _, err := os.Stat(varMapperPath); os.IsNotExist(err) {
+			p.Message("Opening LUKS container for var partition...")
+
+			// Need the raw var partition device (before LUKS)
+			// Find it using VarLUKSUUID from config
+			varLUKSDevice, err := findPartitionByLUKSUUID(u.Encryption.VarLUKSUUID)
+			if err != nil {
+				return fmt.Errorf("failed to find var LUKS partition: %w", err)
+			}
+
+			var opened bool
+
+			// Try TPM2 auto-unlock first if enabled
+			if u.Encryption.TPM2 {
+				_, tpmErr := TryTPM2Unlock(varLUKSDevice, "var")
+				if tpmErr == nil {
+					p.Message("Var LUKS container unlocked via TPM2")
+					opened = true
+				} else {
+					p.Warning("TPM2 unlock for var failed, falling back to passphrase: %v", tpmErr)
+				}
+			}
+
+			// Fall back to passphrase if TPM2 not enabled or failed
+			if !opened {
+				fmt.Print("Enter LUKS passphrase for var partition: ")
+				var passphrase string
+				_, err := fmt.Scanln(&passphrase)
+				if err != nil {
+					return fmt.Errorf("failed to read passphrase: %w", err)
+				}
+
+				_, err = OpenLUKS(varLUKSDevice, "var", passphrase)
+				if err != nil {
+					return fmt.Errorf("failed to open var LUKS container: %w", err)
+				}
+			}
+			varLUKSOpened = true
+		} else {
+			p.Message("Var LUKS container already open at %s", varMapperPath)
+		}
+
+		varDevice = varMapperPath
+	}
+
+	cmd = exec.Command("mount", varDevice, varMountPoint)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to mount var partition: %w\nOutput: %s", err, string(output))
+	}
+	defer func() {
+		_ = exec.Command("umount", varMountPoint).Run()
+		// Close var LUKS if we opened it
+		if varLUKSOpened {
+			_ = CloseLUKS("var")
+		}
+	}()
+
 	// Prepare /etc/machine-id for first boot on read-only root
 	// IMPORTANT: Must be done BEFORE PopulateEtcLower so the lower layer
 	// contains the "uninitialized" machine-id for systemd first-boot
@@ -692,10 +772,15 @@ func (u *SystemUpdater) Update() error {
 		return fmt.Errorf("failed to prepare machine-id: %w", err)
 	}
 
-	// Write updated system config to /etc BEFORE PopulateEtcLower
-	// This ensures the config is included when /etc is copied to /.etc.lower
+	// Populate /.etc.lower with new container's /etc for overlay lower layer
+	if err := PopulateEtcLower(u.Config.MountPoint, u.Config.DryRun); err != nil {
+		return fmt.Errorf("failed to populate .etc.lower: %w", err)
+	}
+
+	// Write updated system config to /var (which persists across updates)
+	// This is done AFTER PopulateEtcLower since config is no longer in /etc
 	if !u.Config.DryRun {
-		// Read current config
+		// Read current config (from new or legacy location)
 		existingConfig, err := ReadSystemConfig()
 		if err != nil {
 			p.Warning("failed to read existing config: %v", err)
@@ -707,58 +792,30 @@ func (u *SystemUpdater) Update() error {
 			// due to enumeration order. The disk_id field provides stable identification.
 
 			// Update or add disk ID (migration path for older installations)
-			diskIDUpdated := false
 			if diskID, err := GetDiskID(u.Config.Device); err == nil {
 				if existingConfig.DiskID == "" {
 					p.Message("Adding disk ID to config: %s", diskID)
 					existingConfig.DiskID = diskID
-					diskIDUpdated = true
 				} else if existingConfig.DiskID != diskID {
 					p.Warning("updating disk ID in config (was: %s, now: %s)", existingConfig.DiskID, diskID)
 					existingConfig.DiskID = diskID
-					diskIDUpdated = true
 				}
 			} else if u.Config.Verbose {
 				p.Warning("could not determine disk ID: %v", err)
 			}
 
-			// Write to target partition's /etc
-			if err := WriteSystemConfigToTarget(u.Config.MountPoint, existingConfig, false); err != nil {
-				p.Warning("failed to write config to target: %v", err)
+			// Write to target's /var partition (already mounted at varMountPoint)
+			// This also handles migration from legacy /etc/nbc location
+			if err := WriteSystemConfigToVar(varMountPoint, existingConfig, false); err != nil {
+				p.Warning("failed to write config to target var: %v", err)
 			}
 
-			// Also update the running system's config if disk ID was added/changed
-			// This ensures the migration happens immediately, not just after reboot
-			if diskIDUpdated {
-				if err := WriteSystemConfig(existingConfig, false); err != nil {
-					p.Warning("failed to update running system config: %v", err)
-				} else {
-					p.Message("Updated running system config with disk ID")
-				}
+			// Update running system's config (migrates from /etc/nbc if needed)
+			if err := WriteSystemConfig(existingConfig, false); err != nil {
+				p.Warning("failed to update running system config: %v", err)
+			} else {
+				p.Message("Updated running system config")
 			}
-		}
-	}
-
-	// Populate /.etc.lower with new container's /etc for overlay lower layer
-	// This copies /etc (including the config we just wrote) to /.etc.lower
-	if err := PopulateEtcLower(u.Config.MountPoint, u.Config.DryRun); err != nil {
-		return fmt.Errorf("failed to populate .etc.lower: %w", err)
-	}
-
-	// Delete /etc/nbc from the root filesystem to prevent dracut from copying it
-	// to the overlay upper layer at boot. The config is now safely in /.etc.lower.
-	// Also remove any old /etc/nbc from the overlay upper layer on /var.
-	if !u.Config.DryRun {
-		etcNbcPath := filepath.Join(u.Config.MountPoint, "etc", "nbc")
-		if err := os.RemoveAll(etcNbcPath); err != nil && !os.IsNotExist(err) {
-			p.Warning("failed to remove /etc/nbc: %v", err)
-		}
-
-		overlayUpperNbc := filepath.Join(u.Config.MountPoint, "var", "lib", "nbc", "etc-overlay", "upper", "nbc")
-		if err := os.RemoveAll(overlayUpperNbc); err != nil && !os.IsNotExist(err) {
-			p.Warning("failed to remove old /etc/nbc from overlay upper: %v", err)
-		} else if err == nil {
-			p.Message("Removed old /etc/nbc from overlay upper layer")
 		}
 	}
 

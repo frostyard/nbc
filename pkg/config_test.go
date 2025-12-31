@@ -157,36 +157,36 @@ func TestSystemConfig(t *testing.T) {
 	})
 }
 
-func TestWriteSystemConfigToTarget(t *testing.T) {
+func TestWriteSystemConfigToVar(t *testing.T) {
 	t.Run("dry run does not create files", func(t *testing.T) {
-		targetDir := t.TempDir()
+		varMountPoint := t.TempDir()
 		config := &SystemConfig{ImageRef: "test:latest"}
 
-		err := WriteSystemConfigToTarget(targetDir, config, true)
+		err := WriteSystemConfigToVar(varMountPoint, config, true)
 		if err != nil {
-			t.Fatalf("WriteSystemConfigToTarget dry run failed: %v", err)
+			t.Fatalf("WriteSystemConfigToVar dry run failed: %v", err)
 		}
 
-		configPath := filepath.Join(targetDir, "etc", "nbc", "config.json")
+		configPath := filepath.Join(varMountPoint, "lib", "nbc", "state", "config.json")
 		if _, err := os.Stat(configPath); !os.IsNotExist(err) {
 			t.Error("dry run should not create config file")
 		}
 	})
 
 	t.Run("creates config file", func(t *testing.T) {
-		targetDir := t.TempDir()
+		varMountPoint := t.TempDir()
 		config := &SystemConfig{
 			ImageRef:       "ghcr.io/test/image:latest",
 			Device:         "/dev/sda",
 			BootloaderType: "grub2",
 		}
 
-		err := WriteSystemConfigToTarget(targetDir, config, false)
+		err := WriteSystemConfigToVar(varMountPoint, config, false)
 		if err != nil {
-			t.Fatalf("WriteSystemConfigToTarget failed: %v", err)
+			t.Fatalf("WriteSystemConfigToVar failed: %v", err)
 		}
 
-		configPath := filepath.Join(targetDir, "etc", "nbc", "config.json")
+		configPath := filepath.Join(varMountPoint, "lib", "nbc", "state", "config.json")
 		content, err := os.ReadFile(configPath)
 		if err != nil {
 			t.Fatalf("failed to read config: %v", err)
@@ -199,6 +199,106 @@ func TestWriteSystemConfigToTarget(t *testing.T) {
 
 		if parsed.ImageRef != config.ImageRef {
 			t.Errorf("ImageRef mismatch: got %q, want %q", parsed.ImageRef, config.ImageRef)
+		}
+	})
+
+	t.Run("sets correct permissions", func(t *testing.T) {
+		varMountPoint := t.TempDir()
+		config := &SystemConfig{ImageRef: "test:latest"}
+
+		err := WriteSystemConfigToVar(varMountPoint, config, false)
+		if err != nil {
+			t.Fatalf("WriteSystemConfigToVar failed: %v", err)
+		}
+
+		// Check directory permissions (0755)
+		dirPath := filepath.Join(varMountPoint, "lib", "nbc", "state")
+		dirInfo, err := os.Stat(dirPath)
+		if err != nil {
+			t.Fatalf("failed to stat directory: %v", err)
+		}
+		if dirInfo.Mode().Perm() != 0755 {
+			t.Errorf("directory permissions mismatch: got %o, want 0755", dirInfo.Mode().Perm())
+		}
+
+		// Check file permissions (0644)
+		filePath := filepath.Join(dirPath, "config.json")
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			t.Fatalf("failed to stat file: %v", err)
+		}
+		if fileInfo.Mode().Perm() != 0644 {
+			t.Errorf("file permissions mismatch: got %o, want 0644", fileInfo.Mode().Perm())
+		}
+	})
+}
+
+func TestVerifyConfigFile(t *testing.T) {
+	t.Run("valid config file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "config.json")
+
+		config := &SystemConfig{ImageRef: "test:latest"}
+		data, _ := json.MarshalIndent(config, "", "  ")
+		if err := os.WriteFile(configPath, data, 0644); err != nil {
+			t.Fatalf("failed to write test config: %v", err)
+		}
+
+		err := verifyConfigFile(configPath)
+		if err != nil {
+			t.Errorf("verifyConfigFile should succeed for valid config: %v", err)
+		}
+	})
+
+	t.Run("invalid JSON", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "config.json")
+
+		if err := os.WriteFile(configPath, []byte("{invalid json}"), 0644); err != nil {
+			t.Fatalf("failed to write test config: %v", err)
+		}
+
+		err := verifyConfigFile(configPath)
+		if err == nil {
+			t.Error("verifyConfigFile should fail for invalid JSON")
+		}
+	})
+
+	t.Run("missing file", func(t *testing.T) {
+		err := verifyConfigFile("/nonexistent/config.json")
+		if err == nil {
+			t.Error("verifyConfigFile should fail for missing file")
+		}
+	})
+}
+
+func TestCleanupLegacyConfig(t *testing.T) {
+	// This test verifies the cleanup logic works correctly
+	// Note: cleanupLegacyConfig uses hardcoded paths, so we can't easily unit test it
+	// The integration tests will verify the full migration path
+	t.Run("function exists and is callable", func(t *testing.T) {
+		// Just verify it doesn't panic when called
+		// In a real system, this would clean up /etc/nbc and overlay paths
+		cleanupLegacyConfig()
+	})
+}
+
+func TestConfigConstants(t *testing.T) {
+	t.Run("new config path is in /var", func(t *testing.T) {
+		if !strings.HasPrefix(SystemConfigDir, "/var/lib/nbc") {
+			t.Errorf("SystemConfigDir should be in /var/lib/nbc, got %s", SystemConfigDir)
+		}
+		if !strings.HasPrefix(SystemConfigFile, "/var/lib/nbc/state") {
+			t.Errorf("SystemConfigFile should be in /var/lib/nbc/state, got %s", SystemConfigFile)
+		}
+	})
+
+	t.Run("legacy paths are in /etc", func(t *testing.T) {
+		if !strings.HasPrefix(LegacySystemConfigDir, "/etc/nbc") {
+			t.Errorf("LegacySystemConfigDir should be /etc/nbc, got %s", LegacySystemConfigDir)
+		}
+		if !strings.HasPrefix(LegacySystemConfigFile, "/etc/nbc") {
+			t.Errorf("LegacySystemConfigFile should be in /etc/nbc, got %s", LegacySystemConfigFile)
 		}
 	})
 }

@@ -330,17 +330,22 @@ fi
 echo -e "${BLUE}=== Test 6: Verify Root Filesystem ===${NC}"
 incus exec ${VM_NAME} -- bash -c "
     mkdir -p /mnt/test-root
+    mkdir -p /mnt/test-var
     ROOT_PART=\$(lsblk -nlo NAME,PARTLABEL $TEST_DISK | grep 'root1' | head -1 | awk '{print \"/dev/\" \$1}')
+    VAR_PART=\$(lsblk -nlo NAME,PARTLABEL $TEST_DISK | grep 'var' | head -1 | awk '{print \"/dev/\" \$1}')
     mount \$ROOT_PART /mnt/test-root
+    mount \$VAR_PART /mnt/test-var
     echo 'Root filesystem structure:'
     ls -la /mnt/test-root/ | head -20
     echo ''
-    echo 'Nbc config:'
-    cat /mnt/test-root/etc/nbc/config.json 2>/dev/null || echo 'Config not found'
+    echo 'Nbc config (in /var/lib/nbc/state/):'
+    cat /mnt/test-var/lib/nbc/state/config.json 2>/dev/null || echo 'Config not found'
     echo ''
     echo 'fstab:'
     cat /mnt/test-root/etc/fstab
+    umount /mnt/test-var
     umount /mnt/test-root
+    rmdir /mnt/test-var
     rmdir /mnt/test-root
 " 2>&1 | sed 's/^/  /'
 echo -e "${GREEN}✓ Root filesystem verified${NC}\n"
@@ -348,29 +353,22 @@ echo -e "${GREEN}✓ Root filesystem verified${NC}\n"
 # Test 7: Update to new version (A/B update)
 echo -e "${BLUE}=== Test 7: System Update ===${NC}"
 echo "Performing update (writing to inactive partition)..."
-echo "Note: Update requires config from /etc/nbc and pristine /etc from /var/lib/nbc"
+echo "Note: Update reads config from /var/lib/nbc/state and pristine /etc from /var/lib/nbc"
 
 # Update needs to read:
-# 1. /etc/nbc/config.json from the active root partition
+# 1. /var/lib/nbc/state/config.json from the var partition
 # 2. /var/lib/nbc/etc.pristine from the var partition
-# Mount both partitions and bind-mount the necessary directories
-echo "Mounting active partitions to access config and pristine /etc..."
+# Mount var partition and bind-mount the necessary directories
+echo "Mounting var partition to access config and pristine /etc..."
 incus exec ${VM_NAME} -- bash -c "
-    ROOT1=\$(lsblk -nlo NAME,PARTLABEL $TEST_DISK | grep 'root1' | head -1 | awk '{print \"/dev/\" \$1}')
     VAR_PART=\$(lsblk -nlo NAME,PARTLABEL $TEST_DISK | grep 'var' | head -1 | awk '{print \"/dev/\" \$1}')
 
-    mkdir -p /mnt/active-root
     mkdir -p /mnt/active-var
 
-    # Mount the active root and var partitions
-    mount \$ROOT1 /mnt/active-root
+    # Mount the var partition
     mount \$VAR_PART /mnt/active-var
 
-    # Bind mount the config directory to make it accessible at /etc/nbc
-    mkdir -p /etc/nbc
-    mount --bind /mnt/active-root/etc/nbc /etc/nbc
-
-    # Bind mount the pristine /etc directory to make it accessible at /var/lib/nbc
+    # Bind mount /var/lib/nbc to make config and pristine /etc accessible
     mkdir -p /var/lib/nbc
     mount --bind /mnt/active-var/lib/nbc /var/lib/nbc
 " 2>&1 | sed 's/^/  /'
@@ -386,11 +384,8 @@ set -e
 # Cleanup mounts
 incus exec ${VM_NAME} -- bash -c "
     umount /var/lib/nbc 2>/dev/null || true
-    umount /etc/nbc 2>/dev/null || true
     umount /mnt/active-var 2>/dev/null || true
-    umount /mnt/active-root 2>/dev/null || true
     rmdir /mnt/active-var 2>/dev/null || true
-    rmdir /mnt/active-root 2>/dev/null || true
 " 2>/dev/null || true
 
 if [ $UPDATE_EXIT -eq 0 ]; then

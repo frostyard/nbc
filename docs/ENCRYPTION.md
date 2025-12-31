@@ -226,7 +226,7 @@ These names are used in:
 
 ### System Configuration Storage
 
-Encryption configuration is stored in `/etc/nbc/config.json` to support A/B updates:
+Encryption configuration is stored in `/var/lib/nbc/state/config.json` to support A/B updates:
 
 ```json
 {
@@ -252,7 +252,7 @@ This configuration is:
 
 When updating an encrypted system, `nbc update` automatically:
 
-1. Reads the encryption config from `/etc/nbc/config.json`
+1. Reads the encryption config from `/var/lib/nbc/state/config.json`
 2. Determines which root partition is active and which is the target
 3. Generates kernel command lines with the correct LUKS UUIDs:
    - **Target root**: Uses root1 or root2 LUKS UUID based on which is inactive

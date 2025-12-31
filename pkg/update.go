@@ -104,6 +104,17 @@ func findPartitionByUUID(uuid string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
+// findPartitionByLUKSUUID finds a partition device path by its LUKS UUID
+func findPartitionByLUKSUUID(luksUUID string) (string, error) {
+	// blkid can search for LUKS UUID using TYPE and UUID together
+	cmd := exec.Command("blkid", "-t", "UUID="+luksUUID, "-o", "device")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to find partition with LUKS UUID %s: %w", luksUUID, err)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
 // GetInactiveRootPartition returns the inactive root partition given a partition scheme
 func GetInactiveRootPartition(scheme *PartitionScheme) (string, bool, error) {
 	active, err := GetActiveRootPartition()
@@ -690,11 +701,56 @@ func (u *SystemUpdater) Update() error {
 	// The var partition is shared between A/B roots - same partition mounted at /var on running system
 	varMountPoint := filepath.Join(u.Config.MountPoint, "var")
 	varDevice := u.Scheme.VarPartition
+	varLUKSOpened := false // Track if we opened var LUKS (need to close it on cleanup)
 
-	// For encrypted systems, var LUKS is already open at /dev/mapper/var
-	// because the running system is using it
+	// For encrypted systems, open var LUKS container if not already open
 	if u.Encryption != nil && u.Encryption.Enabled {
-		varDevice = "/dev/mapper/var"
+		varMapperPath := "/dev/mapper/var"
+
+		// Check if var LUKS is already open (running system uses it)
+		if _, err := os.Stat(varMapperPath); os.IsNotExist(err) {
+			p.Message("Opening LUKS container for var partition...")
+
+			// Need the raw var partition device (before LUKS)
+			// Find it using VarLUKSUUID from config
+			varLUKSDevice, err := findPartitionByLUKSUUID(u.Encryption.VarLUKSUUID)
+			if err != nil {
+				return fmt.Errorf("failed to find var LUKS partition: %w", err)
+			}
+
+			var opened bool
+
+			// Try TPM2 auto-unlock first if enabled
+			if u.Encryption.TPM2 {
+				_, tpmErr := TryTPM2Unlock(varLUKSDevice, "var")
+				if tpmErr == nil {
+					p.Message("Var LUKS container unlocked via TPM2")
+					opened = true
+				} else {
+					p.Warning("TPM2 unlock for var failed, falling back to passphrase: %v", tpmErr)
+				}
+			}
+
+			// Fall back to passphrase if TPM2 not enabled or failed
+			if !opened {
+				fmt.Print("Enter LUKS passphrase for var partition: ")
+				var passphrase string
+				_, err := fmt.Scanln(&passphrase)
+				if err != nil {
+					return fmt.Errorf("failed to read passphrase: %w", err)
+				}
+
+				_, err = OpenLUKS(varLUKSDevice, "var", passphrase)
+				if err != nil {
+					return fmt.Errorf("failed to open var LUKS container: %w", err)
+				}
+			}
+			varLUKSOpened = true
+		} else {
+			p.Message("Var LUKS container already open at %s", varMapperPath)
+		}
+
+		varDevice = varMapperPath
 	}
 
 	cmd = exec.Command("mount", varDevice, varMountPoint)
@@ -703,6 +759,10 @@ func (u *SystemUpdater) Update() error {
 	}
 	defer func() {
 		_ = exec.Command("umount", varMountPoint).Run()
+		// Close var LUKS if we opened it
+		if varLUKSOpened {
+			_ = CloseLUKS("var")
+		}
 	}()
 
 	// Prepare /etc/machine-id for first boot on read-only root

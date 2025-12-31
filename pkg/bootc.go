@@ -410,7 +410,9 @@ func (b *BootcInstaller) Install() error {
 		}
 	}
 
-	if err := WriteSystemConfigToTarget(b.MountPoint, config, b.DryRun); err != nil {
+	// Write config to /var partition (mounted at {MountPoint}/var)
+	varMountPoint := filepath.Join(b.MountPoint, "var")
+	if err := WriteSystemConfigToVar(varMountPoint, config, b.DryRun); err != nil {
 		return fmt.Errorf("failed to write system config: %w", err)
 	}
 

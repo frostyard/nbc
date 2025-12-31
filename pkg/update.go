@@ -692,10 +692,15 @@ func (u *SystemUpdater) Update() error {
 		return fmt.Errorf("failed to prepare machine-id: %w", err)
 	}
 
-	// Write updated system config to /etc BEFORE PopulateEtcLower
-	// This ensures the config is included when /etc is copied to /.etc.lower
+	// Populate /.etc.lower with new container's /etc for overlay lower layer
+	if err := PopulateEtcLower(u.Config.MountPoint, u.Config.DryRun); err != nil {
+		return fmt.Errorf("failed to populate .etc.lower: %w", err)
+	}
+
+	// Write updated system config to /var (which persists across updates)
+	// This is done AFTER PopulateEtcLower since config is no longer in /etc
 	if !u.Config.DryRun {
-		// Read current config
+		// Read current config (from new or legacy location)
 		existingConfig, err := ReadSystemConfig()
 		if err != nil {
 			p.Warning("failed to read existing config: %v", err)
@@ -707,58 +712,31 @@ func (u *SystemUpdater) Update() error {
 			// due to enumeration order. The disk_id field provides stable identification.
 
 			// Update or add disk ID (migration path for older installations)
-			diskIDUpdated := false
 			if diskID, err := GetDiskID(u.Config.Device); err == nil {
 				if existingConfig.DiskID == "" {
 					p.Message("Adding disk ID to config: %s", diskID)
 					existingConfig.DiskID = diskID
-					diskIDUpdated = true
 				} else if existingConfig.DiskID != diskID {
 					p.Warning("updating disk ID in config (was: %s, now: %s)", existingConfig.DiskID, diskID)
 					existingConfig.DiskID = diskID
-					diskIDUpdated = true
 				}
 			} else if u.Config.Verbose {
 				p.Warning("could not determine disk ID: %v", err)
 			}
 
-			// Write to target partition's /etc
-			if err := WriteSystemConfigToTarget(u.Config.MountPoint, existingConfig, false); err != nil {
-				p.Warning("failed to write config to target: %v", err)
+			// Write to target's /var partition (mounted at {MountPoint}/var)
+			// This also handles migration from legacy /etc/nbc location
+			varMountPoint := filepath.Join(u.Config.MountPoint, "var")
+			if err := WriteSystemConfigToVar(varMountPoint, existingConfig, false); err != nil {
+				p.Warning("failed to write config to target var: %v", err)
 			}
 
-			// Also update the running system's config if disk ID was added/changed
-			// This ensures the migration happens immediately, not just after reboot
-			if diskIDUpdated {
-				if err := WriteSystemConfig(existingConfig, false); err != nil {
-					p.Warning("failed to update running system config: %v", err)
-				} else {
-					p.Message("Updated running system config with disk ID")
-				}
+			// Update running system's config (migrates from /etc/nbc if needed)
+			if err := WriteSystemConfig(existingConfig, false); err != nil {
+				p.Warning("failed to update running system config: %v", err)
+			} else {
+				p.Message("Updated running system config")
 			}
-		}
-	}
-
-	// Populate /.etc.lower with new container's /etc for overlay lower layer
-	// This copies /etc (including the config we just wrote) to /.etc.lower
-	if err := PopulateEtcLower(u.Config.MountPoint, u.Config.DryRun); err != nil {
-		return fmt.Errorf("failed to populate .etc.lower: %w", err)
-	}
-
-	// Delete /etc/nbc from the root filesystem to prevent dracut from copying it
-	// to the overlay upper layer at boot. The config is now safely in /.etc.lower.
-	// Also remove any old /etc/nbc from the overlay upper layer on /var.
-	if !u.Config.DryRun {
-		etcNbcPath := filepath.Join(u.Config.MountPoint, "etc", "nbc")
-		if err := os.RemoveAll(etcNbcPath); err != nil && !os.IsNotExist(err) {
-			p.Warning("failed to remove /etc/nbc: %v", err)
-		}
-
-		overlayUpperNbc := filepath.Join(u.Config.MountPoint, "var", "lib", "nbc", "etc-overlay", "upper", "nbc")
-		if err := os.RemoveAll(overlayUpperNbc); err != nil && !os.IsNotExist(err) {
-			p.Warning("failed to remove old /etc/nbc from overlay upper: %v", err)
-		} else if err == nil {
-			p.Message("Removed old /etc/nbc from overlay upper layer")
 		}
 	}
 

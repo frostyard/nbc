@@ -440,7 +440,7 @@ The initial installation follows these steps:
 9. **Extraction**: Extracts container filesystem to Root Partition 1
 10. **System Setup**: Creates `/var` structure and overlay directories
 11. **Dracut Setup**: Installs etc-overlay dracut module and regenerates initramfs
-12. **Configuration**: Creates `/etc/fstab`, `/etc/nbc/config.json`
+12. **Configuration**: Creates `/etc/fstab`, `/var/lib/nbc/state/config.json`
 13. **Bootloader Installation**: Installs and configures bootloader with kernel parameters
 
 ### Update Process
@@ -499,7 +499,7 @@ For detailed documentation, see [docs/ETC-OVERLAY.md](docs/ETC-OVERLAY.md).
 
 ## System Configuration
 
-After installation, `nbc` writes a configuration file to `/etc/nbc/config.json`:
+After installation, `nbc` writes a configuration file to `/var/lib/nbc/state/config.json`:
 
 ```json
 {
@@ -511,6 +511,8 @@ After installation, `nbc` writes a configuration file to `/etc/nbc/config.json`:
   "bootloader_type": "grub2"
 }
 ```
+
+This configuration is stored on the `/var` partition (not in `/etc`), which ensures it persists across A/B updates without being affected by the /etc overlay.
 
 This configuration is automatically used during updates:
 

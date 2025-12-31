@@ -266,7 +266,7 @@ Both root filesystems mount the same /var partition, ensuring:
 
 ### Encryption Support
 
-A/B updates fully support LUKS-encrypted systems. The encryption configuration is stored in `/etc/nbc/config.json` during installation and automatically loaded during updates.
+A/B updates fully support LUKS-encrypted systems. The encryption configuration is stored in `/var/lib/nbc/state/config.json` during installation and automatically loaded during updates.
 
 For encrypted systems, the update process:
 

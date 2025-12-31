@@ -326,13 +326,14 @@ func TestIntegration_SystemConfig(t *testing.T) {
 		FilesystemType: "ext4",
 	}
 
-	t.Log("Writing system config...")
-	if err := WriteSystemConfigToTarget(mountPoint, config, false); err != nil {
-		t.Fatalf("WriteSystemConfigToTarget failed: %v", err)
+	t.Log("Writing system config to var partition...")
+	varMountPoint := filepath.Join(mountPoint, "var")
+	if err := WriteSystemConfigToVar(varMountPoint, config, false); err != nil {
+		t.Fatalf("WriteSystemConfigToVar failed: %v", err)
 	}
 
-	// Verify config file exists
-	configPath := filepath.Join(mountPoint, "etc", "nbc", "config.json")
+	// Verify config file exists in /var/lib/nbc/state/
+	configPath := filepath.Join(varMountPoint, "lib", "nbc", "state", "config.json")
 	if _, err := os.Stat(configPath); err != nil {
 		t.Fatalf("Config file not created: %v", err)
 	}

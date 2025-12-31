@@ -129,11 +129,14 @@ incus exec ${VM_NAME} -- bash -c "
     echo \"Partitions: \$PARTITIONS\"
     [ \$PARTITIONS -eq 4 ] && echo '✓ Correct partition count' || exit 1
 
-    # Check root filesystem
+    # Check root filesystem and var partition
     ROOT=\$(lsblk -nlo NAME,PARTLABEL $TEST_DISK | grep root1 | awk '{print \"/dev/\"\$1}')
+    VAR=\$(lsblk -nlo NAME,PARTLABEL $TEST_DISK | grep var | awk '{print \"/dev/\"\$1}')
     mkdir -p /mnt/check
+    mkdir -p /mnt/check-var
     mount \$ROOT /mnt/check
-    [ -f /mnt/check/etc/nbc/config.json ] && echo '✓ Config exists' || exit 1
+    mount \$VAR /mnt/check-var
+    [ -f /mnt/check-var/lib/nbc/state/config.json ] && echo '✓ Config exists (in /var/lib/nbc/state/)' || exit 1
     [ -d /mnt/check/usr/lib/dracut/modules.d/95etc-overlay ] && echo '✓ Dracut module exists' || exit 1
 
     # Verify .etc.lower exists and has content
@@ -160,6 +163,7 @@ incus exec ${VM_NAME} -- bash -c "
         fi
     fi
     umount /mnt/check
+    umount /mnt/check-var
 
     # Check boot partition and verify ro kernel parameter
     BOOT=\$(lsblk -nlo NAME,PARTLABEL $TEST_DISK | grep boot | awk '{print \"/dev/\"\$1}')
@@ -176,6 +180,7 @@ incus exec ${VM_NAME} -- bash -c "
     fi
     umount /mnt/check
     rmdir /mnt/check
+    rmdir /mnt/check-var
 " 2>&1 | sed 's/^/  /'
 
 echo -e "\n${GREEN}=== Quick Test Passed ===${NC}"

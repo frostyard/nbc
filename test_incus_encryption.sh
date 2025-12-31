@@ -220,11 +220,15 @@ echo -e "${BLUE}=== Test 3: Verify Crypttab and Root Filesystem ===${NC}"
 incus exec ${VM_NAME} -- bash -c "
     # Open LUKS to mount and check
     ROOT1=\$(lsblk -nlo NAME,PARTLABEL $TEST_DISK | grep 'root1' | head -1 | awk '{print \"/dev/\" \$1}')
+    VAR=\$(lsblk -nlo NAME,PARTLABEL $TEST_DISK | grep 'var' | head -1 | awk '{print \"/dev/\" \$1}')
 
     echo '$TEST_PASSPHRASE' | cryptsetup luksOpen \$ROOT1 test-root
+    echo '$TEST_PASSPHRASE' | cryptsetup luksOpen \$VAR test-var
 
     mkdir -p /mnt/test-root
+    mkdir -p /mnt/test-var
     mount /dev/mapper/test-root /mnt/test-root
+    mount /dev/mapper/test-var /mnt/test-var
 
     echo 'Checking /etc/crypttab...'
     if [ -f /mnt/test-root/etc/crypttab ]; then
@@ -235,11 +239,11 @@ incus exec ${VM_NAME} -- bash -c "
     fi
 
     echo ''
-    echo 'Checking nbc config for encryption settings...'
-    if [ -f /mnt/test-root/etc/nbc/config.json ]; then
-        if grep -q '\"enabled\":.*true' /mnt/test-root/etc/nbc/config.json; then
+    echo 'Checking nbc config for encryption settings (in /var/lib/nbc/state/)...'
+    if [ -f /mnt/test-var/lib/nbc/state/config.json ]; then
+        if grep -q '\"enabled\":.*true' /mnt/test-var/lib/nbc/state/config.json; then
             echo '✓ Encryption enabled in nbc config'
-            grep -A5 'encryption' /mnt/test-root/etc/nbc/config.json | sed 's/^/  /'
+            grep -A5 'encryption' /mnt/test-var/lib/nbc/state/config.json | sed 's/^/  /'
         else
             echo '✗ Encryption not marked as enabled in config'
             exit 1
@@ -272,8 +276,11 @@ incus exec ${VM_NAME} -- bash -c "
         fi
     fi
 
+    umount /mnt/test-var
     umount /mnt/test-root
+    cryptsetup luksClose test-var
     cryptsetup luksClose test-root
+    rmdir /mnt/test-var
     rmdir /mnt/test-root
 " 2>&1 | sed 's/^/  /'
 echo -e "${GREEN}✓ Crypttab and root filesystem verified${NC}\n"

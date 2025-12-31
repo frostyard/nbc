@@ -9,9 +9,16 @@ import (
 
 const (
 	// SystemConfigDir is the directory for nbc system configuration
-	SystemConfigDir = "/etc/nbc"
+	// Stored in /var/lib/nbc/state/ to avoid /etc overlay complications
+	SystemConfigDir = "/var/lib/nbc/state"
 	// SystemConfigFile is the main configuration file
-	SystemConfigFile = "/etc/nbc/config.json"
+	SystemConfigFile = "/var/lib/nbc/state/config.json"
+	// LegacySystemConfigDir is the old location (for migration)
+	LegacySystemConfigDir = "/etc/nbc"
+	// LegacySystemConfigFile is the old config file location (for migration)
+	LegacySystemConfigFile = "/etc/nbc/config.json"
+	// LegacyOverlayUpperNbc is the old config location in overlay upper layer
+	LegacyOverlayUpperNbc = "/var/lib/nbc/etc-overlay/upper/nbc"
 	// NBCBootedMarker is the runtime marker file indicating nbc-managed boot
 	// Created by tmpfiles.d during boot, similar to /run/ostree-booted
 	NBCBootedMarker = "/run/nbc-booted"
@@ -75,7 +82,7 @@ type EncryptionConfig struct {
 	VarLUKSUUID   string `json:"var_luks_uuid"`   // LUKS UUID for var partition
 }
 
-// SystemConfig represents the system configuration stored in /etc/nbc/
+// SystemConfig represents the system configuration stored in /var/lib/nbc/state/
 type SystemConfig struct {
 	ImageRef       string            `json:"image_ref"`            // Container image reference
 	ImageDigest    string            `json:"image_digest"`         // Container image digest (sha256:...)
@@ -88,14 +95,16 @@ type SystemConfig struct {
 	Encryption     *EncryptionConfig `json:"encryption,omitempty"` // Encryption configuration (nil if not encrypted)
 }
 
-// WriteSystemConfig writes system configuration to /etc/nbc/config.json
+// WriteSystemConfig writes system configuration to /var/lib/nbc/state/config.json
+// If legacy config exists at /etc/nbc/config.json, it will be cleaned up after
+// successful write and verification.
 func WriteSystemConfig(config *SystemConfig, dryRun bool) error {
 	if dryRun {
 		fmt.Printf("[DRY RUN] Would write config to %s\n", SystemConfigFile)
 		return nil
 	}
 
-	// Create directory if it doesn't exist
+	// Create directory if it doesn't exist (0755 = rwxr-xr-x)
 	if err := os.MkdirAll(SystemConfigDir, 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
@@ -106,23 +115,71 @@ func WriteSystemConfig(config *SystemConfig, dryRun bool) error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	// Write to file
+	// Write to file (0644 = rw-r--r-- = world-readable, root-writable)
 	if err := os.WriteFile(SystemConfigFile, data, 0644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
+
+	// Verify the file can be read back and parsed
+	if err := verifyConfigFile(SystemConfigFile); err != nil {
+		return fmt.Errorf("config verification failed: %w", err)
+	}
+
+	// Clean up legacy locations after successful write and verification
+	cleanupLegacyConfig()
 
 	fmt.Printf("  Wrote system configuration to %s\n", SystemConfigFile)
 	return nil
 }
 
-// ReadSystemConfig reads system configuration from /etc/nbc/config.json
+// verifyConfigFile reads back a config file and verifies it can be parsed
+func verifyConfigFile(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read back config: %w", err)
+	}
+
+	var config SystemConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		return fmt.Errorf("failed to parse config: %w", err)
+	}
+
+	return nil
+}
+
+// cleanupLegacyConfig removes config from legacy locations after migration
+// Errors are intentionally ignored as this is best-effort cleanup
+func cleanupLegacyConfig() {
+	// Remove legacy /etc/nbc/config.json and directory
+	if _, err := os.Stat(LegacySystemConfigFile); err == nil {
+		_ = os.Remove(LegacySystemConfigFile)
+		// Try to remove the directory (will fail if not empty, which is fine)
+		_ = os.Remove(LegacySystemConfigDir)
+	}
+
+	// Remove config from overlay upper layer (legacy location)
+	_ = os.RemoveAll(LegacyOverlayUpperNbc)
+}
+
+// ReadSystemConfig reads system configuration from /var/lib/nbc/state/config.json
+// Falls back to legacy location /etc/nbc/config.json for older installations
 func ReadSystemConfig() (*SystemConfig, error) {
+	// Try new location first
 	data, err := os.ReadFile(SystemConfigFile)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("system configuration not found at %s (system may not be installed with nbc)", SystemConfigFile)
+			// Try legacy location for older installations
+			data, err = os.ReadFile(LegacySystemConfigFile)
+			if err != nil {
+				if os.IsNotExist(err) {
+					return nil, fmt.Errorf("system configuration not found at %s or %s (system may not be installed with nbc)", SystemConfigFile, LegacySystemConfigFile)
+				}
+				return nil, fmt.Errorf("failed to read legacy config file: %w", err)
+			}
+			// Successfully read from legacy location - config will be migrated on next write
+		} else {
+			return nil, fmt.Errorf("failed to read config file: %w", err)
 		}
-		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
 	var config SystemConfig
@@ -133,19 +190,22 @@ func ReadSystemConfig() (*SystemConfig, error) {
 	return &config, nil
 }
 
-// WriteSystemConfigToTarget writes system configuration to the target root filesystem
-func WriteSystemConfigToTarget(targetDir string, config *SystemConfig, dryRun bool) error {
+// WriteSystemConfigToVar writes system configuration to the mounted /var partition
+// varMountPoint is the path where the var partition is mounted (e.g., /mnt/var or /mnt/root/var)
+func WriteSystemConfigToVar(varMountPoint string, config *SystemConfig, dryRun bool) error {
 	if dryRun {
-		fmt.Printf("[DRY RUN] Would write config to %s/etc/nbc/config.json\n", targetDir)
+		fmt.Printf("[DRY RUN] Would write config to %s/lib/nbc/state/config.json\n", varMountPoint)
 		return nil
 	}
 
-	configDir := filepath.Join(targetDir, "etc", "nbc")
+	// Config goes to {varMountPoint}/lib/nbc/state/config.json
+	// which corresponds to /var/lib/nbc/state/config.json on the running system
+	configDir := filepath.Join(varMountPoint, "lib", "nbc", "state")
 	configFile := filepath.Join(configDir, "config.json")
 
-	// Create directory if it doesn't exist
+	// Create directory if it doesn't exist (0755 = rwxr-xr-x)
 	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return fmt.Errorf("failed to create config directory in target: %w", err)
+		return fmt.Errorf("failed to create config directory in var: %w", err)
 	}
 
 	// Marshal config to JSON
@@ -154,12 +214,17 @@ func WriteSystemConfigToTarget(targetDir string, config *SystemConfig, dryRun bo
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	// Write to file
+	// Write to file (0644 = rw-r--r-- = world-readable, root-writable)
 	if err := os.WriteFile(configFile, data, 0644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
-	fmt.Printf("  Wrote system configuration to target filesystem\n")
+	// Verify the file can be read back and parsed
+	if err := verifyConfigFile(configFile); err != nil {
+		return fmt.Errorf("config verification failed: %w", err)
+	}
+
+	fmt.Printf("  Wrote system configuration to var partition\n")
 	return nil
 }
 
@@ -180,19 +245,6 @@ func UpdateSystemConfigImageRef(imageRef, imageDigest string, dryRun bool) error
 	config.ImageRef = imageRef
 	config.ImageDigest = imageDigest
 
-	// Write back
-	data, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-
-	if err := os.WriteFile(SystemConfigFile, data, 0644); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
-	}
-
-	fmt.Printf("  Updated system configuration with new image: %s\n", imageRef)
-	if imageDigest != "" {
-		fmt.Printf("  Digest: %s\n", imageDigest)
-	}
-	return nil
+	// Write back using WriteSystemConfig (handles migration)
+	return WriteSystemConfig(config, false)
 }

@@ -127,7 +127,7 @@ RUN dnf install -y kernel kernel-modules initramfs-tools
 - 📝 **Detailed Logging**: Verbose output for troubleshooting
 - 🔐 **Configuration Storage**: Stores image reference for easy updates
 - 🔒 **Secure Boot Support**: Automatic shim detection and Secure Boot chain setup
-- 📀 **Filesystem Choice**: Support for ext4 (default) and btrfs filesystems
+- 📀 **Filesystem Choice**: Support for btrfs (default) and ext4 filesystems
 - 🔑 **Full Disk Encryption**: LUKS2 encryption with optional TPM2 automatic unlock
 
 ## Prerequisites
@@ -229,11 +229,11 @@ nbc install \
   --image quay.io/centos-bootc/centos-bootc:stream9 \
   --device /dev/sda
 
-# With btrfs filesystem instead of ext4
+# With ext4 filesystem instead of btrfs
 nbc install \
   --image quay.io/centos-bootc/centos-bootc:stream9 \
   --device /dev/sda \
-  --filesystem btrfs
+  --filesystem ext4
 
 # With custom kernel arguments
 nbc install \
@@ -332,15 +332,19 @@ Example output:
 
 ```
 nbc System Status
-====================
-Image:        quay.io/centos-bootc/centos-bootc:stream9
-Digest:       sha256:abc123de
-Device:       /dev/sda
-Active Root:  /dev/sda3 (Slot A)
-Bootloader:   grub2
+==================================================
+
+Image:       quay.io/centos-bootc/centos-bootc:stream9
+Digest:      sha256:abc123de...
+
+Device:      /dev/sda
+Active Root: /dev/sda3 [Slot A (root1)]
+Root Mount:  read-only
+Bootloader:  grub2
+Filesystem:  btrfs
 ```
 
-With verbose mode (`-v`), additional information is shown including install date, kernel arguments, and whether an update is available.
+With verbose mode (`-v`), additional information is shown including install date, kernel arguments, and whether an update is available. With `--json`, outputs structured JSON including update check results and staged update status.
 
 ### Download Images for Offline Use
 
@@ -393,6 +397,48 @@ nbc cache clear --install
 # Clear staged update
 nbc cache clear --update
 ```
+
+### Lint Container Images
+
+Check container images for common issues before installation:
+
+```bash
+# Lint a remote image
+nbc lint ghcr.io/myorg/myimage:latest
+
+# JSON output for CI/CD pipelines
+nbc lint --json docker.io/library/fedora:latest
+
+# Lint current filesystem (inside a container build)
+nbc lint --local
+
+# Lint and fix issues in a Dockerfile
+# RUN nbc lint --local --fix
+```
+
+Checks include:
+
+- SSH host keys (should not be baked into images)
+- machine-id (should be empty or 'uninitialized')
+- Random seed files (should not be shared)
+
+### Interactive Installation
+
+For a guided installation experience with prompts:
+
+```bash
+# Start interactive installation wizard
+nbc interactive-install
+```
+
+The wizard prompts for:
+
+- Image source (remote registry or staged image)
+- Container image reference
+- Target disk selection
+- Filesystem type (btrfs or ext4)
+- Encryption options (passphrase, TPM2)
+- Additional kernel arguments
 
 ### Global Flags
 
@@ -570,18 +616,6 @@ sudo dnf install gdisk
 
 # Ubuntu/Debian
 sudo apt install gdisk
-```
-
-### "podman is not available"
-
-Install podman:
-
-```bash
-# Fedora/RHEL/CentOS
-sudo dnf install podman
-
-# Ubuntu/Debian
-sudo apt install podman
 ```
 
 ### "device does not exist"

@@ -40,13 +40,13 @@ This command will:
 
 The dual root partitions enable A/B updates for system resilience.
 
-Supported filesystems: ext4 (default), btrfs
+Supported filesystems: btrfs (default), ext4
 
 With --json flag, outputs streaming JSON Lines for progress updates.
 
 Example:
   nbc install --image quay.io/example/myimage:latest --device /dev/sda
-  nbc install --image localhost/myimage --device /dev/nvme0n1 --filesystem btrfs
+  nbc install --image localhost/myimage --device /dev/nvme0n1 --filesystem ext4
   nbc install --image localhost/myimage --device /dev/nvme0n1 --karg console=ttyS0
   nbc install --image localhost/myimage --device /dev/sda --json
   nbc install --local-image sha256:abc123 --device /dev/sda  # Use staged image

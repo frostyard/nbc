@@ -45,14 +45,22 @@ var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show current system status",
 	Long: `Display the current nbc system status including:
-  - Installed container image reference
-  - Image digest (SHA256)
-  - Currently active root partition
-  - Boot device
+  - Installed container image reference and digest
+  - Boot device and active root partition (slot A or B)
+  - Root filesystem mount mode (read-only or read-write)
+  - Bootloader type and filesystem type
+  - Staged update status (if any downloaded update is ready)
+
+With -v (verbose), also displays:
+  - Installation date and kernel arguments
+  - Remote update availability check
+
+With --json flag, outputs structured JSON including update check results.
 
 Example:
   nbc status
-  nbc status -v  # Verbose output with more details`,
+  nbc status -v     # Verbose output with update check
+  nbc status --json # Machine-readable JSON output`,
 	RunE: runStatus,
 }
 

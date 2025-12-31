@@ -685,6 +685,26 @@ func (u *SystemUpdater) Update() error {
 		return fmt.Errorf("failed to setup directories: %w", err)
 	}
 
+	// Mount the /var partition at {MountPoint}/var
+	// This is needed to write config to /var/lib/nbc/state/
+	// The var partition is shared between A/B roots - same partition mounted at /var on running system
+	varMountPoint := filepath.Join(u.Config.MountPoint, "var")
+	varDevice := u.Scheme.VarPartition
+
+	// For encrypted systems, var LUKS is already open at /dev/mapper/var
+	// because the running system is using it
+	if u.Encryption != nil && u.Encryption.Enabled {
+		varDevice = "/dev/mapper/var"
+	}
+
+	cmd = exec.Command("mount", varDevice, varMountPoint)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to mount var partition: %w\nOutput: %s", err, string(output))
+	}
+	defer func() {
+		_ = exec.Command("umount", varMountPoint).Run()
+	}()
+
 	// Prepare /etc/machine-id for first boot on read-only root
 	// IMPORTANT: Must be done BEFORE PopulateEtcLower so the lower layer
 	// contains the "uninitialized" machine-id for systemd first-boot
@@ -724,9 +744,8 @@ func (u *SystemUpdater) Update() error {
 				p.Warning("could not determine disk ID: %v", err)
 			}
 
-			// Write to target's /var partition (mounted at {MountPoint}/var)
+			// Write to target's /var partition (already mounted at varMountPoint)
 			// This also handles migration from legacy /etc/nbc location
-			varMountPoint := filepath.Join(u.Config.MountPoint, "var")
 			if err := WriteSystemConfigToVar(varMountPoint, existingConfig, false); err != nil {
 				p.Warning("failed to write config to target var: %v", err)
 			}

@@ -451,11 +451,11 @@ func (b *BootcInstaller) Install() error {
 	if b.Encryption != nil && b.Encryption.Enabled && b.Encryption.TPM2 {
 		p.Message("Enrolling TPM2 for automatic unlock (%d LUKS devices)...", len(scheme.LUKSDevices))
 		for i, luksDevice := range scheme.LUKSDevices {
-			p.Message("[%d/%d] Enrolling TPM2 for %s (%s)...", i+1, len(scheme.LUKSDevices), luksDevice.MapperName, luksDevice.Partition)
+			p.Message("  [%d/%d] Enrolling TPM2 for %s (%s)...", i+1, len(scheme.LUKSDevices), luksDevice.MapperName, luksDevice.Partition)
 			if err := EnrollTPM2(luksDevice.Partition, b.Encryption); err != nil {
 				return fmt.Errorf("failed to enroll TPM2 for %s: %w", luksDevice.Partition, err)
 			}
-			p.Message("[%d/%d] Enrolled TPM2 for %s", i+1, len(scheme.LUKSDevices), luksDevice.MapperName)
+			p.Message("  [%d/%d] Enrolled TPM2 for %s", i+1, len(scheme.LUKSDevices), luksDevice.MapperName)
 		}
 	}
 

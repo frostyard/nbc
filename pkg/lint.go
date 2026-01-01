@@ -223,6 +223,9 @@ func (l *Linter) LintContainerImage(imageRef string) (*LintResult, error) {
 	// Extract the container image
 	extractor := NewContainerExtractor(imageRef, tmpDir)
 	extractor.SetVerbose(l.verbose && !l.quiet)
+	// In quiet mode, use JSON output to suppress text messages
+	// (the JSON events won't be seen since we're not processing them)
+	extractor.SetJSONOutput(l.quiet)
 	err = extractor.Extract()
 
 	// Restore stdout

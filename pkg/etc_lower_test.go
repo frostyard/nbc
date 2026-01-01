@@ -209,7 +209,7 @@ func TestPopulateEtcLower(t *testing.T) {
 
 			// Run the function
 			dryRun := tt.name == "dry run mode"
-			err := PopulateEtcLower(tmpDir, dryRun)
+			err := PopulateEtcLower(tmpDir, dryRun, NewProgressReporter(false, 1))
 
 			// Check error
 			if (err != nil) != tt.wantErr {
@@ -253,7 +253,7 @@ func TestPopulateEtcLower_Overwrite(t *testing.T) {
 	}
 
 	// Run PopulateEtcLower
-	if err := PopulateEtcLower(tmpDir, false); err != nil {
+	if err := PopulateEtcLower(tmpDir, false, NewProgressReporter(false, 1)); err != nil {
 		t.Fatalf("PopulateEtcLower() failed: %v", err)
 	}
 

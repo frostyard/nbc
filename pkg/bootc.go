@@ -199,7 +199,7 @@ func (b *BootcInstaller) Install() error {
 
 	// Step 1: Create partitions
 	p.Step(1, "Creating partitions")
-	scheme, err := CreatePartitions(b.Device, b.DryRun)
+	scheme, err := CreatePartitions(b.Device, b.DryRun, p)
 	if err != nil {
 		return fmt.Errorf("failed to create partitions: %w", err)
 	}
@@ -210,7 +210,7 @@ func (b *BootcInstaller) Install() error {
 	// Step 1.5: Setup LUKS encryption if enabled
 	if b.Encryption != nil && b.Encryption.Enabled {
 		p.Message("Setting up LUKS encryption...")
-		if err := SetupLUKS(scheme, b.Encryption.Passphrase, b.DryRun); err != nil {
+		if err := SetupLUKS(scheme, b.Encryption.Passphrase, b.DryRun, p); err != nil {
 			return fmt.Errorf("failed to setup LUKS encryption: %w", err)
 		}
 
@@ -253,6 +253,7 @@ func (b *BootcInstaller) Install() error {
 		extractor = NewContainerExtractor(b.ImageRef, b.MountPoint)
 	}
 	extractor.SetVerbose(b.Verbose)
+	extractor.SetJSONOutput(b.JSONOutput)
 	if err := extractor.Extract(); err != nil {
 		return fmt.Errorf("failed to extract container: %w", err)
 	}
@@ -310,38 +311,38 @@ func (b *BootcInstaller) Install() error {
 	}
 
 	// Setup system directories
-	if err := SetupSystemDirectories(b.MountPoint); err != nil {
+	if err := SetupSystemDirectories(b.MountPoint, p); err != nil {
 		return fmt.Errorf("failed to setup directories: %w", err)
 	}
 
 	// Prepare /etc/machine-id for first boot on read-only root
 	// IMPORTANT: Must be done BEFORE PopulateEtcLower so the lower layer
 	// contains the "uninitialized" machine-id for systemd first-boot
-	if err := PrepareMachineID(b.MountPoint); err != nil {
+	if err := PrepareMachineID(b.MountPoint, p); err != nil {
 		return fmt.Errorf("failed to prepare machine-id: %w", err)
 	}
 
 	// Populate /.etc.lower with container's /etc for overlay lower layer
 	// This must be done after PrepareMachineID to ensure lower layer has
 	// the correct "uninitialized" machine-id for first-boot initialization
-	if err := PopulateEtcLower(b.MountPoint, b.DryRun); err != nil {
+	if err := PopulateEtcLower(b.MountPoint, b.DryRun, p); err != nil {
 		return fmt.Errorf("failed to populate .etc.lower: %w", err)
 	}
 
 	// Install tmpfiles.d config for /run/nbc-booted marker
 	// This ensures the marker exists after boot (when /run is a fresh tmpfs)
-	if err := InstallTmpfilesConfig(b.MountPoint, b.DryRun); err != nil {
+	if err := InstallTmpfilesConfig(b.MountPoint, b.DryRun, p); err != nil {
 		return fmt.Errorf("failed to install tmpfiles config: %w", err)
 	}
 
 	// Setup /etc persistence (verifies /etc and creates backup in /var/etc.backup)
 	// Note: /etc stays on the root filesystem for reliable boot
-	if err := InstallEtcMountUnit(b.MountPoint, b.DryRun); err != nil {
+	if err := InstallEtcMountUnit(b.MountPoint, b.DryRun, p); err != nil {
 		return fmt.Errorf("failed to setup /etc persistence: %w", err)
 	}
 
 	// Save pristine /etc for future updates
-	if err := SavePristineEtc(b.MountPoint, b.DryRun); err != nil {
+	if err := SavePristineEtc(b.MountPoint, b.DryRun, p); err != nil {
 		return fmt.Errorf("failed to save pristine /etc: %w", err)
 	}
 
@@ -412,7 +413,7 @@ func (b *BootcInstaller) Install() error {
 
 	// Write config to /var partition (mounted at {MountPoint}/var)
 	varMountPoint := filepath.Join(b.MountPoint, "var")
-	if err := WriteSystemConfigToVar(varMountPoint, config, b.DryRun); err != nil {
+	if err := WriteSystemConfigToVar(varMountPoint, config, b.DryRun, p); err != nil {
 		return fmt.Errorf("failed to write system config: %w", err)
 	}
 

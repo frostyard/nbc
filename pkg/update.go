@@ -547,7 +547,7 @@ func (u *SystemUpdater) Update() error {
 	// Ensure critical files (SSH host keys, machine-id) are in overlay upper layer
 	// This must happen before we extract the new container image, so that these
 	// files persist even if the new container image has different versions
-	if err := EnsureCriticalFilesInOverlay(u.Config.DryRun); err != nil {
+	if err := EnsureCriticalFilesInOverlay(u.Config.DryRun, p); err != nil {
 		p.Warning("Failed to preserve critical files in overlay: %v", err)
 		// Continue anyway - this is a best-effort operation
 	}
@@ -571,7 +571,7 @@ func (u *SystemUpdater) Update() error {
 
 			// Try TPM2 auto-unlock first if enabled
 			if u.Encryption.TPM2 {
-				_, tpmErr := TryTPM2Unlock(u.Target, u.TargetMapperName)
+				_, tpmErr := TryTPM2Unlock(u.Target, u.TargetMapperName, p)
 				if tpmErr == nil {
 					p.Message("LUKS container unlocked via TPM2")
 					opened = true
@@ -589,7 +589,7 @@ func (u *SystemUpdater) Update() error {
 					return fmt.Errorf("failed to read passphrase: %w", err)
 				}
 
-				_, err = OpenLUKS(u.Target, u.TargetMapperName, passphrase)
+				_, err = OpenLUKS(u.Target, u.TargetMapperName, passphrase, p)
 				if err != nil {
 					return fmt.Errorf("failed to open LUKS container: %w", err)
 				}
@@ -603,7 +603,7 @@ func (u *SystemUpdater) Update() error {
 		// Ensure we close LUKS on cleanup
 		defer func() {
 			if u.TargetMapperName != "" {
-				_ = CloseLUKS(u.TargetMapperName)
+				_ = CloseLUKS(u.TargetMapperName, nil)
 			}
 		}()
 	}
@@ -640,6 +640,7 @@ func (u *SystemUpdater) Update() error {
 		extractor = NewContainerExtractor(u.Config.ImageRef, u.Config.MountPoint)
 	}
 	extractor.SetVerbose(u.Config.Verbose)
+	extractor.SetJSONOutput(u.Config.JSONOutput)
 	if err := extractor.Extract(); err != nil {
 		return fmt.Errorf("failed to extract container: %w", err)
 	}
@@ -686,13 +687,13 @@ func (u *SystemUpdater) Update() error {
 			activeRoot = "/dev/mapper/root2"
 		}
 	}
-	if err := MergeEtcFromActive(u.Config.MountPoint, activeRoot, u.Config.DryRun); err != nil {
+	if err := MergeEtcFromActive(u.Config.MountPoint, activeRoot, u.Config.DryRun, p); err != nil {
 		return fmt.Errorf("failed to merge /etc: %w", err)
 	}
 
 	// Step 5: Setup system directories
 	p.Step(5, "Setting up system directories")
-	if err := SetupSystemDirectories(u.Config.MountPoint); err != nil {
+	if err := SetupSystemDirectories(u.Config.MountPoint, p); err != nil {
 		return fmt.Errorf("failed to setup directories: %w", err)
 	}
 
@@ -722,7 +723,7 @@ func (u *SystemUpdater) Update() error {
 
 			// Try TPM2 auto-unlock first if enabled
 			if u.Encryption.TPM2 {
-				_, tpmErr := TryTPM2Unlock(varLUKSDevice, "var")
+				_, tpmErr := TryTPM2Unlock(varLUKSDevice, "var", p)
 				if tpmErr == nil {
 					p.Message("Var LUKS container unlocked via TPM2")
 					opened = true
@@ -740,7 +741,7 @@ func (u *SystemUpdater) Update() error {
 					return fmt.Errorf("failed to read passphrase: %w", err)
 				}
 
-				_, err = OpenLUKS(varLUKSDevice, "var", passphrase)
+				_, err = OpenLUKS(varLUKSDevice, "var", passphrase, p)
 				if err != nil {
 					return fmt.Errorf("failed to open var LUKS container: %w", err)
 				}
@@ -761,19 +762,19 @@ func (u *SystemUpdater) Update() error {
 		_ = exec.Command("umount", varMountPoint).Run()
 		// Close var LUKS if we opened it
 		if varLUKSOpened {
-			_ = CloseLUKS("var")
+			_ = CloseLUKS("var", nil)
 		}
 	}()
 
 	// Prepare /etc/machine-id for first boot on read-only root
 	// IMPORTANT: Must be done BEFORE PopulateEtcLower so the lower layer
 	// contains the "uninitialized" machine-id for systemd first-boot
-	if err := PrepareMachineID(u.Config.MountPoint); err != nil {
+	if err := PrepareMachineID(u.Config.MountPoint, p); err != nil {
 		return fmt.Errorf("failed to prepare machine-id: %w", err)
 	}
 
 	// Populate /.etc.lower with new container's /etc for overlay lower layer
-	if err := PopulateEtcLower(u.Config.MountPoint, u.Config.DryRun); err != nil {
+	if err := PopulateEtcLower(u.Config.MountPoint, u.Config.DryRun, p); err != nil {
 		return fmt.Errorf("failed to populate .etc.lower: %w", err)
 	}
 
@@ -806,12 +807,12 @@ func (u *SystemUpdater) Update() error {
 
 			// Write to target's /var partition (already mounted at varMountPoint)
 			// This also handles migration from legacy /etc/nbc location
-			if err := WriteSystemConfigToVar(varMountPoint, existingConfig, false); err != nil {
+			if err := WriteSystemConfigToVar(varMountPoint, existingConfig, false, p); err != nil {
 				p.Warning("failed to write config to target var: %v", err)
 			}
 
 			// Update running system's config (migrates from /etc/nbc if needed)
-			if err := WriteSystemConfig(existingConfig, false); err != nil {
+			if err := WriteSystemConfig(existingConfig, false, p); err != nil {
 				p.Warning("failed to update running system config: %v", err)
 			} else {
 				p.Message("Updated running system config")
@@ -821,7 +822,7 @@ func (u *SystemUpdater) Update() error {
 
 	// Install tmpfiles.d config for /run/nbc-booted marker
 	// This ensures the marker exists after boot on the new root
-	if err := InstallTmpfilesConfig(u.Config.MountPoint, u.Config.DryRun); err != nil {
+	if err := InstallTmpfilesConfig(u.Config.MountPoint, u.Config.DryRun, p); err != nil {
 		return fmt.Errorf("failed to install tmpfiles config: %w", err)
 	}
 
@@ -1018,7 +1019,7 @@ func (u *SystemUpdater) UpdateBootloader() error {
 
 	// Detect bootloader type
 	bootloaderType := u.detectBootloaderType()
-	fmt.Printf("  Detected bootloader: %s\n", bootloaderType)
+	u.Progress.Message("Detected bootloader: %s", bootloaderType)
 
 	// Update based on bootloader type
 	switch bootloaderType {
@@ -1255,7 +1256,7 @@ options %s
 		return fmt.Errorf("failed to write rollback boot entry: %w", err)
 	}
 
-	fmt.Printf("  Updated systemd-boot to boot from %s\n", u.Target)
+	u.Progress.Message("Updated systemd-boot to boot from %s", u.Target)
 	return nil
 }
 

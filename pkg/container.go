@@ -23,7 +23,9 @@ type ContainerExtractor struct {
 	ImageRef        string
 	TargetDir       string
 	Verbose         bool
+	JSONOutput      bool
 	LocalLayoutPath string // Path to OCI layout directory for local image
+	Progress        *ProgressReporter
 }
 
 // NewContainerExtractor creates a new ContainerExtractor
@@ -31,6 +33,7 @@ func NewContainerExtractor(imageRef, targetDir string) *ContainerExtractor {
 	return &ContainerExtractor{
 		ImageRef:  imageRef,
 		TargetDir: targetDir,
+		Progress:  NewProgressReporter(false, 1),
 	}
 }
 
@@ -39,12 +42,19 @@ func NewContainerExtractorFromLocal(layoutPath, targetDir string) *ContainerExtr
 	return &ContainerExtractor{
 		LocalLayoutPath: layoutPath,
 		TargetDir:       targetDir,
+		Progress:        NewProgressReporter(false, 1),
 	}
 }
 
 // SetVerbose enables verbose output
 func (c *ContainerExtractor) SetVerbose(verbose bool) {
 	c.Verbose = verbose
+}
+
+// SetJSONOutput enables JSON output mode
+func (c *ContainerExtractor) SetJSONOutput(jsonOutput bool) {
+	c.JSONOutput = jsonOutput
+	c.Progress = NewProgressReporter(jsonOutput, 1)
 }
 
 // Extract extracts the container filesystem to the target directory using go-containerregistry
@@ -54,13 +64,13 @@ func (c *ContainerExtractor) Extract() error {
 
 	// Load image from local OCI layout or pull from registry
 	if c.LocalLayoutPath != "" {
-		fmt.Printf("Extracting container image from local cache...\n")
+		c.Progress.MessagePlain("Extracting container image from local cache...")
 		img, err = LoadImageFromOCILayout(c.LocalLayoutPath)
 		if err != nil {
 			return fmt.Errorf("failed to load image from local cache: %w", err)
 		}
 	} else {
-		fmt.Printf("Extracting container image %s...\n", c.ImageRef)
+		c.Progress.MessagePlain("Extracting container image %s...", c.ImageRef)
 
 		// Parse image reference
 		ref, err := name.ParseReference(c.ImageRef)
@@ -70,14 +80,14 @@ func (c *ContainerExtractor) Extract() error {
 
 		// For localhost images, try local daemon first (podman/docker)
 		if strings.HasPrefix(c.ImageRef, "localhost/") {
-			fmt.Println("  Checking local daemon...")
+			c.Progress.Message("Checking local daemon...")
 
 			// Try podman CLI first for localhost images (more reliable than daemon API)
 			// Check if podman is available and image exists
 			checkCmd := exec.Command("podman", "image", "exists", c.ImageRef)
 			if checkCmd.Run() == nil {
 				// Image exists in podman, save it to OCI layout directory for extraction
-				fmt.Println("  Found image in podman, using local copy")
+				c.Progress.Message("Found image in podman, using local copy")
 				tmpLayout := filepath.Join(os.TempDir(), fmt.Sprintf("nbc-oci-%d", os.Getpid()))
 				defer func() {
 					if err := os.RemoveAll(tmpLayout); err != nil {
@@ -92,7 +102,7 @@ func (c *ContainerExtractor) Extract() error {
 						// Load from the OCI layout directory
 						img, err = LoadImageFromOCILayout(tmpLayout)
 						if err == nil {
-							fmt.Println("  Successfully loaded image from podman")
+							c.Progress.Message("Successfully loaded image from podman")
 						}
 					}
 				}
@@ -114,7 +124,7 @@ func (c *ContainerExtractor) Extract() error {
 					// Try to get the image using this client
 					img, err = daemon.Image(ref, daemon.WithClient(cli))
 					if err == nil {
-						fmt.Println("  Using image from local daemon")
+						c.Progress.Message("Using image from local daemon")
 						break
 					}
 					_ = cli.Close()
@@ -122,13 +132,13 @@ func (c *ContainerExtractor) Extract() error {
 			}
 
 			if img == nil && c.Verbose {
-				fmt.Println("  Local lookup failed, will try registry")
+				c.Progress.Message("Local lookup failed, will try registry")
 			}
 		}
 
 		// If not found locally or not a localhost image, pull from registry
 		if img == nil {
-			fmt.Println("  Pulling image...")
+			c.Progress.Message("Pulling image...")
 			img, err = remote.Image(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain))
 			if err != nil {
 				return fmt.Errorf("failed to pull image: %w", err)
@@ -137,7 +147,7 @@ func (c *ContainerExtractor) Extract() error {
 	}
 
 	// Get image layers
-	fmt.Println("  Extracting layers...")
+	c.Progress.Message("Extracting layers...")
 	layers, err := img.Layers()
 	if err != nil {
 		return fmt.Errorf("failed to get image layers: %w", err)
@@ -147,7 +157,7 @@ func (c *ContainerExtractor) Extract() error {
 	for i, layer := range layers {
 		if c.Verbose {
 			digest, _ := layer.Digest()
-			fmt.Printf("  Extracting layer %d/%d (%s)...\n", i+1, len(layers), digest)
+			c.Progress.Message("Extracting layer %d/%d (%s)...", i+1, len(layers), digest)
 		}
 
 		// Get layer contents as tar stream
@@ -166,7 +176,7 @@ func (c *ContainerExtractor) Extract() error {
 		}
 	}
 
-	fmt.Println("Container filesystem extracted successfully")
+	c.Progress.MessagePlain("Container filesystem extracted successfully")
 	return nil
 }
 
@@ -398,8 +408,8 @@ func CreateFstab(targetDir string, scheme *PartitionScheme) error {
 }
 
 // SetupSystemDirectories creates necessary system directories
-func SetupSystemDirectories(targetDir string) error {
-	fmt.Println("Setting up system directories...")
+func SetupSystemDirectories(targetDir string, progress *ProgressReporter) error {
+	progress.Message("Setting up system directories...")
 
 	directories := []string{
 		"dev",
@@ -429,14 +439,14 @@ func SetupSystemDirectories(targetDir string) error {
 	// Note: os.Chmod with 0o1777 doesn't set sticky bit in Go; must use os.ModeSticky
 	_ = os.Chmod(filepath.Join(targetDir, "tmp"), os.ModeSticky|0777)
 	_ = os.Chmod(filepath.Join(targetDir, "var", "tmp"), os.ModeSticky|0777)
-	fmt.Println("System directories created")
+	progress.Message("System directories created")
 	return nil
 }
 
 // PrepareMachineID ensures /etc/machine-id contains "uninitialized" for first-boot detection.
 // This is required for read-only root filesystems where systemd cannot create the file at boot.
 // systemd will detect "uninitialized" and properly initialize the machine-id on first boot.
-func PrepareMachineID(targetDir string) error {
+func PrepareMachineID(targetDir string, progress *ProgressReporter) error {
 	machineIDPath := filepath.Join(targetDir, "etc", "machine-id")
 
 	// Check current state
@@ -453,13 +463,13 @@ func PrepareMachineID(targetDir string) error {
 		if err := os.WriteFile(machineIDPath, []byte("uninitialized\n"), 0444); err != nil {
 			return fmt.Errorf("failed to write machine-id: %w", err)
 		}
-		fmt.Println("Prepared /etc/machine-id for first boot")
+		progress.Message("Prepared /etc/machine-id for first boot")
 		return nil
 	}
 
 	// File has a real machine-id - this shouldn't happen for clean container images
 	// The lint check should have caught this, but warn and continue
-	fmt.Printf("Warning: /etc/machine-id already has a value, leaving unchanged\n")
+	progress.Warning("/etc/machine-id already has a value, leaving unchanged")
 	return nil
 }
 

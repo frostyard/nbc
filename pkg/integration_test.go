@@ -22,7 +22,7 @@ func TestIntegration_PartitionAndFormat(t *testing.T) {
 
 	// Create partitions
 	t.Log("Creating partitions...")
-	scheme, err := CreatePartitions(disk.GetDevice(), false)
+	scheme, err := CreatePartitions(disk.GetDevice(), false, NewProgressReporter(false, 1))
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestIntegration_MountUnmount(t *testing.T) {
 		t.Fatalf("Failed to create test disk: %v", err)
 	}
 
-	scheme, err := CreatePartitions(disk.GetDevice(), false)
+	scheme, err := CreatePartitions(disk.GetDevice(), false, NewProgressReporter(false, 1))
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestIntegration_DetectPartitionScheme(t *testing.T) {
 	}
 
 	// Create partitions
-	originalScheme, err := CreatePartitions(disk.GetDevice(), false)
+	originalScheme, err := CreatePartitions(disk.GetDevice(), false, NewProgressReporter(false, 1))
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestIntegration_EtcOverlaySetup(t *testing.T) {
 		t.Fatalf("Failed to create test disk: %v", err)
 	}
 
-	scheme, err := CreatePartitions(disk.GetDevice(), false)
+	scheme, err := CreatePartitions(disk.GetDevice(), false, NewProgressReporter(false, 1))
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestIntegration_EtcOverlaySetup(t *testing.T) {
 
 	// Setup /etc overlay
 	t.Log("Setting up /etc overlay...")
-	if err := SetupEtcOverlay(mountPoint, false); err != nil {
+	if err := SetupEtcOverlay(mountPoint, false, NewProgressReporter(false, 1)); err != nil {
 		t.Fatalf("SetupEtcOverlay failed: %v", err)
 	}
 
@@ -242,7 +242,7 @@ func TestIntegration_TmpfilesConfig(t *testing.T) {
 		t.Fatalf("Failed to create test disk: %v", err)
 	}
 
-	scheme, err := CreatePartitions(disk.GetDevice(), false)
+	scheme, err := CreatePartitions(disk.GetDevice(), false, NewProgressReporter(false, 1))
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestIntegration_TmpfilesConfig(t *testing.T) {
 
 	// Install tmpfiles.d config
 	t.Log("Installing tmpfiles.d config...")
-	if err := InstallTmpfilesConfig(mountPoint, false); err != nil {
+	if err := InstallTmpfilesConfig(mountPoint, false, NewProgressReporter(false, 1)); err != nil {
 		t.Fatalf("InstallTmpfilesConfig failed: %v", err)
 	}
 
@@ -293,7 +293,7 @@ func TestIntegration_SystemConfig(t *testing.T) {
 		t.Fatalf("Failed to create test disk: %v", err)
 	}
 
-	scheme, err := CreatePartitions(disk.GetDevice(), false)
+	scheme, err := CreatePartitions(disk.GetDevice(), false, NewProgressReporter(false, 1))
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
 	}
@@ -328,7 +328,7 @@ func TestIntegration_SystemConfig(t *testing.T) {
 
 	t.Log("Writing system config to var partition...")
 	varMountPoint := filepath.Join(mountPoint, "var")
-	if err := WriteSystemConfigToVar(varMountPoint, config, false); err != nil {
+	if err := WriteSystemConfigToVar(varMountPoint, config, false, NewProgressReporter(false, 1)); err != nil {
 		t.Fatalf("WriteSystemConfigToVar failed: %v", err)
 	}
 
@@ -389,7 +389,7 @@ func TestIntegration_Crypttab(t *testing.T) {
 		t.Fatalf("Failed to create test disk: %v", err)
 	}
 
-	scheme, err := CreatePartitions(disk.GetDevice(), false)
+	scheme, err := CreatePartitions(disk.GetDevice(), false, NewProgressReporter(false, 1))
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
 	}
@@ -486,7 +486,7 @@ func TestIntegration_PopulateEtcLower_Install(t *testing.T) {
 	}
 
 	// Run PopulateEtcLower
-	if err := PopulateEtcLower(mountPoint, false); err != nil {
+	if err := PopulateEtcLower(mountPoint, false, NewProgressReporter(false, 1)); err != nil {
 		t.Fatalf("PopulateEtcLower failed: %v", err)
 	}
 
@@ -574,7 +574,7 @@ func TestIntegration_PopulateEtcLower_Update(t *testing.T) {
 	}
 
 	// Create old .etc.lower
-	if err := PopulateEtcLower(mountPoint, false); err != nil {
+	if err := PopulateEtcLower(mountPoint, false, NewProgressReporter(false, 1)); err != nil {
 		t.Fatalf("Initial PopulateEtcLower failed: %v", err)
 	}
 
@@ -603,7 +603,7 @@ func TestIntegration_PopulateEtcLower_Update(t *testing.T) {
 	}
 
 	// Run PopulateEtcLower again (simulating update)
-	if err := PopulateEtcLower(mountPoint, false); err != nil {
+	if err := PopulateEtcLower(mountPoint, false, NewProgressReporter(false, 1)); err != nil {
 		t.Fatalf("Update PopulateEtcLower failed: %v", err)
 	}
 
@@ -664,7 +664,7 @@ func TestIntegration_EtcLowerWithSymlinks(t *testing.T) {
 	}
 
 	// Populate .etc.lower
-	if err := PopulateEtcLower(mountPoint, false); err != nil {
+	if err := PopulateEtcLower(mountPoint, false, NewProgressReporter(false, 1)); err != nil {
 		t.Fatalf("PopulateEtcLower failed: %v", err)
 	}
 

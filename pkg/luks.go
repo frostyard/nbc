@@ -25,8 +25,8 @@ type LUKSDevice struct {
 }
 
 // CreateLUKSContainer creates a LUKS2 container on the given partition
-func CreateLUKSContainer(partition, passphrase string) error {
-	fmt.Printf("  Creating LUKS container on %s...\n", partition)
+func CreateLUKSContainer(partition, passphrase string, progress *ProgressReporter) error {
+	progress.Message("Creating LUKS container on %s...", partition)
 
 	// Create LUKS2 container with passphrase via stdin
 	cmd := exec.Command("cryptsetup", "luksFormat",
@@ -47,8 +47,8 @@ func CreateLUKSContainer(partition, passphrase string) error {
 }
 
 // OpenLUKS opens a LUKS container and returns the device info
-func OpenLUKS(partition, mapperName, passphrase string) (*LUKSDevice, error) {
-	fmt.Printf("  Opening LUKS container %s as %s...\n", partition, mapperName)
+func OpenLUKS(partition, mapperName, passphrase string, progress *ProgressReporter) (*LUKSDevice, error) {
+	progress.Message("Opening LUKS container %s as %s...", partition, mapperName)
 
 	// Open the LUKS container
 	cmd := exec.Command("cryptsetup", "luksOpen",
@@ -68,7 +68,7 @@ func OpenLUKS(partition, mapperName, passphrase string) (*LUKSDevice, error) {
 	luksUUID, err := GetLUKSUUID(partition)
 	if err != nil {
 		// Try to close the container before returning error
-		_ = CloseLUKS(mapperName)
+		_ = CloseLUKS(mapperName, progress)
 		return nil, err
 	}
 
@@ -82,8 +82,8 @@ func OpenLUKS(partition, mapperName, passphrase string) (*LUKSDevice, error) {
 
 // TryTPM2Unlock attempts to open a LUKS container using TPM2 token
 // Returns the LUKSDevice on success, or an error if TPM2 unlock failed
-func TryTPM2Unlock(partition, mapperName string) (*LUKSDevice, error) {
-	fmt.Printf("  Attempting TPM2 unlock for %s as %s...\n", partition, mapperName)
+func TryTPM2Unlock(partition, mapperName string, progress *ProgressReporter) (*LUKSDevice, error) {
+	progress.Message("Attempting TPM2 unlock for %s as %s...", partition, mapperName)
 
 	// Use cryptsetup with --token-only to only try token-based unlock (TPM2)
 	// This will fail if no TPM2 token is enrolled or TPM2 is unavailable
@@ -103,7 +103,7 @@ func TryTPM2Unlock(partition, mapperName string) (*LUKSDevice, error) {
 	luksUUID, err := GetLUKSUUID(partition)
 	if err != nil {
 		// Try to close the container before returning error
-		_ = CloseLUKS(mapperName)
+		_ = CloseLUKS(mapperName, progress)
 		return nil, err
 	}
 
@@ -116,8 +116,10 @@ func TryTPM2Unlock(partition, mapperName string) (*LUKSDevice, error) {
 }
 
 // CloseLUKS closes a LUKS container
-func CloseLUKS(mapperName string) error {
-	fmt.Printf("  Closing LUKS container %s...\n", mapperName)
+func CloseLUKS(mapperName string, progress *ProgressReporter) error {
+	if progress != nil {
+		progress.Message("Closing LUKS container %s...", mapperName)
+	}
 
 	cmd := exec.Command("cryptsetup", "luksClose", mapperName)
 	cmd.Stdout = os.Stdout

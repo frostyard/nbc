@@ -37,9 +37,9 @@ func IsNBCBooted() bool {
 // This marker is created by systemd-tmpfiles during boot, after /run is mounted.
 // Unlike the dracut approach, this ensures the marker exists after switch_root
 // when systemd mounts a fresh tmpfs on /run.
-func InstallTmpfilesConfig(targetDir string, dryRun bool) error {
+func InstallTmpfilesConfig(targetDir string, dryRun bool, progress *ProgressReporter) error {
 	if dryRun {
-		fmt.Printf("[DRY RUN] Would install tmpfiles.d config for nbc-booted marker\n")
+		progress.MessagePlain("[DRY RUN] Would install tmpfiles.d config for nbc-booted marker")
 		return nil
 	}
 
@@ -61,7 +61,7 @@ f /run/nbc-booted 0644 root root - nbc
 		return fmt.Errorf("failed to write tmpfiles.d config: %w", err)
 	}
 
-	fmt.Println("  Installed tmpfiles.d config for /run/nbc-booted marker")
+	progress.Message("Installed tmpfiles.d config for /run/nbc-booted marker")
 	return nil
 }
 
@@ -98,9 +98,9 @@ type SystemConfig struct {
 // WriteSystemConfig writes system configuration to /var/lib/nbc/state/config.json
 // If legacy config exists at /etc/nbc/config.json, it will be cleaned up after
 // successful write and verification.
-func WriteSystemConfig(config *SystemConfig, dryRun bool) error {
+func WriteSystemConfig(config *SystemConfig, dryRun bool, progress *ProgressReporter) error {
 	if dryRun {
-		fmt.Printf("[DRY RUN] Would write config to %s\n", SystemConfigFile)
+		progress.MessagePlain("[DRY RUN] Would write config to %s", SystemConfigFile)
 		return nil
 	}
 
@@ -128,7 +128,7 @@ func WriteSystemConfig(config *SystemConfig, dryRun bool) error {
 	// Clean up legacy locations after successful write and verification
 	cleanupLegacyConfig()
 
-	fmt.Printf("  Wrote system configuration to %s\n", SystemConfigFile)
+	progress.Message("Wrote system configuration to %s", SystemConfigFile)
 	return nil
 }
 
@@ -192,9 +192,9 @@ func ReadSystemConfig() (*SystemConfig, error) {
 
 // WriteSystemConfigToVar writes system configuration to the mounted /var partition
 // varMountPoint is the path where the var partition is mounted (e.g., /mnt/var or /mnt/root/var)
-func WriteSystemConfigToVar(varMountPoint string, config *SystemConfig, dryRun bool) error {
+func WriteSystemConfigToVar(varMountPoint string, config *SystemConfig, dryRun bool, progress *ProgressReporter) error {
 	if dryRun {
-		fmt.Printf("[DRY RUN] Would write config to %s/lib/nbc/state/config.json\n", varMountPoint)
+		progress.MessagePlain("[DRY RUN] Would write config to %s/lib/nbc/state/config.json", varMountPoint)
 		return nil
 	}
 
@@ -224,14 +224,14 @@ func WriteSystemConfigToVar(varMountPoint string, config *SystemConfig, dryRun b
 		return fmt.Errorf("config verification failed: %w", err)
 	}
 
-	fmt.Printf("  Wrote system configuration to var partition\n")
+	progress.Message("Wrote system configuration to var partition")
 	return nil
 }
 
 // UpdateSystemConfigImageRef updates the image reference and digest in the system config
-func UpdateSystemConfigImageRef(imageRef, imageDigest string, dryRun bool) error {
+func UpdateSystemConfigImageRef(imageRef, imageDigest string, dryRun bool, progress *ProgressReporter) error {
 	if dryRun {
-		fmt.Printf("[DRY RUN] Would update config with image: %s (digest: %s)\n", imageRef, imageDigest)
+		progress.MessagePlain("[DRY RUN] Would update config with image: %s (digest: %s)", imageRef, imageDigest)
 		return nil
 	}
 
@@ -246,5 +246,5 @@ func UpdateSystemConfigImageRef(imageRef, imageDigest string, dryRun bool) error
 	config.ImageDigest = imageDigest
 
 	// Write back using WriteSystemConfig (handles migration)
-	return WriteSystemConfig(config, false)
+	return WriteSystemConfig(config, false, progress)
 }

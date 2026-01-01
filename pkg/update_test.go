@@ -442,7 +442,7 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 	}
 
 	// Create partitions
-	scheme, err := CreatePartitions(disk.GetDevice(), false)
+	scheme, err := CreatePartitions(disk.GetDevice(), false, NewProgressReporter(false, 1))
 	if err != nil {
 		t.Fatalf("Failed to create partitions: %v", err)
 	}
@@ -543,7 +543,7 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 	t.Run("encrypted includes boot mount", func(t *testing.T) {
 		// Setup LUKS encryption
 		passphrase := "test-passphrase"
-		if err := SetupLUKS(scheme, passphrase, false); err != nil {
+		if err := SetupLUKS(scheme, passphrase, false, NewProgressReporter(false, 1)); err != nil {
 			t.Fatalf("Failed to setup LUKS: %v", err)
 		}
 		defer scheme.CloseLUKSDevices()

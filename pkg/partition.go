@@ -22,9 +22,9 @@ type PartitionScheme struct {
 }
 
 // CreatePartitions creates a GPT partition table with EFI, boot, and root partitions
-func CreatePartitions(device string, dryRun bool) (*PartitionScheme, error) {
+func CreatePartitions(device string, dryRun bool, progress *ProgressReporter) (*PartitionScheme, error) {
 	if dryRun {
-		fmt.Printf("[DRY RUN] Would create partitions on %s\n", device)
+		progress.MessagePlain("[DRY RUN] Would create partitions on %s", device)
 		deviceBase := filepath.Base(device)
 		return &PartitionScheme{
 			BootPartition:  "/dev/" + deviceBase + "1",
@@ -34,7 +34,7 @@ func CreatePartitions(device string, dryRun bool) (*PartitionScheme, error) {
 		}, nil
 	}
 
-	fmt.Println("Creating GPT partition table...")
+	progress.MessagePlain("Creating GPT partition table...")
 
 	// Use sgdisk to create partitions
 	// Partition 1: Boot/EFI System Partition (2GB, FAT32) - holds EFI binaries + kernel/initramfs
@@ -107,24 +107,24 @@ func CreatePartitions(device string, dryRun bool) (*PartitionScheme, error) {
 		VarPartition:   part4,
 	}
 
-	fmt.Printf("Created partitions:\n")
-	fmt.Printf("  Boot:  %s\n", scheme.BootPartition)
-	fmt.Printf("  Root1: %s\n", scheme.Root1Partition)
-	fmt.Printf("  Root2: %s\n", scheme.Root2Partition)
-	fmt.Printf("  Var:   %s\n", scheme.VarPartition)
+	progress.MessagePlain("Created partitions:")
+	progress.Message("Boot:  %s", scheme.BootPartition)
+	progress.Message("Root1: %s", scheme.Root1Partition)
+	progress.Message("Root2: %s", scheme.Root2Partition)
+	progress.Message("Var:   %s", scheme.VarPartition)
 
 	return scheme, nil
 }
 
 // SetupLUKS creates LUKS containers on root and var partitions
 // Returns the opened LUKS devices (must be closed during cleanup)
-func SetupLUKS(scheme *PartitionScheme, passphrase string, dryRun bool) error {
+func SetupLUKS(scheme *PartitionScheme, passphrase string, dryRun bool, progress *ProgressReporter) error {
 	if dryRun {
-		fmt.Println("[DRY RUN] Would create LUKS containers on root1, root2, var")
+		progress.MessagePlain("[DRY RUN] Would create LUKS containers on root1, root2, var")
 		return nil
 	}
 
-	fmt.Println("Setting up LUKS encryption...")
+	progress.MessagePlain("Setting up LUKS encryption...")
 
 	// Create and open LUKS containers for each partition
 	partitions := []struct {
@@ -140,32 +140,32 @@ func SetupLUKS(scheme *PartitionScheme, passphrase string, dryRun bool) error {
 
 	for _, p := range partitions {
 		// Create LUKS container
-		if err := CreateLUKSContainer(p.partition, passphrase); err != nil {
+		if err := CreateLUKSContainer(p.partition, passphrase, progress); err != nil {
 			// Close any already-opened devices on error
 			for _, dev := range luksDevices {
-				_ = CloseLUKS(dev.MapperName)
+				_ = CloseLUKS(dev.MapperName, progress)
 			}
 			return fmt.Errorf("failed to create LUKS on %s: %w", p.partition, err)
 		}
 
 		// Open LUKS container
-		dev, err := OpenLUKS(p.partition, p.mapperName, passphrase)
+		dev, err := OpenLUKS(p.partition, p.mapperName, passphrase, progress)
 		if err != nil {
 			// Close any already-opened devices on error
 			for _, d := range luksDevices {
-				_ = CloseLUKS(d.MapperName)
+				_ = CloseLUKS(d.MapperName, progress)
 			}
 			return fmt.Errorf("failed to open LUKS on %s: %w", p.partition, err)
 		}
 
 		luksDevices = append(luksDevices, dev)
-		fmt.Printf("  LUKS container %s ready at %s (UUID: %s)\n", p.mapperName, dev.MapperPath, dev.LUKSUUID)
+		progress.Message("LUKS container %s ready at %s (UUID: %s)", p.mapperName, dev.MapperPath, dev.LUKSUUID)
 	}
 
 	scheme.Encrypted = true
 	scheme.LUKSDevices = luksDevices
 
-	fmt.Println("LUKS encryption setup complete")
+	progress.MessagePlain("LUKS encryption setup complete")
 	return nil
 }
 
@@ -221,7 +221,7 @@ func (s *PartitionScheme) CloseLUKSDevices() {
 		return
 	}
 	for _, dev := range s.LUKSDevices {
-		_ = CloseLUKS(dev.MapperName)
+		_ = CloseLUKS(dev.MapperName, nil)
 	}
 	s.LUKSDevices = nil
 }

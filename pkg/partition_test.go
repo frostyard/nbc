@@ -20,7 +20,7 @@ func TestCreatePartitions(t *testing.T) {
 
 	// Create partitions
 	t.Log("Creating partitions on test disk")
-	scheme, err := CreatePartitions(disk.GetDevice(), false)
+	scheme, err := CreatePartitions(disk.GetDevice(), false, NewProgressReporter(false, 1))
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestFormatPartitions(t *testing.T) {
 		t.Fatalf("Failed to create test disk: %v", err)
 	}
 
-	scheme, err := CreatePartitions(disk.GetDevice(), false)
+	scheme, err := CreatePartitions(disk.GetDevice(), false, NewProgressReporter(false, 1))
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestMountPartitions(t *testing.T) {
 		t.Fatalf("Failed to create test disk: %v", err)
 	}
 
-	scheme, err := CreatePartitions(disk.GetDevice(), false)
+	scheme, err := CreatePartitions(disk.GetDevice(), false, NewProgressReporter(false, 1))
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestDetectExistingPartitionScheme(t *testing.T) {
 		t.Fatalf("Failed to create test disk: %v", err)
 	}
 
-	originalScheme, err := CreatePartitions(disk.GetDevice(), false)
+	originalScheme, err := CreatePartitions(disk.GetDevice(), false, NewProgressReporter(false, 1))
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
 	}

@@ -30,13 +30,13 @@ const (
 //
 // This allows user changes to /etc to persist across A/B updates while
 // keeping the base /etc from the container image.
-func SetupEtcOverlay(targetDir string, dryRun bool) error {
+func SetupEtcOverlay(targetDir string, dryRun bool, progress *ProgressReporter) error {
 	if dryRun {
-		fmt.Printf("[DRY RUN] Would setup /etc overlay directories\n")
+		progress.MessagePlain("[DRY RUN] Would setup /etc overlay directories")
 		return nil
 	}
 
-	fmt.Println("  Setting up /etc overlay persistence...")
+	progress.Message("Setting up /etc overlay persistence...")
 
 	// Create overlay directories
 	overlayBase := filepath.Join(targetDir, "var", "lib", "nbc", "etc-overlay")
@@ -50,7 +50,7 @@ func SetupEtcOverlay(targetDir string, dryRun bool) error {
 		return fmt.Errorf("failed to create overlay work directory: %w", err)
 	}
 
-	fmt.Printf("  Created overlay directories at %s\n", overlayBase)
+	progress.Message("Created overlay directories at %s", overlayBase)
 
 	// Verify /etc exists and has content (will be the lower layer)
 	etcSource := filepath.Join(targetDir, "etc")
@@ -62,7 +62,7 @@ func SetupEtcOverlay(targetDir string, dryRun bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to read /etc directory: %w", err)
 	}
-	fmt.Printf("  /etc (lower layer) contains %d entries\n", len(entries))
+	progress.Message("/etc (lower layer) contains %d entries", len(entries))
 	if len(entries) == 0 {
 		return fmt.Errorf("/etc is empty at %s", etcSource)
 	}
@@ -72,13 +72,13 @@ func SetupEtcOverlay(targetDir string, dryRun bool) error {
 	for _, f := range criticalFiles {
 		path := filepath.Join(etcSource, f)
 		if _, err := os.Stat(path); os.IsNotExist(err) {
-			fmt.Printf("  Warning: critical file %s not found in /etc\n", f)
+			progress.Warning("critical file %s not found in /etc", f)
 		} else {
-			fmt.Printf("  ✓ Found %s in /etc\n", f)
+			progress.Message("✓ Found %s in /etc", f)
 		}
 	}
 
-	fmt.Println("  /etc overlay persistence setup complete")
+	progress.Message("/etc overlay persistence setup complete")
 	return nil
 }
 
@@ -92,14 +92,14 @@ func SetupEtcOverlay(targetDir string, dryRun bool) error {
 //
 // This approach solves the timing issues that plagued bind-mount approaches,
 // because the dracut hook runs before pivot_root when /etc is not yet in use.
-func SetupEtcPersistence(targetDir string, dryRun bool) error {
-	return SetupEtcOverlay(targetDir, dryRun)
+func SetupEtcPersistence(targetDir string, dryRun bool, progress *ProgressReporter) error {
+	return SetupEtcOverlay(targetDir, dryRun, progress)
 }
 
 // InstallEtcMountUnit is DEPRECATED - use SetupEtcPersistence instead.
 // This function now just calls SetupEtcPersistence for backwards compatibility.
-func InstallEtcMountUnit(targetDir string, dryRun bool) error {
-	return SetupEtcPersistence(targetDir, dryRun)
+func InstallEtcMountUnit(targetDir string, dryRun bool, progress *ProgressReporter) error {
+	return SetupEtcPersistence(targetDir, dryRun, progress)
 }
 
 // PopulateEtcLower copies the container's /etc to /.etc.lower for use as the overlay lower layer.
@@ -112,13 +112,13 @@ func InstallEtcMountUnit(targetDir string, dryRun bool) error {
 //
 // By populating /.etc.lower during install/update, we ensure consistent behavior
 // and the container's /etc is preserved as the read-only base layer.
-func PopulateEtcLower(targetDir string, dryRun bool) error {
+func PopulateEtcLower(targetDir string, dryRun bool, progress *ProgressReporter) error {
 	if dryRun {
-		fmt.Printf("[DRY RUN] Would populate /.etc.lower with container /etc\n")
+		progress.MessagePlain("[DRY RUN] Would populate /.etc.lower with container /etc")
 		return nil
 	}
 
-	fmt.Println("  Populating /.etc.lower with container /etc...")
+	progress.Message("Populating /.etc.lower with container /etc...")
 
 	etcSource := filepath.Join(targetDir, "etc")
 	etcLowerDest := filepath.Join(targetDir, ".etc.lower")
@@ -156,19 +156,19 @@ func PopulateEtcLower(targetDir string, dryRun bool) error {
 		return fmt.Errorf(".etc.lower is empty after copy")
 	}
 
-	fmt.Printf("  Populated /.etc.lower with %d entries from container /etc\n", len(lowerEntries))
+	progress.Message("Populated /.etc.lower with %d entries from container /etc", len(lowerEntries))
 	return nil
 }
 
 // SavePristineEtc saves a copy of the pristine /etc after installation
 // This is used to detect user modifications during updates
-func SavePristineEtc(targetDir string, dryRun bool) error {
+func SavePristineEtc(targetDir string, dryRun bool, progress *ProgressReporter) error {
 	if dryRun {
-		fmt.Printf("[DRY RUN] Would save pristine /etc to %s\n", PristineEtcPath)
+		progress.MessagePlain("[DRY RUN] Would save pristine /etc to %s", PristineEtcPath)
 		return nil
 	}
 
-	fmt.Println("  Saving pristine /etc for future updates...")
+	progress.Message("Saving pristine /etc for future updates...")
 
 	etcSource := filepath.Join(targetDir, "etc")
 	pristineDest := filepath.Join(targetDir, "var", "lib", "nbc", "etc.pristine")
@@ -184,7 +184,7 @@ func SavePristineEtc(targetDir string, dryRun bool) error {
 		return fmt.Errorf("failed to save pristine /etc: %w\nOutput: %s", err, string(output))
 	}
 
-	fmt.Printf("  Saved pristine /etc snapshot\n")
+	progress.Message("Saved pristine /etc snapshot")
 	return nil
 }
 
@@ -202,13 +202,14 @@ func SavePristineEtc(targetDir string, dryRun bool) error {
 //   - targetDir: mount point of the NEW root partition (e.g., /tmp/nbc-update)
 //   - activeRootPartition: the CURRENT root partition device (not used with overlay)
 //   - dryRun: if true, don't make changes
-func MergeEtcFromActive(targetDir string, activeRootPartition string, dryRun bool) error {
+//   - progress: progress reporter for output
+func MergeEtcFromActive(targetDir string, activeRootPartition string, dryRun bool, progress *ProgressReporter) error {
 	if dryRun {
-		fmt.Printf("[DRY RUN] Would setup /etc overlay for updated root\n")
+		progress.MessagePlain("[DRY RUN] Would setup /etc overlay for updated root")
 		return nil
 	}
 
-	fmt.Println("  Setting up /etc overlay for updated root...")
+	progress.Message("Setting up /etc overlay for updated root...")
 
 	// With overlay persistence, user modifications are stored in /var/lib/nbc/etc-overlay/upper
 	// and automatically apply to the new root's /etc when the overlay is mounted at boot.
@@ -220,7 +221,7 @@ func MergeEtcFromActive(targetDir string, activeRootPartition string, dryRun boo
 
 	// Check if overlay directories already exist (they should, on /var)
 	if _, err := os.Stat(upperDir); os.IsNotExist(err) {
-		fmt.Println("  Creating overlay directories...")
+		progress.Message("Creating overlay directories...")
 		if err := os.MkdirAll(upperDir, 0755); err != nil {
 			return fmt.Errorf("failed to create overlay upper directory: %w", err)
 		}
@@ -228,7 +229,7 @@ func MergeEtcFromActive(targetDir string, activeRootPartition string, dryRun boo
 			return fmt.Errorf("failed to create overlay work directory: %w", err)
 		}
 	} else {
-		fmt.Println("  Overlay directories already exist (user modifications preserved)")
+		progress.Message("Overlay directories already exist (user modifications preserved)")
 	}
 
 	// Optionally check for conflicts: files modified by both user AND new container
@@ -240,15 +241,15 @@ func MergeEtcFromActive(targetDir string, activeRootPartition string, dryRun boo
 	if _, err := os.Stat(pristineEtc); err == nil {
 		conflicts := detectEtcConflicts(upperDir, newEtc, pristineEtc)
 		if len(conflicts) > 0 {
-			fmt.Println("  Warning: Potential conflicts detected (files modified by both user and update):")
+			progress.Warning("Potential conflicts detected (files modified by both user and update):")
 			for _, conflict := range conflicts {
-				fmt.Printf("    ! %s\n", conflict)
+				progress.Message("! %s", conflict)
 			}
-			fmt.Println("  User modifications in overlay will take precedence over container changes.")
+			progress.Message("User modifications in overlay will take precedence over container changes.")
 		}
 	}
 
-	fmt.Println("  /etc overlay configuration complete")
+	progress.Message("/etc overlay configuration complete")
 	return nil
 }
 
@@ -317,13 +318,13 @@ func hashFile(path string) (string, error) {
 //
 // This function copies critical files from the running system's /etc to the overlay
 // upper layer if they don't already exist there.
-func EnsureCriticalFilesInOverlay(dryRun bool) error {
+func EnsureCriticalFilesInOverlay(dryRun bool, progress *ProgressReporter) error {
 	if dryRun {
-		fmt.Printf("[DRY RUN] Would ensure critical files are in overlay upper layer\n")
+		progress.MessagePlain("[DRY RUN] Would ensure critical files are in overlay upper layer")
 		return nil
 	}
 
-	fmt.Println("  Ensuring critical files are preserved in overlay...")
+	progress.Message("Ensuring critical files are preserved in overlay...")
 
 	// Critical files/directories that should persist across updates
 	criticalPaths := []string{
@@ -353,7 +354,7 @@ func EnsureCriticalFilesInOverlay(dryRun bool) error {
 			continue // Source doesn't exist, skip
 		}
 		if err != nil {
-			fmt.Printf("  Warning: could not stat %s: %v\n", srcPath, err)
+			progress.Warning("could not stat %s: %v", srcPath, err)
 			continue
 		}
 
@@ -373,7 +374,7 @@ func EnsureCriticalFilesInOverlay(dryRun bool) error {
 			return fmt.Errorf("failed to copy %s to overlay: %w", relPath, err)
 		}
 
-		fmt.Printf("  Preserved %s in overlay\n", relPath)
+		progress.Message("Preserved %s in overlay", relPath)
 	}
 
 	return nil

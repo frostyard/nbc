@@ -136,6 +136,10 @@ lint: ## Run linter
 run: build ## Build and run
 	@./$(BINARY_NAME)
 
+docs: build
+	@echo "Generating documentation..."
+	@./$(BINARY_NAME) gendocs --output docs/cli
+
 docker-build: ## Build Docker image
 	@echo "Building Docker image..."
 	@podman build -t $(BINARY_NAME):$(VERSION) .

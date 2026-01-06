@@ -145,7 +145,6 @@ func runDownload(cmd *cobra.Command, args []string) error {
 					fmt.Printf("Dry run: skipping removal of existing staged update\n")
 				}
 			}
-
 		}
 	}
 
@@ -161,7 +160,7 @@ func runDownload(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// if dry run, skip actual download
+	// Skip download if dry run
 	if dryRun {
 		if jsonOutput {
 			// In dry-run mode, only report the requested image reference and cache directory.
@@ -176,7 +175,6 @@ func runDownload(cmd *cobra.Command, args []string) error {
 		// Human-readable dry-run output: just state that the download is skipped.
 		fmt.Printf("Dry run: skipping actual download of image %s\n", downloadImage)
 		return nil
-
 	}
 
 	metadata, err := cache.Download(downloadImage)
@@ -197,29 +195,28 @@ func runDownload(cmd *cobra.Command, args []string) error {
 			OSName:       metadata.OSReleasePrettyName,
 		}
 		return outputJSON(output)
-	} else {
-
-		// Human-readable output
-		fmt.Println()
-		fmt.Println("Download complete!")
-		fmt.Printf("  Image:        %s\n", metadata.ImageRef)
-		fmt.Printf("  Digest:       %s\n", metadata.ImageDigest)
-		fmt.Printf("  Architecture: %s\n", metadata.Architecture)
-		if metadata.OSReleasePrettyName != "" {
-			fmt.Printf("  OS:           %s\n", metadata.OSReleasePrettyName)
-		}
-		fmt.Printf("  Size:         %.2f MB\n", float64(metadata.SizeBytes)/(1024*1024))
-		fmt.Printf("  Cached at:    %s\n", cacheDir)
-
-		if downloadForInstall {
-			fmt.Println()
-			fmt.Println("Image is ready for embedding in an ISO.")
-			fmt.Println("Use 'nbc cache list --install-images' to see all staged images.")
-		} else {
-			fmt.Println()
-			fmt.Println("Update is staged and ready to apply.")
-			fmt.Println("Run 'nbc update --local-image' to apply the staged update.")
-		}
 	}
+	// Human-readable output
+	fmt.Println()
+	fmt.Println("Download complete!")
+	fmt.Printf("  Image:        %s\n", metadata.ImageRef)
+	fmt.Printf("  Digest:       %s\n", metadata.ImageDigest)
+	fmt.Printf("  Architecture: %s\n", metadata.Architecture)
+	if metadata.OSReleasePrettyName != "" {
+		fmt.Printf("  OS:           %s\n", metadata.OSReleasePrettyName)
+	}
+	fmt.Printf("  Size:         %.2f MB\n", float64(metadata.SizeBytes)/(1024*1024))
+	fmt.Printf("  Cached at:    %s\n", cacheDir)
+
+	if downloadForInstall {
+		fmt.Println()
+		fmt.Println("Image is ready for embedding in an ISO.")
+		fmt.Println("Use 'nbc cache list --install-images' to see all staged images.")
+	} else {
+		fmt.Println()
+		fmt.Println("Update is staged and ready to apply.")
+		fmt.Println("Run 'nbc update --local-image' to apply the staged update.")
+	}
+
 	return nil
 }

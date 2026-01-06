@@ -59,6 +59,7 @@ func init() {
 func runDownload(cmd *cobra.Command, args []string) error {
 	jsonOutput := viper.GetBool("json")
 	verbose := viper.GetBool("verbose")
+	dryRun := viper.GetBool("dry-run")
 
 	// Validate mutually exclusive flags
 	if !downloadForInstall && !downloadForUpdate {
@@ -137,7 +138,13 @@ func runDownload(cmd *cobra.Command, args []string) error {
 			if verbose && !jsonOutput {
 				fmt.Printf("Removing existing staged update: %s\n", existing.ImageDigest)
 			}
-			_ = updateCache.Clear()
+			if !dryRun {
+				_ = updateCache.Clear()
+			} else {
+				if verbose && !jsonOutput {
+					fmt.Printf("Dry run: skipping removal of existing staged update\n")
+				}
+			}
 		}
 	}
 
@@ -151,6 +158,23 @@ func runDownload(cmd *cobra.Command, args []string) error {
 		} else {
 			fmt.Printf("Downloading image for staged update...\n")
 		}
+	}
+
+	// Skip download if dry run
+	if dryRun {
+		if jsonOutput {
+			// In dry-run mode, only report the requested image reference and cache directory.
+			// Do not fabricate digest, size, architecture, or OS metadata.
+			output := types.DownloadOutput{
+				ImageRef: downloadImage,
+				CacheDir: cacheDir,
+			}
+			return outputJSON(output)
+		}
+
+		// Human-readable dry-run output: just state that the download is skipped.
+		fmt.Printf("Dry run: skipping actual download of image %s\n", downloadImage)
+		return nil
 	}
 
 	metadata, err := cache.Download(downloadImage)
@@ -172,7 +196,6 @@ func runDownload(cmd *cobra.Command, args []string) error {
 		}
 		return outputJSON(output)
 	}
-
 	// Human-readable output
 	fmt.Println()
 	fmt.Println("Download complete!")

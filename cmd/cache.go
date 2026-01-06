@@ -21,9 +21,8 @@ type CacheListOutput struct {
 }
 
 var cacheCmd = &cobra.Command{
-	Use:     "cache",
-	Aliases: []string{"c"},
-	Short:   "Manage cached container images",
+	Use:   "cache",
+	Short: "Manage cached container images",
 	Long: `Manage cached container images for offline installation and staged updates.
 
 Subcommands:

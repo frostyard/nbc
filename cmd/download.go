@@ -163,51 +163,18 @@ func runDownload(cmd *cobra.Command, args []string) error {
 
 	// if dry run, skip actual download
 	if dryRun {
-		if !jsonOutput {
-			fmt.Printf("Dry run: skipping actual download of image %s\n", downloadImage)
-		}
-		// Fake metadata for dry run
-		metadata := &pkg.CachedImageMetadata{
-			ImageRef:            downloadImage,
-			ImageDigest:         "dryrun-digest",
-			SizeBytes:           1024 * 1024 * 1024,
-			Architecture:        "dryrun-arch",
-			OSReleasePrettyName: "Dry Run OS",
-		}
 		if jsonOutput {
+			// In dry-run mode, only report the requested image reference and cache directory.
+			// Do not fabricate digest, size, architecture, or OS metadata.
 			output := types.DownloadOutput{
-				ImageRef:     metadata.ImageRef,
-				ImageDigest:  metadata.ImageDigest,
-				CacheDir:     cacheDir,
-				SizeBytes:    metadata.SizeBytes,
-				Architecture: metadata.Architecture,
-				OSName:       metadata.OSReleasePrettyName,
+				ImageRef: downloadImage,
+				CacheDir: cacheDir,
 			}
 			return outputJSON(output)
-		} else {
-
-			// Human-readable output
-			fmt.Println()
-			fmt.Println("Dry run complete (no image was downloaded).")
-			fmt.Printf("  Image:        %s\n", metadata.ImageRef)
-			fmt.Printf("  Digest:       %s\n", metadata.ImageDigest)
-			fmt.Printf("  Architecture: %s\n", metadata.Architecture)
-			if metadata.OSReleasePrettyName != "" {
-				fmt.Printf("  OS:           %s\n", metadata.OSReleasePrettyName)
-			}
-			fmt.Printf("  Size:         %.2f MB (simulated)\n", float64(metadata.SizeBytes)/(1024*1024))
-			fmt.Printf("  Cache dir:    %s (no files were written)\n", cacheDir)
-
-			if downloadForInstall {
-				fmt.Println()
-				fmt.Println("If this were a real run, the image would now be ready for embedding in an ISO.")
-				fmt.Println("In a non-dry-run, use 'nbc cache list --install-images' to see all staged images.")
-			} else {
-				fmt.Println()
-				fmt.Println("If this were a real run, the update would now be staged and ready to apply.")
-				fmt.Println("In a non-dry-run, run 'nbc update --local-image' to apply the staged update.")
-			}
 		}
+
+		// Human-readable dry-run output: just state that the download is skipped.
+		fmt.Printf("Dry run: skipping actual download of image %s\n", downloadImage)
 		return nil
 
 	}

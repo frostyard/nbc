@@ -33,7 +33,7 @@ var (
 
 var updateCmd = &cobra.Command{
 	Use:     "update",
-	Aliases: []string{"upgrade", "up", "u"},
+	Aliases: []string{"upgrade", "up"},
 	Short:   "Update system to a new container image using A/B partitions",
 	Long: `Update the system by installing a new container image to the inactive root partition.
 

@@ -42,8 +42,9 @@ type StagedUpdate struct {
 }
 
 var statusCmd = &cobra.Command{
-	Use:   "status",
-	Short: "Show current system status",
+	Use:     "status",
+	Aliases: []string{"stat", "info"},
+	Short:   "Show current system status",
 	Long: `Display the current nbc system status including:
   - Installed container image reference and digest
   - Boot device and active root partition (slot A or B)

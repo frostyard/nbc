@@ -35,10 +35,11 @@ type PartitionOutput struct {
 }
 
 var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List available disks",
-	Long:  `List all available physical disks on the system.`,
-	RunE:  runList,
+	Use:     "list",
+	Aliases: []string{"ls", "disks"},
+	Short:   "List available disks",
+	Long:    `List all available physical disks on the system.`,
+	RunE:    runList,
 }
 
 func init() {

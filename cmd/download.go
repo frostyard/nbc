@@ -188,24 +188,24 @@ func runDownload(cmd *cobra.Command, args []string) error {
 
 			// Human-readable output
 			fmt.Println()
-			fmt.Println("Download complete!")
+			fmt.Println("Dry run complete (no image was downloaded).")
 			fmt.Printf("  Image:        %s\n", metadata.ImageRef)
 			fmt.Printf("  Digest:       %s\n", metadata.ImageDigest)
 			fmt.Printf("  Architecture: %s\n", metadata.Architecture)
 			if metadata.OSReleasePrettyName != "" {
 				fmt.Printf("  OS:           %s\n", metadata.OSReleasePrettyName)
 			}
-			fmt.Printf("  Size:         %.2f MB\n", float64(metadata.SizeBytes)/(1024*1024))
-			fmt.Printf("  Cached at:    %s\n", cacheDir)
+			fmt.Printf("  Size:         %.2f MB (simulated)\n", float64(metadata.SizeBytes)/(1024*1024))
+			fmt.Printf("  Cache dir:    %s (no files were written)\n", cacheDir)
 
 			if downloadForInstall {
 				fmt.Println()
-				fmt.Println("Image is ready for embedding in an ISO.")
-				fmt.Println("Use 'nbc cache list --install-images' to see all staged images.")
+				fmt.Println("If this were a real run, the image would now be ready for embedding in an ISO.")
+				fmt.Println("In a non-dry-run, use 'nbc cache list --install-images' to see all staged images.")
 			} else {
 				fmt.Println()
-				fmt.Println("Update is staged and ready to apply.")
-				fmt.Println("Run 'nbc update --local-image' to apply the staged update.")
+				fmt.Println("If this were a real run, the update would now be staged and ready to apply.")
+				fmt.Println("In a non-dry-run, run 'nbc update --local-image' to apply the staged update.")
 			}
 		}
 		return nil

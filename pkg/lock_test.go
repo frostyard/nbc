@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/frostyard/nbc/pkg/testutil"
 )
 
 func TestFileLock_ExclusiveBlocksExclusive(t *testing.T) {
@@ -202,11 +204,9 @@ func TestSystemLockPath(t *testing.T) {
 	}
 }
 
-func TestAcquireCacheLock_UserFriendlyError(t *testing.T) {
-	// Skip if we can't write to /var/run/nbc
-	if err := ensureLockDir(); err != nil {
-		t.Skip("Skipping test: cannot create lock directory")
-	}
+func TestIntegration_AcquireCacheLock_UserFriendlyError(t *testing.T) {
+	// This test requires root to create /var/run/nbc and lock files
+	testutil.RequireRoot(t)
 
 	// Acquire lock
 	lock1, err := AcquireCacheLock()
@@ -226,11 +226,9 @@ func TestAcquireCacheLock_UserFriendlyError(t *testing.T) {
 	}
 }
 
-func TestAcquireCacheLockShared_UserFriendlyError(t *testing.T) {
-	// Skip if we can't write to /var/run/nbc
-	if err := ensureLockDir(); err != nil {
-		t.Skip("Skipping test: cannot create lock directory")
-	}
+func TestIntegration_AcquireCacheLockShared_UserFriendlyError(t *testing.T) {
+	// This test requires root to create /var/run/nbc and lock files
+	testutil.RequireRoot(t)
 
 	// Acquire exclusive lock
 	lock1, err := AcquireCacheLock()
@@ -250,11 +248,9 @@ func TestAcquireCacheLockShared_UserFriendlyError(t *testing.T) {
 	}
 }
 
-func TestAcquireSystemLock_UserFriendlyError(t *testing.T) {
-	// Skip if we can't write to /var/run/nbc
-	if err := ensureLockDir(); err != nil {
-		t.Skip("Skipping test: cannot create lock directory")
-	}
+func TestIntegration_AcquireSystemLock_UserFriendlyError(t *testing.T) {
+	// This test requires root to create /var/run/nbc and lock files
+	testutil.RequireRoot(t)
 
 	// Acquire lock
 	lock1, err := AcquireSystemLock()

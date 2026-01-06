@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -204,17 +203,8 @@ func runInteractiveInstall(cmd *cobra.Command, args []string) error {
 					Placeholder(fmt.Sprintf("%d", pkg.DefaultLoopbackSizeGB)).
 					Value(&opts.loopbackSizeStr).
 					Validate(func(s string) error {
-						if strings.TrimSpace(s) == "" {
-							return nil // Will use default
-						}
-						size, err := strconv.Atoi(s)
-						if err != nil {
-							return fmt.Errorf("invalid number")
-						}
-						if size < pkg.MinLoopbackSizeGB {
-							return fmt.Errorf("minimum size is %dGB", pkg.MinLoopbackSizeGB)
-						}
-						return nil
+						_, err := pkg.ParseSizeGB(s)
+						return err
 					}),
 
 				huh.NewSelect[string]().
@@ -377,9 +367,9 @@ func runInteractiveInstall(cmd *cobra.Command, args []string) error {
 
 	// Add target info based on install type
 	if opts.installTarget == "loopback" {
-		loopbackSize := pkg.DefaultLoopbackSizeGB
-		if opts.loopbackSizeStr != "" {
-			loopbackSize, _ = strconv.Atoi(opts.loopbackSizeStr)
+		loopbackSize, err := pkg.ParseSizeGB(opts.loopbackSizeStr)
+		if err != nil {
+			return fmt.Errorf("invalid loopback size: %w", err)
 		}
 		summaryLines = append(summaryLines,
 			"  Target: Loopback image",
@@ -467,9 +457,9 @@ func runInteractiveInstall(cmd *cobra.Command, args []string) error {
 
 	if opts.installTarget == "loopback" {
 		// Parse loopback size
-		loopbackSize := pkg.DefaultLoopbackSizeGB
-		if opts.loopbackSizeStr != "" {
-			loopbackSize, _ = strconv.Atoi(opts.loopbackSizeStr)
+		loopbackSize, err := pkg.ParseSizeGB(opts.loopbackSizeStr)
+		if err != nil {
+			return fmt.Errorf("invalid loopback size: %w", err)
 		}
 
 		// Setup loopback device

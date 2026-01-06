@@ -296,18 +296,9 @@ import (
     "encoding/json"
     "fmt"
     "os/exec"
-)
 
-type ProgressEvent struct {
-    Type       string                 `json:"type"`
-    Timestamp  string                 `json:"timestamp"`
-    Step       int                    `json:"step,omitempty"`
-    TotalSteps int                    `json:"total_steps,omitempty"`
-    StepName   string                 `json:"step_name,omitempty"`
-    Message    string                 `json:"message,omitempty"`
-    Percent    int                    `json:"percent,omitempty"`
-    Details    map[string]interface{} `json:"details,omitempty"`
-}
+    "github.com/frostyard/nbc/pkg/types"
+)
 
 func runNbcInstall(image, device string) error {
     cmd := exec.Command("nbc", "install", "--image", image, "--device", device, "--json")
@@ -322,26 +313,123 @@ func runNbcInstall(image, device string) error {
 
     scanner := bufio.NewScanner(stdout)
     for scanner.Scan() {
-        var event ProgressEvent
+        var event types.ProgressEvent
         if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
             continue
         }
 
         switch event.Type {
-        case "step":
+        case types.EventTypeStep:
             fmt.Printf("[%d/%d] %s\n", event.Step, event.TotalSteps, event.StepName)
-        case "message":
+        case types.EventTypeMessage:
             fmt.Printf("  %s\n", event.Message)
-        case "warning":
+        case types.EventTypeWarning:
             fmt.Printf("WARNING: %s\n", event.Message)
-        case "error":
+        case types.EventTypeError:
             return fmt.Errorf("%s", event.Message)
-        case "complete":
+        case types.EventTypeComplete:
             fmt.Printf("\nSUCCESS: %s\n", event.Message)
         }
     }
 
     return cmd.Wait()
+}
+```
+
+## Using nbc Types in Go Applications
+
+The `github.com/frostyard/nbc/pkg/types` package provides all JSON output types for programmatic consumption. This allows Go applications to parse nbc's JSON output with proper type safety.
+
+### Available Types
+
+| Type                  | Description                                       |
+| --------------------- | ------------------------------------------------- |
+| `ProgressEvent`       | Streaming progress event (install/update)         |
+| `EventType`           | Event type constants (step, message, error, etc.) |
+| `StatusOutput`        | Output from `nbc status --json`                   |
+| `ListOutput`          | Output from `nbc list --json`                     |
+| `DiskOutput`          | Disk information within ListOutput                |
+| `PartitionOutput`     | Partition information within DiskOutput           |
+| `UpdateCheckOutput`   | Output from `nbc update --check --json`           |
+| `ValidateOutput`      | Output from `nbc validate --json`                 |
+| `DownloadOutput`      | Output from `nbc download --json`                 |
+| `CacheListOutput`     | Output from `nbc cache list --json`               |
+| `CachedImageMetadata` | Metadata for cached container images              |
+| `LintOutput`          | Output from `nbc lint --json`                     |
+| `LintIssue`           | Individual lint issue                             |
+| `LintResult`          | Aggregated lint results                           |
+
+### Example: Parsing Status Output
+
+```go
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "os/exec"
+
+    "github.com/frostyard/nbc/pkg/types"
+)
+
+func getStatus() (*types.StatusOutput, error) {
+    cmd := exec.Command("nbc", "status", "--json")
+    output, err := cmd.Output()
+    if err != nil {
+        return nil, err
+    }
+
+    var status types.StatusOutput
+    if err := json.Unmarshal(output, &status); err != nil {
+        return nil, err
+    }
+
+    return &status, nil
+}
+
+func main() {
+    status, err := getStatus()
+    if err != nil {
+        fmt.Printf("Error: %v\n", err)
+        return
+    }
+
+    fmt.Printf("Image: %s\n", status.Image)
+    fmt.Printf("Device: %s\n", status.Device)
+    fmt.Printf("Active Slot: %s\n", status.ActiveSlot)
+
+    if status.UpdateCheck != nil && status.UpdateCheck.Available {
+        fmt.Println("Update available!")
+    }
+}
+```
+
+### Example: Listing Cached Images
+
+```go
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "os/exec"
+
+    "github.com/frostyard/nbc/pkg/types"
+)
+
+func listCachedImages() ([]types.CachedImageMetadata, error) {
+    cmd := exec.Command("nbc", "cache", "list", "--install-images", "--json")
+    output, err := cmd.Output()
+    if err != nil {
+        return nil, err
+    }
+
+    var cacheOutput types.CacheListOutput
+    if err := json.Unmarshal(output, &cacheOutput); err != nil {
+        return nil, err
+    }
+
+    return cacheOutput.Images, nil
 }
 ```
 

@@ -7,20 +7,10 @@ import (
 	"strings"
 
 	"github.com/frostyard/nbc/pkg"
+	"github.com/frostyard/nbc/pkg/types"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
-
-// LintOutput represents the JSON output structure for the lint command
-type LintOutput struct {
-	Image      string          `json:"image,omitempty"`
-	Local      bool            `json:"local,omitempty"`
-	Issues     []pkg.LintIssue `json:"issues"`
-	ErrorCount int             `json:"error_count"`
-	WarnCount  int             `json:"warning_count"`
-	FixedCount int             `json:"fixed_count,omitempty"`
-	Success    bool            `json:"success"`
-}
 
 var lintLocal bool
 var lintFix bool
@@ -114,12 +104,12 @@ func runLint(cmd *cobra.Command, args []string) error {
 		result, err = linter.LintContainerImage(imageRef)
 		if err != nil {
 			if jsonOutput {
-				output := LintOutput{
+				output := types.LintOutput{
 					Image:   imageRef,
 					Success: false,
-					Issues: []pkg.LintIssue{{
+					Issues: []types.LintIssue{{
 						Check:    "extraction",
-						Severity: pkg.SeverityError,
+						Severity: types.SeverityError,
 						Message:  err.Error(),
 					}},
 					ErrorCount: 1,
@@ -133,7 +123,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 	}
 
 	if jsonOutput {
-		output := LintOutput{
+		output := types.LintOutput{
 			Issues:     result.Issues,
 			ErrorCount: result.ErrorCount,
 			WarnCount:  result.WarnCount,

@@ -6,31 +6,23 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/frostyard/nbc/pkg/types"
 )
 
-// EventType represents the type of progress event
-type EventType string
+// Type aliases for backward compatibility
+type EventType = types.EventType
+type ProgressEvent = types.ProgressEvent
 
+// Re-export constants for backward compatibility
 const (
-	EventTypeStep     EventType = "step"
-	EventTypeProgress EventType = "progress"
-	EventTypeMessage  EventType = "message"
-	EventTypeWarning  EventType = "warning"
-	EventTypeError    EventType = "error"
-	EventTypeComplete EventType = "complete"
+	EventTypeStep     = types.EventTypeStep
+	EventTypeProgress = types.EventTypeProgress
+	EventTypeMessage  = types.EventTypeMessage
+	EventTypeWarning  = types.EventTypeWarning
+	EventTypeError    = types.EventTypeError
+	EventTypeComplete = types.EventTypeComplete
 )
-
-// ProgressEvent represents a single line of JSON Lines output for streaming progress
-type ProgressEvent struct {
-	Type       EventType `json:"type"`
-	Timestamp  string    `json:"timestamp"`
-	Step       int       `json:"step,omitempty"`
-	TotalSteps int       `json:"total_steps,omitempty"`
-	StepName   string    `json:"step_name,omitempty"`
-	Message    string    `json:"message,omitempty"`
-	Percent    int       `json:"percent,omitempty"`
-	Details    any       `json:"details,omitempty"`
-}
 
 // ProgressReporter handles streaming JSON Lines output for progress updates
 type ProgressReporter struct {

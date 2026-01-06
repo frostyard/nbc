@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/frostyard/nbc/pkg"
+	"github.com/frostyard/nbc/pkg/types"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -12,13 +13,6 @@ var (
 	cacheListInstallImages bool
 	cacheListUpdateImages  bool
 )
-
-// CacheListOutput represents the JSON output structure for cache list
-type CacheListOutput struct {
-	CacheType string                    `json:"cache_type"`
-	CacheDir  string                    `json:"cache_dir"`
-	Images    []pkg.CachedImageMetadata `json:"images"`
-}
 
 var cacheCmd = &cobra.Command{
 	Use:   "cache",
@@ -140,13 +134,13 @@ func runCacheList(cmd *cobra.Command, args []string) error {
 	}
 
 	if jsonOutput {
-		output := CacheListOutput{
+		output := types.CacheListOutput{
 			CacheType: cacheType,
 			CacheDir:  cacheDir,
 			Images:    images,
 		}
 		if output.Images == nil {
-			output.Images = []pkg.CachedImageMetadata{} // Ensure empty array, not null
+			output.Images = []types.CachedImageMetadata{} // Ensure empty array, not null
 		}
 		return outputJSON(output)
 	}

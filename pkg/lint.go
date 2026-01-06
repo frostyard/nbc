@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/frostyard/nbc/pkg/types"
 )
 
 // =============================================================================
@@ -81,30 +83,16 @@ import (
 //
 // =============================================================================
 
-// LintSeverity represents the severity of a lint issue
-type LintSeverity string
+// Type aliases for backward compatibility
+type LintSeverity = types.LintSeverity
+type LintIssue = types.LintIssue
+type LintResult = types.LintResult
 
+// Re-export constants for backward compatibility
 const (
-	SeverityError   LintSeverity = "error"
-	SeverityWarning LintSeverity = "warning"
+	SeverityError   = types.SeverityError
+	SeverityWarning = types.SeverityWarning
 )
-
-// LintIssue represents a single lint issue found
-type LintIssue struct {
-	Check    string       `json:"check"`
-	Severity LintSeverity `json:"severity"`
-	Message  string       `json:"message"`
-	Path     string       `json:"path,omitempty"`
-	Fixed    bool         `json:"fixed,omitempty"` // True if the issue was automatically fixed
-}
-
-// LintResult contains all issues found by the linter
-type LintResult struct {
-	Issues     []LintIssue `json:"issues"`
-	ErrorCount int         `json:"error_count"`
-	WarnCount  int         `json:"warning_count"`
-	FixedCount int         `json:"fixed_count,omitempty"`
-}
 
 // LintCheck is a function that performs a lint check on a container filesystem.
 // If fix is true, the check should attempt to fix the issue and set Fixed=true on the issue.

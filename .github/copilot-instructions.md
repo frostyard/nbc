@@ -21,6 +21,8 @@ nbc is a Go-based tool for installing bootc (bootable container) systems to disk
    - `make test` to run all tests
 4. **Verify all tests pass** - Do not complete with failing tests
 5. **Fix any issues** found by the above steps
+6. **Review your changes** to ensure quality
+7. **Update all documentation** if needed
 
 **Never complete a feature or change without running these checks.** This ensures code quality and prevents breaking changes from being committed.
 
@@ -128,6 +130,75 @@ if err != nil {
 - Use absolute paths for critical operations
 
 ## Architecture Patterns
+
+### Process Locking
+
+nbc uses POSIX file locking (`flock`) to prevent multiple processes from performing concurrent operations that could corrupt the cache or cause system issues during install/update.
+
+#### Lock Files
+
+| Lock File   | Path                       | Purpose                            |
+| ----------- | -------------------------- | ---------------------------------- |
+| Cache Lock  | `/var/run/nbc/cache.lock`  | Protects cache operations          |
+| System Lock | `/var/run/nbc/system.lock` | Protects install/update operations |
+
+#### Lock Types
+
+- **Exclusive locks** (write operations): Only one process can hold the lock
+- **Shared locks** (read operations): Multiple processes can hold shared locks concurrently
+
+#### Operations and Their Locks
+
+**Cache operations** (`pkg/cache.go`):
+| Operation | Lock Type | Reason |
+|-----------|-----------|--------|
+| `Download()` | Exclusive | Writing to cache |
+| `Remove()` | Exclusive | Deleting from cache |
+| `Clear()` | Exclusive | Clearing entire cache |
+| `List()` | Shared | Reading cache contents |
+| `GetImage()` | Shared | Reading cached image |
+| `GetSingle()` | Shared | Reading single cached image |
+| `IsCached()` | Shared | Checking cache status |
+
+**System operations**:
+| Operation | Lock Type | File | Reason |
+|-----------|-----------|------|--------|
+| `InstallComplete()` | Exclusive | System lock | Prevents concurrent installs |
+| `PerformUpdate()` | Exclusive | System lock | Prevents concurrent updates |
+
+#### Implementation Details
+
+- **Non-blocking**: Locks use `LOCK_NB` flag - operations fail immediately if lock is held
+- **Automatic cleanup**: Locks are released via `defer` statements on success, error, or cancellation
+- **User-friendly errors**: Clear messages like "another nbc process is currently operating on the cache"
+- **Directory creation**: Lock directory `/var/run/nbc/` is created automatically with mode `0755`
+
+#### Adding Locking to New Operations
+
+When adding new operations that modify the cache or perform system changes:
+
+```go
+// For cache write operations:
+lock, err := AcquireCacheLock()
+if err != nil {
+    return err
+}
+defer func() { _ = lock.Release() }()
+
+// For cache read operations:
+lock, err := AcquireCacheLockShared()
+if err != nil {
+    return err
+}
+defer func() { _ = lock.Release() }()
+
+// For system operations (install/update):
+lock, err := AcquireSystemLock()
+if err != nil {
+    return err
+}
+defer func() { _ = lock.Release() }()
+```
 
 ### Partition Scheme
 

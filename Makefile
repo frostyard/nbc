@@ -23,9 +23,7 @@ install: build ## Install to /usr/local/bin
 	@sudo cp $(BINARY_NAME) /usr/local/bin/
 	@echo "Installed successfully"
 
-test: ## Run tests
-	@echo "Running tests..."
-	@go test -v ./...
+test: test-unit test-integration ## Run all tests (unit then integration)
 
 test-unit: ## Run unit tests (no root required)
 	@echo "Running unit tests..."

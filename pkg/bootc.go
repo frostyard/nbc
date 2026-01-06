@@ -494,6 +494,13 @@ func (b *BootcInstaller) Verify() error {
 
 // InstallComplete performs the complete installation workflow
 func (b *BootcInstaller) InstallComplete(skipPull bool) error {
+	// Acquire exclusive lock for system operation
+	lock, err := AcquireSystemLock()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Release() }()
+
 	p := b.Progress
 
 	// Check prerequisites

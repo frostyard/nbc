@@ -25,8 +25,9 @@ type DownloadOutput struct {
 }
 
 var downloadCmd = &cobra.Command{
-	Use:   "download",
-	Short: "Download a container image to local cache",
+	Use:     "download",
+	Aliases: []string{"dl"},
+	Short:   "Download a container image to local cache",
 	Long: `Download a container image for offline installation or staged updates.
 
 This command downloads a container image and saves it in OCI layout format

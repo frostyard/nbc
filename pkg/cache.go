@@ -76,6 +76,13 @@ func (c *ImageCache) GetLayoutPath(digest string) string {
 
 // Download pulls a container image and saves it to the cache in OCI layout format
 func (c *ImageCache) Download(imageRef string) (*CachedImageMetadata, error) {
+	// Acquire exclusive lock for cache write operation
+	lock, err := AcquireCacheLock()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = lock.Release() }()
+
 	// Parse image reference
 	ref, err := name.ParseReference(imageRef)
 	if err != nil {
@@ -250,6 +257,13 @@ func (c *ImageCache) readMetadata(imageDir string) (*CachedImageMetadata, error)
 
 // GetImage loads an image from the cache by digest or image reference
 func (c *ImageCache) GetImage(digestOrRef string) (v1.Image, *CachedImageMetadata, error) {
+	// Acquire shared lock for cache read operation
+	lock, err := AcquireCacheLockShared()
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = lock.Release() }()
+
 	// Try to find by digest first
 	imageDir := filepath.Join(c.CacheDir, digestToDir(digestOrRef))
 	if _, err := os.Stat(imageDir); err == nil {
@@ -329,8 +343,9 @@ func (c *ImageCache) loadFromDir(imageDir string) (v1.Image, *CachedImageMetadat
 	return img, metadata, nil
 }
 
-// List returns all cached images with their metadata
-func (c *ImageCache) List() ([]CachedImageMetadata, error) {
+// listUnlocked is the internal implementation of List without locking.
+// It should only be called when a lock is already held.
+func (c *ImageCache) listUnlocked() ([]CachedImageMetadata, error) {
 	var images []CachedImageMetadata
 
 	if _, err := os.Stat(c.CacheDir); os.IsNotExist(err) {
@@ -360,10 +375,29 @@ func (c *ImageCache) List() ([]CachedImageMetadata, error) {
 	return images, nil
 }
 
+// List returns all cached images with their metadata
+func (c *ImageCache) List() ([]CachedImageMetadata, error) {
+	// Acquire shared lock for cache read operation
+	lock, err := AcquireCacheLockShared()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = lock.Release() }()
+
+	return c.listUnlocked()
+}
+
 // IsCached checks if an image is in the cache by digest
 func (c *ImageCache) IsCached(digest string) (bool, error) {
+	// Acquire shared lock for cache read operation
+	lock, err := AcquireCacheLockShared()
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = lock.Release() }()
+
 	imageDir := filepath.Join(c.CacheDir, digestToDir(digest))
-	_, err := os.Stat(imageDir)
+	_, err = os.Stat(imageDir)
 	if err == nil {
 		return true, nil
 	}
@@ -375,6 +409,13 @@ func (c *ImageCache) IsCached(digest string) (bool, error) {
 
 // Remove removes a cached image by digest or digest prefix
 func (c *ImageCache) Remove(digestOrPrefix string) error {
+	// Acquire exclusive lock for cache write operation
+	lock, err := AcquireCacheLock()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Release() }()
+
 	// Find matching directories
 	entries, err := os.ReadDir(c.CacheDir)
 	if err != nil {
@@ -410,6 +451,13 @@ func (c *ImageCache) Remove(digestOrPrefix string) error {
 
 // Clear removes all cached images
 func (c *ImageCache) Clear() error {
+	// Acquire exclusive lock for cache write operation
+	lock, err := AcquireCacheLock()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Release() }()
+
 	if _, err := os.Stat(c.CacheDir); os.IsNotExist(err) {
 		return nil // Nothing to clear
 	}
@@ -435,7 +483,14 @@ func (c *ImageCache) Clear() error {
 // GetSingle returns the single cached image (for staged-update where only one is expected)
 // Returns nil if no image is cached, error if multiple images exist
 func (c *ImageCache) GetSingle() (*CachedImageMetadata, error) {
-	images, err := c.List()
+	// Acquire shared lock for cache read operation
+	lock, err := AcquireCacheLockShared()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = lock.Release() }()
+
+	images, err := c.listUnlocked()
 	if err != nil {
 		return nil, err
 	}

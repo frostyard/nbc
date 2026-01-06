@@ -1262,6 +1262,13 @@ options %s
 
 // PerformUpdate performs the complete update workflow
 func (u *SystemUpdater) PerformUpdate(skipPull bool) error {
+	// Acquire exclusive lock for system operation
+	lock, err := AcquireSystemLock()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Release() }()
+
 	p := u.Progress
 
 	// Prepare update

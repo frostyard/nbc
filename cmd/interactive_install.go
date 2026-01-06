@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -15,7 +17,10 @@ type interactiveInstallOptions struct {
 	imageSource      string // "remote", "staged"
 	image            string
 	stagedImage      string
+	installTarget    string // "physical", "loopback"
 	device           string
+	loopbackPath     string
+	loopbackSizeStr  string
 	filesystem       string
 	encrypt          bool
 	passphrase       string
@@ -154,31 +159,105 @@ func runInteractiveInstall(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Third form: Device and filesystem selection
-	deviceForm := huh.NewForm(
+	// Third form: Install target selection (physical disk vs loopback)
+	installTargetForm := huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
-				Title("Target Disk").
-				Description("Select the disk to install to (ALL DATA WILL BE ERASED)").
-				Options(diskOptions...).
-				Value(&opts.device),
-
-			huh.NewSelect[string]().
-				Title("Filesystem").
-				Description("Filesystem type for root and var partitions").
+				Title("Install Target").
+				Description("Where should the system be installed?").
 				Options(
-					huh.NewOption("btrfs (recommended)", "btrfs"),
-					huh.NewOption("ext4", "ext4"),
+					huh.NewOption("Physical disk", "physical"),
+					huh.NewOption("Loopback image file", "loopback"),
 				).
-				Value(&opts.filesystem),
+				Value(&opts.installTarget),
 		),
 	)
 
-	if err := deviceForm.Run(); err != nil {
+	if err := installTargetForm.Run(); err != nil {
 		return err
 	}
 
-	// Fourth form: Encryption options
+	// Fourth form: Device or loopback selection based on target
+	if opts.installTarget == "loopback" {
+		// Loopback image configuration
+		loopbackForm := huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("Image File Path").
+					Description("Path where the disk image will be created").
+					Placeholder("./disk.img").
+					Value(&opts.loopbackPath).
+					Validate(func(s string) error {
+						if strings.TrimSpace(s) == "" {
+							return fmt.Errorf("image path is required")
+						}
+						// Check if file exists
+						if _, err := os.Stat(s); err == nil {
+							return fmt.Errorf("file already exists: %s", s)
+						}
+						return nil
+					}),
+
+				huh.NewInput().
+					Title("Image Size (GB)").
+					Description(fmt.Sprintf("Size of the disk image (minimum %dGB)", pkg.MinLoopbackSizeGB)).
+					Placeholder(fmt.Sprintf("%d", pkg.DefaultLoopbackSizeGB)).
+					Value(&opts.loopbackSizeStr).
+					Validate(func(s string) error {
+						if strings.TrimSpace(s) == "" {
+							return nil // Will use default
+						}
+						size, err := strconv.Atoi(s)
+						if err != nil {
+							return fmt.Errorf("invalid number")
+						}
+						if size < pkg.MinLoopbackSizeGB {
+							return fmt.Errorf("minimum size is %dGB", pkg.MinLoopbackSizeGB)
+						}
+						return nil
+					}),
+
+				huh.NewSelect[string]().
+					Title("Filesystem").
+					Description("Filesystem type for root and var partitions").
+					Options(
+						huh.NewOption("btrfs (recommended)", "btrfs"),
+						huh.NewOption("ext4", "ext4"),
+					).
+					Value(&opts.filesystem),
+			),
+		)
+
+		if err := loopbackForm.Run(); err != nil {
+			return err
+		}
+	} else {
+		// Physical disk selection
+		deviceForm := huh.NewForm(
+			huh.NewGroup(
+				huh.NewSelect[string]().
+					Title("Target Disk").
+					Description("Select the disk to install to (ALL DATA WILL BE ERASED)").
+					Options(diskOptions...).
+					Value(&opts.device),
+
+				huh.NewSelect[string]().
+					Title("Filesystem").
+					Description("Filesystem type for root and var partitions").
+					Options(
+						huh.NewOption("btrfs (recommended)", "btrfs"),
+						huh.NewOption("ext4", "ext4"),
+					).
+					Value(&opts.filesystem),
+			),
+		)
+
+		if err := deviceForm.Run(); err != nil {
+			return err
+		}
+	}
+
+	// Fifth form: Encryption options
 	encryptForm := huh.NewForm(
 		huh.NewGroup(
 			huh.NewConfirm().
@@ -295,8 +374,23 @@ func runInteractiveInstall(cmd *cobra.Command, args []string) error {
 	} else {
 		summaryLines = append(summaryLines, fmt.Sprintf("  Staged Image: %s", opts.stagedImage))
 	}
+
+	// Add target info based on install type
+	if opts.installTarget == "loopback" {
+		loopbackSize := pkg.DefaultLoopbackSizeGB
+		if opts.loopbackSizeStr != "" {
+			loopbackSize, _ = strconv.Atoi(opts.loopbackSizeStr)
+		}
+		summaryLines = append(summaryLines,
+			"  Target: Loopback image",
+			fmt.Sprintf("  Image Path: %s", opts.loopbackPath),
+			fmt.Sprintf("  Image Size: %dGB", loopbackSize),
+		)
+	} else {
+		summaryLines = append(summaryLines, fmt.Sprintf("  Target Disk: %s", opts.device))
+	}
+
 	summaryLines = append(summaryLines,
-		fmt.Sprintf("  Target Disk: %s", opts.device),
 		fmt.Sprintf("  Filesystem: %s", opts.filesystem),
 		fmt.Sprintf("  Encryption: %v", opts.encrypt),
 	)
@@ -309,7 +403,13 @@ func runInteractiveInstall(cmd *cobra.Command, args []string) error {
 	if opts.rootPassword != "" {
 		summaryLines = append(summaryLines, "  Root Password: [set]")
 	}
-	summaryLines = append(summaryLines, "", "⚠️  This will DESTROY all data on the selected disk!")
+
+	// Add appropriate warning based on install target
+	if opts.installTarget == "loopback" {
+		summaryLines = append(summaryLines, "", "A new disk image will be created at the specified path.")
+	} else {
+		summaryLines = append(summaryLines, "", "⚠️  This will DESTROY all data on the selected disk!")
+	}
 
 	confirmForm := huh.NewForm(
 		huh.NewGroup(
@@ -361,10 +461,39 @@ func runInteractiveInstall(cmd *cobra.Command, args []string) error {
 		imageRef = opts.image
 	}
 
-	// Resolve device path
-	device, err := pkg.GetDiskByPath(opts.device)
-	if err != nil {
-		return fmt.Errorf("invalid device: %w", err)
+	// Handle loopback or physical device
+	var device string
+	var loopbackDevice *pkg.LoopbackDevice
+
+	if opts.installTarget == "loopback" {
+		// Parse loopback size
+		loopbackSize := pkg.DefaultLoopbackSizeGB
+		if opts.loopbackSizeStr != "" {
+			loopbackSize, _ = strconv.Atoi(opts.loopbackSizeStr)
+		}
+
+		// Setup loopback device
+		fmt.Println("Setting up loopback device...")
+		loopbackDevice, err = pkg.SetupLoopbackInstall(opts.loopbackPath, loopbackSize, false)
+		if err != nil {
+			return fmt.Errorf("failed to setup loopback: %w", err)
+		}
+		device = loopbackDevice.Device
+
+		// Ensure cleanup on exit
+		defer func() {
+			if loopbackDevice != nil {
+				if cleanupErr := loopbackDevice.Cleanup(); cleanupErr != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to cleanup loopback device: %v\n", cleanupErr)
+				}
+			}
+		}()
+	} else {
+		// Resolve device path
+		device, err = pkg.GetDiskByPath(opts.device)
+		if err != nil {
+			return fmt.Errorf("invalid device: %w", err)
+		}
 	}
 
 	// Create installer
@@ -398,6 +527,19 @@ func runInteractiveInstall(cmd *cobra.Command, args []string) error {
 	// Run installation
 	if err := installer.InstallComplete(skipPull); err != nil {
 		return err
+	}
+
+	// Print loopback usage instructions
+	if opts.installTarget == "loopback" {
+		fmt.Println()
+		fmt.Println("Loopback image created successfully!")
+		fmt.Println()
+		fmt.Println("To boot the image with QEMU:")
+		fmt.Printf("  qemu-system-x86_64 -enable-kvm -m 2048 -drive file=%s,format=raw -bios /usr/share/ovmf/OVMF.fd\n", opts.loopbackPath)
+		fmt.Println()
+		fmt.Println("To convert to other formats:")
+		fmt.Printf("  qemu-img convert -f raw -O qcow2 %s disk.qcow2\n", opts.loopbackPath)
+		fmt.Printf("  qemu-img convert -f raw -O vmdk %s disk.vmdk\n", opts.loopbackPath)
 	}
 
 	return nil

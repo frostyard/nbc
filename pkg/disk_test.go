@@ -228,3 +228,86 @@ func TestVerifyDiskID(t *testing.T) {
 		break // Only test one device
 	}
 }
+
+func TestParseDeviceName(t *testing.T) {
+	tests := []struct {
+		name    string
+		device  string
+		want    string
+		wantErr bool
+	}{
+		{
+			name:    "SATA device",
+			device:  "/dev/sda",
+			want:    "sda",
+			wantErr: false,
+		},
+		{
+			name:    "SATA device with partition",
+			device:  "/dev/sda1",
+			want:    "sda",
+			wantErr: false,
+		},
+		{
+			name:    "NVMe device",
+			device:  "/dev/nvme0n1",
+			want:    "nvme0n1",
+			wantErr: false,
+		},
+		{
+			name:    "NVMe device with partition",
+			device:  "/dev/nvme0n1p1",
+			want:    "nvme0n1",
+			wantErr: false,
+		},
+		{
+			name:    "virtio device",
+			device:  "/dev/vda",
+			want:    "vda",
+			wantErr: false,
+		},
+		{
+			name:    "MMC device",
+			device:  "/dev/mmcblk0",
+			want:    "mmcblk0",
+			wantErr: false,
+		},
+		{
+			name:    "loop device",
+			device:  "/dev/loop0",
+			want:    "loop0",
+			wantErr: false,
+		},
+		{
+			name:    "loop device with partition",
+			device:  "/dev/loop0p1",
+			want:    "loop0",
+			wantErr: false,
+		},
+		{
+			name:    "loop device double digit",
+			device:  "/dev/loop12",
+			want:    "loop12",
+			wantErr: false,
+		},
+		{
+			name:    "unrecognized device",
+			device:  "/dev/unknown123",
+			want:    "",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseDeviceName(tt.device)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseDeviceName(%q) error = %v, wantErr %v", tt.device, err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("ParseDeviceName(%q) = %v, want %v", tt.device, got, tt.want)
+			}
+		})
+	}
+}

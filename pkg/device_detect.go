@@ -36,15 +36,34 @@ func GetBootDeviceFromPartition(partition string) (string, error) {
 	// Remove /dev/ prefix if present
 	partition = strings.TrimPrefix(partition, "/dev/")
 
-	// Handle NVMe and MMC devices (nvme0n1p3 -> nvme0n1, mmcblk0p3 -> mmcblk0)
-	if strings.Contains(partition, "nvme") || strings.Contains(partition, "mmcblk") {
-		// Find the 'p' separator
-		idx := strings.LastIndex(partition, "p")
-		if idx == -1 {
-			return "", fmt.Errorf("invalid nvme/mmcblk partition format: %s", partition)
+	// Handle NVMe, MMC, and loop devices (nvme0n1p3 -> nvme0n1, mmcblk0p3 -> mmcblk0, loop0p3 -> loop0)
+	if strings.Contains(partition, "nvme") || strings.Contains(partition, "mmcblk") || strings.HasPrefix(partition, "loop") {
+		// For these devices, the partition separator 'p' comes after the device number
+		// We need to find 'p' followed by digits, but NOT the 'p' in "loop"
+		// Strategy: find the last 'p' that is followed only by digits to the end
+
+		// Start from the end and work backwards to find 'p' + digits pattern
+		for i := len(partition) - 1; i >= 0; i-- {
+			if partition[i] == 'p' && i < len(partition)-1 {
+				// Check if everything after 'p' is digits
+				suffix := partition[i+1:]
+				isAllDigits := true
+				for _, c := range suffix {
+					if c < '0' || c > '9' {
+						isAllDigits = false
+						break
+					}
+				}
+				if isAllDigits && len(suffix) > 0 {
+					// For loop devices, ensure this isn't the 'p' in "loop"
+					// The device part should end with a digit before 'p'
+					if i > 0 && partition[i-1] >= '0' && partition[i-1] <= '9' {
+						return "/dev/" + partition[:i], nil
+					}
+				}
+			}
 		}
-		device := partition[:idx]
-		return "/dev/" + device, nil
+		return "", fmt.Errorf("invalid nvme/mmcblk/loop partition format: %s", partition)
 	}
 
 	// Handle standard devices (sda3 -> sda, vda3 -> vda)

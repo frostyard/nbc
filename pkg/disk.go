@@ -253,6 +253,7 @@ func ParseDeviceName(device string) (string, error) {
 		`^(nvme\d+n\d+)`, // nvme0n1, etc.
 		`^(vd[a-z]+)`,    // vda, vdb, etc. (virtio)
 		`^(mmcblk\d+)`,   // mmcblk0, etc. (SD/MMC)
+		`^(loop\d+)`,     // loop0, loop1, etc. (loopback)
 	}
 
 	for _, pattern := range patterns {

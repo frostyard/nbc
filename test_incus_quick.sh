@@ -69,7 +69,7 @@ incus launch images:fedora/42/cloud ${VM_NAME} --vm \
 echo "Waiting for VM..."
 timeout=60
 while [ $timeout -gt 0 ]; do
-    if incus exec ${VM_NAME} -- systemctl is-system-running --wait 2>/dev/null | grep -qE "running|degraded"; then
+    if incus exec ${VM_NAME} -- systemctl is-system-running --wait 2>/dev/null | grep -qE "running|degraded|starting"; then
         break
     fi
     sleep 2

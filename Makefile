@@ -99,6 +99,24 @@ test-incus-encryption: ## Run Incus encryption tests (requires root and incus)
 _test-incus-encryption: ## Internal target for Incus encryption tests
 	@./test_incus_encryption.sh
 
+test-incus-loopback: ## Run Incus loopback installation test (requires root and incus)
+	@echo "Running Incus loopback tests..."
+	@if [ "$$(id -u)" -ne 0 ]; then \
+		sudo -E env "PATH=$$PATH:/usr/sbin:/sbin" $(MAKE) _test-incus-loopback; \
+	else \
+		$(MAKE) _test-incus-loopback; \
+	fi
+
+_test-incus-loopback: ## Internal target for Incus loopback tests
+	@./test_incus_loopback.sh
+
+test-incus-all: ## Run all Incus tests (shortest to longest)
+	@echo "Running all Incus tests..."
+	@$(MAKE) test-incus-quick
+	@$(MAKE) test-incus-loopback
+	@$(MAKE) test-incus-encryption
+	@$(MAKE) test-incus
+
 test-all: ## Run all tests (unit + integration, requires root)
 	@echo "Running all tests..."
 	@$(MAKE) test-unit

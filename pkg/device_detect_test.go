@@ -60,6 +60,30 @@ func TestGetBootDeviceFromPartition(t *testing.T) {
 			wantErr:   false,
 		},
 		{
+			name:      "loop device",
+			partition: "/dev/loop0p3",
+			want:      "/dev/loop0",
+			wantErr:   false,
+		},
+		{
+			name:      "loop device without /dev/",
+			partition: "loop0p3",
+			want:      "/dev/loop0",
+			wantErr:   false,
+		},
+		{
+			name:      "loop device with double digit",
+			partition: "/dev/loop12p5",
+			want:      "/dev/loop12",
+			wantErr:   false,
+		},
+		{
+			name:      "invalid loop device format (no partition)",
+			partition: "/dev/loop0",
+			want:      "",
+			wantErr:   true,
+		},
+		{
 			name:      "invalid format - no partition number",
 			partition: "/dev/sda",
 			want:      "/dev/sda",

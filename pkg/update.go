@@ -389,6 +389,14 @@ func (u *SystemUpdater) PrepareUpdate() error {
 		if u.Config.FilesystemType == "" && sysConfig.FilesystemType != "" {
 			u.Config.FilesystemType = sysConfig.FilesystemType
 		}
+		// Load stored kernel args, prepending them to any CLI-specified args
+		// This allows CLI args to add to stored args
+		if len(sysConfig.KernelArgs) > 0 {
+			u.Config.KernelArgs = append(sysConfig.KernelArgs, u.Config.KernelArgs...)
+			if u.Config.Verbose {
+				p.Message("Loaded kernel args from config: %v", sysConfig.KernelArgs)
+			}
+		}
 	}
 
 	// Detect existing partition scheme

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/frostyard/nbc/pkg"
+	"github.com/frostyard/nbc/pkg/types"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -13,16 +14,6 @@ var (
 	downloadForInstall bool
 	downloadForUpdate  bool
 )
-
-// DownloadOutput represents the JSON output structure for the download command
-type DownloadOutput struct {
-	ImageRef     string `json:"image_ref"`
-	ImageDigest  string `json:"image_digest"`
-	CacheDir     string `json:"cache_dir"`
-	SizeBytes    int64  `json:"size_bytes"`
-	Architecture string `json:"architecture"`
-	OSName       string `json:"os_name,omitempty"`
-}
 
 var downloadCmd = &cobra.Command{
 	Use:     "download",
@@ -171,7 +162,7 @@ func runDownload(cmd *cobra.Command, args []string) error {
 	}
 
 	if jsonOutput {
-		output := DownloadOutput{
+		output := types.DownloadOutput{
 			ImageRef:     metadata.ImageRef,
 			ImageDigest:  metadata.ImageDigest,
 			CacheDir:     cacheDir,

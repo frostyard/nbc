@@ -6,19 +6,10 @@ import (
 	"os"
 
 	"github.com/frostyard/nbc/pkg"
+	"github.com/frostyard/nbc/pkg/types"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
-
-// UpdateCheckOutput represents the JSON output structure for the update --check command
-type UpdateCheckOutput struct {
-	UpdateNeeded  bool   `json:"update_needed"`
-	Image         string `json:"image"`
-	Device        string `json:"device"`
-	CurrentDigest string `json:"current_digest,omitempty"`
-	NewDigest     string `json:"new_digest,omitempty"`
-	Message       string `json:"message,omitempty"`
-}
 
 var (
 	updateImage        string
@@ -196,7 +187,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		// Check if update is actually newer (unless force is set)
 		if !force && config.ImageDigest == remoteDigest {
 			if jsonOutput {
-				output := UpdateCheckOutput{
+				output := types.UpdateCheckOutput{
 					UpdateNeeded:  false,
 					Image:         imageRef,
 					Device:        device,
@@ -344,7 +335,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 			if config != nil {
 				currentDigest = config.ImageDigest
 			}
-			output := UpdateCheckOutput{
+			output := types.UpdateCheckOutput{
 				UpdateNeeded:  needed,
 				Image:         imageRef,
 				Device:        device,

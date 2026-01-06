@@ -4,17 +4,10 @@ import (
 	"fmt"
 
 	"github.com/frostyard/nbc/pkg"
+	"github.com/frostyard/nbc/pkg/types"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
-
-// ValidateOutput represents the JSON output structure for the validate command
-type ValidateOutput struct {
-	Device  string `json:"device"`
-	Valid   bool   `json:"valid"`
-	Message string `json:"message,omitempty"`
-	Error   string `json:"error,omitempty"`
-}
 
 var validateDevice string
 
@@ -40,7 +33,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	device, err := pkg.GetDiskByPath(validateDevice)
 	if err != nil {
 		if jsonOutput {
-			output := ValidateOutput{
+			output := types.ValidateOutput{
 				Device: validateDevice,
 				Valid:  false,
 				Error:  fmt.Sprintf("invalid device: %v", err),
@@ -58,7 +51,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	minSize := uint64(10 * 1024 * 1024 * 1024) // 10 GB minimum
 	if err := pkg.ValidateDisk(device, minSize); err != nil {
 		if jsonOutput {
-			output := ValidateOutput{
+			output := types.ValidateOutput{
 				Device: device,
 				Valid:  false,
 				Error:  err.Error(),
@@ -70,7 +63,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	}
 
 	if jsonOutput {
-		output := ValidateOutput{
+		output := types.ValidateOutput{
 			Device:  device,
 			Valid:   true,
 			Message: "Device is valid for bootc installation",

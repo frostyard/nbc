@@ -6,33 +6,10 @@ import (
 	"os"
 
 	"github.com/frostyard/nbc/pkg"
+	"github.com/frostyard/nbc/pkg/types"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
-
-// ListOutput represents the JSON output structure for the list command
-type ListOutput struct {
-	Disks []DiskOutput `json:"disks"`
-}
-
-// DiskOutput represents a disk in JSON output
-type DiskOutput struct {
-	Device      string            `json:"device"`
-	Size        uint64            `json:"size"`
-	SizeHuman   string            `json:"size_human"`
-	Model       string            `json:"model,omitempty"`
-	IsRemovable bool              `json:"is_removable"`
-	Partitions  []PartitionOutput `json:"partitions"`
-}
-
-// PartitionOutput represents a partition in JSON output
-type PartitionOutput struct {
-	Device     string `json:"device"`
-	Size       uint64 `json:"size"`
-	SizeHuman  string `json:"size_human"`
-	MountPoint string `json:"mount_point,omitempty"`
-	FileSystem string `json:"filesystem,omitempty"`
-}
 
 var listCmd = &cobra.Command{
 	Use:     "list",
@@ -59,20 +36,20 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 
 	if jsonOutput {
-		output := ListOutput{
-			Disks: make([]DiskOutput, 0, len(disks)),
+		output := types.ListOutput{
+			Disks: make([]types.DiskOutput, 0, len(disks)),
 		}
 		for _, disk := range disks {
-			diskOut := DiskOutput{
+			diskOut := types.DiskOutput{
 				Device:      disk.Device,
 				Size:        disk.Size,
 				SizeHuman:   pkg.FormatSize(disk.Size),
 				Model:       disk.Model,
 				IsRemovable: disk.IsRemovable,
-				Partitions:  make([]PartitionOutput, 0, len(disk.Partitions)),
+				Partitions:  make([]types.PartitionOutput, 0, len(disk.Partitions)),
 			}
 			for _, part := range disk.Partitions {
-				diskOut.Partitions = append(diskOut.Partitions, PartitionOutput{
+				diskOut.Partitions = append(diskOut.Partitions, types.PartitionOutput{
 					Device:     part.Device,
 					Size:       part.Size,
 					SizeHuman:  pkg.FormatSize(part.Size),

@@ -129,6 +129,7 @@ RUN dnf install -y kernel kernel-modules initramfs-tools
 - 🔒 **Secure Boot Support**: Automatic shim detection and Secure Boot chain setup
 - 📀 **Filesystem Choice**: Support for btrfs (default) and ext4 filesystems
 - 🔑 **Full Disk Encryption**: LUKS2 encryption with optional TPM2 automatic unlock
+- 📦 **JSON Output**: Machine-readable output with importable Go types for integration
 
 ## Prerequisites
 
@@ -421,6 +422,28 @@ Checks include:
 - SSH host keys (should not be baked into images)
 - machine-id (should be empty or 'uninitialized')
 - Random seed files (should not be shared)
+
+### Programmatic Access (Go)
+
+For Go applications that need to parse nbc's JSON output, import the types package:
+
+```go
+import "github.com/frostyard/nbc/pkg/types"
+
+// Parse status output
+var status types.StatusOutput
+json.Unmarshal(data, &status)
+
+// Parse streaming progress events
+var event types.ProgressEvent
+json.Unmarshal(line, &event)
+
+if event.Type == types.EventTypeComplete {
+    fmt.Println("Installation complete!")
+}
+```
+
+See [docs/JSON-OUTPUT.md](docs/JSON-OUTPUT.md) for complete documentation on JSON output formats and available types.
 
 ### Interactive Installation
 

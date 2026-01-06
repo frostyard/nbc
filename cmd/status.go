@@ -5,41 +5,10 @@ import (
 	"strings"
 
 	"github.com/frostyard/nbc/pkg"
+	"github.com/frostyard/nbc/pkg/types"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
-
-// StatusOutput represents the JSON output structure for the status command
-type StatusOutput struct {
-	Image          string        `json:"image"`
-	Digest         string        `json:"digest,omitempty"`
-	Device         string        `json:"device"`
-	ActiveRoot     string        `json:"active_root,omitempty"`
-	ActiveSlot     string        `json:"active_slot,omitempty"`
-	RootMountMode  string        `json:"root_mount_mode,omitempty"`
-	BootloaderType string        `json:"bootloader_type"`
-	FilesystemType string        `json:"filesystem_type"`
-	InstallDate    string        `json:"install_date,omitempty"`
-	KernelArgs     []string      `json:"kernel_args,omitempty"`
-	UpdateCheck    *UpdateCheck  `json:"update_check,omitempty"`
-	StagedUpdate   *StagedUpdate `json:"staged_update,omitempty"`
-}
-
-// UpdateCheck represents the update check result in JSON output
-type UpdateCheck struct {
-	Available     bool   `json:"available"`
-	RemoteDigest  string `json:"remote_digest,omitempty"`
-	CurrentDigest string `json:"current_digest,omitempty"`
-	Error         string `json:"error,omitempty"`
-}
-
-// StagedUpdate represents a pre-downloaded update ready to apply
-type StagedUpdate struct {
-	ImageRef    string `json:"image_ref"`
-	ImageDigest string `json:"image_digest"`
-	SizeBytes   int64  `json:"size_bytes"`
-	Ready       bool   `json:"ready"` // true if different from installed version
-}
 
 var statusCmd = &cobra.Command{
 	Use:     "status",
@@ -111,7 +80,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	rootMountMode := pkg.IsRootMountedReadOnly()
 
 	if jsonOutput {
-		output := StatusOutput{
+		output := types.StatusOutput{
 			Image:          config.ImageRef,
 			Digest:         config.ImageDigest,
 			Device:         config.Device,
@@ -130,7 +99,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 		// Check for updates if verbose or always for JSON
 		if config.ImageRef != "" {
-			updateCheck := &UpdateCheck{}
+			updateCheck := &types.UpdateCheck{}
 			remoteDigest, err := pkg.GetRemoteImageDigest(config.ImageRef)
 			if err != nil {
 				updateCheck.Error = err.Error()
@@ -149,7 +118,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		// Check for staged update
 		updateCache := pkg.NewStagedUpdateCache()
 		if stagedMetadata, err := updateCache.GetSingle(); err == nil && stagedMetadata != nil {
-			output.StagedUpdate = &StagedUpdate{
+			output.StagedUpdate = &types.StagedUpdate{
 				ImageRef:    stagedMetadata.ImageRef,
 				ImageDigest: stagedMetadata.ImageDigest,
 				SizeBytes:   stagedMetadata.SizeBytes,

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/frostyard/nbc/pkg/types"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -26,18 +27,8 @@ const (
 	MetadataFileName = "metadata.json"
 )
 
-// CachedImageMetadata contains metadata about a cached container image
-type CachedImageMetadata struct {
-	ImageRef            string            `json:"image_ref"`              // Original image reference
-	ImageDigest         string            `json:"image_digest"`           // Image manifest digest (sha256:...)
-	DownloadDate        string            `json:"download_date"`          // When the image was downloaded
-	Architecture        string            `json:"architecture"`           // Image architecture (amd64, arm64, etc.)
-	Labels              map[string]string `json:"labels,omitempty"`       // Container image labels
-	OSReleasePrettyName string            `json:"os_release_pretty_name"` // PRETTY_NAME from os-release
-	OSReleaseVersionID  string            `json:"os_release_version_id"`  // VERSION_ID from os-release
-	OSReleaseID         string            `json:"os_release_id"`          // ID from os-release (e.g., debian, fedora)
-	SizeBytes           int64             `json:"size_bytes"`             // Total uncompressed size in bytes
-}
+// Type alias for backward compatibility
+type CachedImageMetadata = types.CachedImageMetadata
 
 // ImageCache manages cached container images in OCI layout format
 type ImageCache struct {

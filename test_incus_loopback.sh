@@ -74,7 +74,7 @@ set +e
 echo 'yes' | timeout $TIMEOUT ./nbc install \
     --image "$TEST_IMAGE" \
     --via-loopback "$DISK_IMAGE" \
-    --image-size $IMAGE_SIZE \
+    --image-size "$IMAGE_SIZE" \
     --verbose 2>&1 | sed 's/^/  /'
 INSTALL_EXIT=${PIPESTATUS[0]}
 set -e

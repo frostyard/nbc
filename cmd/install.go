@@ -22,6 +22,9 @@ var (
 	installTPM2             bool
 	installLocalImage       string
 	installRootPasswordFile string
+	installViaLoopback      string
+	installImageSize        int
+	installForce            bool
 )
 
 var installCmd = &cobra.Command{
@@ -45,13 +48,23 @@ Supported filesystems: btrfs (default), ext4
 
 With --json flag, outputs streaming JSON Lines for progress updates.
 
+Loopback Installation:
+  Use --via-loopback to install to a disk image file instead of a physical disk.
+  This creates a sparse image file that can be booted with QEMU or converted to
+  other virtual disk formats. Minimum size is 35GB (default).
+
 Example:
   nbc install --image quay.io/example/myimage:latest --device /dev/sda
   nbc install --image localhost/myimage --device /dev/nvme0n1 --filesystem ext4
   nbc install --image localhost/myimage --device /dev/nvme0n1 --karg console=ttyS0
   nbc install --image localhost/myimage --device /dev/sda --json
   nbc install --local-image sha256:abc123 --device /dev/sda  # Use staged image
-  nbc install --device /dev/sda  # Auto-detect staged image on ISO`,
+  nbc install --device /dev/sda  # Auto-detect staged image on ISO
+
+  # Loopback installation
+  nbc install --image quay.io/example/myimage:latest --via-loopback ./disk.img
+  nbc install --image localhost/myimage --via-loopback ./disk.img --image-size 50
+  nbc install --image localhost/myimage --via-loopback ./disk.img --force  # Overwrite existing`,
 	RunE: runInstall,
 }
 
@@ -69,9 +82,11 @@ func init() {
 	installCmd.Flags().BoolVar(&installTPM2, "tpm2", false, "Enroll TPM2 for automatic LUKS unlock (no PCR binding)")
 	installCmd.Flags().StringVar(&installLocalImage, "local-image", "", "Use staged local image by digest (auto-detects from /var/cache/nbc/staged-install/ if not specified)")
 	installCmd.Flags().StringVar(&installRootPasswordFile, "root-password-file", "", "Path to file containing root password to set during installation")
+	installCmd.Flags().StringVar(&installViaLoopback, "via-loopback", "", "Path to create a loopback disk image file for installation (instead of --device)")
+	installCmd.Flags().IntVar(&installImageSize, "image-size", pkg.DefaultLoopbackSizeGB, "Size of loopback image in GB (minimum 35GB, default 35GB)")
+	installCmd.Flags().BoolVar(&installForce, "force", false, "Overwrite existing loopback image file")
 
-	// Don't mark image as required - we auto-detect staged images
-	_ = installCmd.MarkFlagRequired("device")
+	// Don't mark device as required - can use --via-loopback instead
 }
 
 func runInstall(cmd *cobra.Command, args []string) error {
@@ -202,13 +217,68 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Resolve device path
-	device, err := pkg.GetDiskByPath(installDevice)
-	if err != nil {
+	// Validate device/loopback options
+	if installDevice != "" && installViaLoopback != "" {
+		err := fmt.Errorf("--device and --via-loopback are mutually exclusive")
 		if jsonOutput {
-			progress.Error(err, "Invalid device")
+			progress.Error(err, "Invalid options")
 		}
-		return fmt.Errorf("invalid device: %w", err)
+		return err
+	}
+
+	if installDevice == "" && installViaLoopback == "" {
+		err := fmt.Errorf("either --device or --via-loopback is required")
+		if jsonOutput {
+			progress.Error(err, "Missing target")
+		}
+		return err
+	}
+
+	// Validate loopback image size
+	if installViaLoopback != "" && installImageSize < pkg.MinLoopbackSizeGB {
+		err := fmt.Errorf("--image-size must be at least %dGB", pkg.MinLoopbackSizeGB)
+		if jsonOutput {
+			progress.Error(err, "Invalid image size")
+		}
+		return err
+	}
+
+	// Handle loopback setup
+	var loopbackDevice *pkg.LoopbackDevice
+	var device string
+	var err error
+
+	if installViaLoopback != "" {
+		// Setup loopback device
+		if !jsonOutput {
+			fmt.Println("Setting up loopback device...")
+		}
+		loopbackDevice, err = pkg.SetupLoopbackInstall(installViaLoopback, installImageSize, installForce)
+		if err != nil {
+			if jsonOutput {
+				progress.Error(err, "Failed to setup loopback")
+			}
+			return fmt.Errorf("failed to setup loopback: %w", err)
+		}
+		device = loopbackDevice.Device
+
+		// Ensure cleanup on exit
+		defer func() {
+			if loopbackDevice != nil {
+				if cleanupErr := loopbackDevice.Cleanup(); cleanupErr != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to cleanup loopback device: %v\n", cleanupErr)
+				}
+			}
+		}()
+	} else {
+		// Resolve device path
+		device, err = pkg.GetDiskByPath(installDevice)
+		if err != nil {
+			if jsonOutput {
+				progress.Error(err, "Invalid device")
+			}
+			return fmt.Errorf("invalid device: %w", err)
+		}
 	}
 
 	if verbose && !jsonOutput {
@@ -257,6 +327,19 @@ func runInstall(cmd *cobra.Command, args []string) error {
 			progress.Error(err, "Installation failed")
 		}
 		return err
+	}
+
+	// Print loopback usage instructions
+	if installViaLoopback != "" && !jsonOutput {
+		fmt.Println()
+		fmt.Println("Loopback image created successfully!")
+		fmt.Println()
+		fmt.Println("To boot the image with QEMU:")
+		fmt.Printf("  qemu-system-x86_64 -enable-kvm -m 2048 -drive file=%s,format=raw -bios /usr/share/ovmf/OVMF.fd\n", installViaLoopback)
+		fmt.Println()
+		fmt.Println("To convert to other formats:")
+		fmt.Printf("  qemu-img convert -f raw -O qcow2 %s disk.qcow2\n", installViaLoopback)
+		fmt.Printf("  qemu-img convert -f raw -O vmdk %s disk.vmdk\n", installViaLoopback)
 	}
 
 	return nil

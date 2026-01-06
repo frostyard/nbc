@@ -1033,8 +1033,8 @@ func (b *BootloaderInstaller) registerEFIBootEntry() error {
 // parsePartitionDevice parses a partition device path into disk and partition number
 // Handles both traditional naming (/dev/sda1) and NVMe naming (/dev/nvme0n1p1)
 func parsePartitionDevice(partition string) (disk string, partNum string, err error) {
-	// Handle NVMe devices: /dev/nvme0n1p1 -> /dev/nvme0n1, 1
-	if strings.Contains(partition, "nvme") || strings.Contains(partition, "mmcblk") {
+	// Handle NVMe, MMC, and loop devices: /dev/nvme0n1p1 -> /dev/nvme0n1, 1
+	if strings.Contains(partition, "nvme") || strings.Contains(partition, "mmcblk") || strings.Contains(partition, "loop") {
 		// Find the last 'p' followed by digits
 		for i := len(partition) - 1; i >= 0; i-- {
 			if partition[i] == 'p' && i < len(partition)-1 {

@@ -26,7 +26,7 @@ var (
 
 var installCmd = &cobra.Command{
 	Use:     "install",
-	Aliases: []string{"inst", "i"},
+	Aliases: []string{"inst"},
 	Short:   "Install a bootc container to a physical disk",
 	Long: `Install a bootc compatible container image to a physical disk.
 

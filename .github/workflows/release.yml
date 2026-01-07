@@ -39,3 +39,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Your GoReleaser Pro key, if you are using the 'goreleaser-pro' distribution
           GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
+
+  publish:
+    uses: frostyard/plow/.github/workflows/publish-deb.yml@main
+    with:
+      keep_versions: 10
+    secrets:
+      GPG_PRIVATE_KEY: ${{ secrets.DEB_GPG_PRIVATE_KEY }}
+      REPO_DEPLOY_KEY: ${{ secrets.DEB_REPO_DEPLOY_KEY }}

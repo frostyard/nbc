@@ -1127,19 +1127,6 @@ func (u *SystemUpdater) updateGRUBBootloader() error {
 	if _, err := os.Stat(kernelPath); err != nil {
 		return fmt.Errorf("kernel vmlinuz-%s not found on boot partition (should have been copied earlier): %w", kernelVersion, err)
 	}
-	// Get kernel version from the updated root's modules directory
-	// This ensures we use the kernel from the newly extracted image, not a stale kernel
-	// that might exist on the boot partition from a previous version
-	kernelVersion, err := u.getUpdatedRootKernelVersion()
-	if err != nil {
-		return fmt.Errorf("failed to get kernel version from updated root: %w", err)
-	}
-
-	// Verify the kernel exists on the boot partition (it should have been copied by InstallKernelAndInitramfs)
-	kernelPath := filepath.Join(u.Config.BootMountPoint, "vmlinuz-"+kernelVersion)
-	if _, err := os.Stat(kernelPath); err != nil {
-		return fmt.Errorf("kernel vmlinuz-%s not found on boot partition (should have been copied earlier): %w", kernelVersion, err)
-	}
 
 	// Look for initramfs
 	var initrd string
@@ -1245,19 +1232,6 @@ func (u *SystemUpdater) updateSystemdBootBootloader() error {
 	}
 	activeUUID, _ := GetPartitionUUID(activeRoot)
 
-	// Get kernel version from the updated root's modules directory
-	// This ensures we use the kernel from the newly extracted image, not a stale kernel
-	// that might exist on the boot partition from a previous version
-	kernelVersion, err := u.getUpdatedRootKernelVersion()
-	if err != nil {
-		return fmt.Errorf("failed to get kernel version from updated root: %w", err)
-	}
-
-	// Verify the kernel exists on the boot partition (it should have been copied by InstallKernelAndInitramfs)
-	kernelPath := filepath.Join(u.Config.BootMountPoint, "vmlinuz-"+kernelVersion)
-	if _, err := os.Stat(kernelPath); err != nil {
-		return fmt.Errorf("kernel vmlinuz-%s not found on boot partition (should have been copied earlier): %w", kernelVersion, err)
-	}
 	// Get kernel version from the updated root's modules directory
 	// This ensures we use the kernel from the newly extracted image, not a stale kernel
 	// that might exist on the boot partition from a previous version

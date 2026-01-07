@@ -91,6 +91,12 @@ changelog:
 nfpms:
   - file_name_template: "{{ .ConventionalFileName }}"
     package_name: frostyard-nbc
+    description: |-
+      Install, update and manage bootable containers on bare metal.
+      bootc alternative using A/B root partitions and container images.
+    license: MIT
+    conflicts:
+      - nbc
     contents:
       - src: ./completions/{{ .ProjectName }}.bash
         dst: /etc/bash_completion.d/{{ .ProjectName }}

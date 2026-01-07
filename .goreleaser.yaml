@@ -90,6 +90,7 @@ changelog:
 
 nfpms:
   - file_name_template: "{{ .ConventionalFileName }}"
+    package_name: frostyard-nbc
     contents:
       - src: ./completions/{{ .ProjectName }}.bash
         dst: /etc/bash_completion.d/{{ .ProjectName }}

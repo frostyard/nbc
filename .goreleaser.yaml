@@ -97,6 +97,26 @@ nfpms:
     license: MIT
     conflicts:
       - nbc
+    dependencies:
+      - gdisk
+      - dosfstools
+      - e2fsprogs
+      - util-linux
+      - parted
+      - udev
+      - rsync
+      - coreutils
+      - passwd
+      - efibootmgr
+    recommends:
+      - grub-efi-amd64
+      - systemd-boot
+      - cryptsetup
+      - btrfs-progs
+      - dracut
+      - podman
+    suggests:
+      - initramfs-tools
     contents:
       - src: ./completions/{{ .ProjectName }}.bash
         dst: /etc/bash_completion.d/{{ .ProjectName }}

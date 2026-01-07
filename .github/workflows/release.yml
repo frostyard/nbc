@@ -41,6 +41,7 @@ jobs:
           GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
 
   publish:
+    needs: goreleaser
     uses: frostyard/plow/.github/workflows/publish-deb.yml@main
     with:
       keep_versions: 10

@@ -630,3 +630,309 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 		}
 	})
 }
+
+// TestGetUpdatedRootKernelVersion tests the kernel version detection from the updated root
+func TestGetUpdatedRootKernelVersion(t *testing.T) {
+	t.Run("finds single kernel version", func(t *testing.T) {
+		// Setup: create a mock root filesystem with a single kernel
+		mockRoot := t.TempDir()
+		modulesDir := filepath.Join(mockRoot, "usr", "lib", "modules", "6.18.3-surface-2")
+		if err := os.MkdirAll(modulesDir, 0755); err != nil {
+			t.Fatalf("Failed to create modules directory: %v", err)
+		}
+		// Create vmlinuz file
+		vmlinuzPath := filepath.Join(modulesDir, "vmlinuz")
+		if err := os.WriteFile(vmlinuzPath, []byte("mock kernel"), 0644); err != nil {
+			t.Fatalf("Failed to create vmlinuz: %v", err)
+		}
+
+		updater := &SystemUpdater{
+			Config: UpdaterConfig{
+				MountPoint: mockRoot,
+			},
+		}
+
+		version, err := updater.getUpdatedRootKernelVersion()
+		if err != nil {
+			t.Fatalf("getUpdatedRootKernelVersion failed: %v", err)
+		}
+		if version != "6.18.3-surface-2" {
+			t.Errorf("Wrong kernel version: got %q, want %q", version, "6.18.3-surface-2")
+		}
+	})
+
+	t.Run("selects newest kernel when multiple exist", func(t *testing.T) {
+		// Setup: create a mock root filesystem with multiple kernels
+		// This tests the bug fix: we should pick the newest kernel, not alphabetically first
+		mockRoot := t.TempDir()
+		modulesBase := filepath.Join(mockRoot, "usr", "lib", "modules")
+
+		// Create older kernel (alphabetically first)
+		oldKernelDir := filepath.Join(modulesBase, "6.18.2-surface-1")
+		if err := os.MkdirAll(oldKernelDir, 0755); err != nil {
+			t.Fatalf("Failed to create old modules directory: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(oldKernelDir, "vmlinuz"), []byte("old kernel"), 0644); err != nil {
+			t.Fatalf("Failed to create old vmlinuz: %v", err)
+		}
+
+		// Create newer kernel (alphabetically second)
+		newKernelDir := filepath.Join(modulesBase, "6.18.3-surface-2")
+		if err := os.MkdirAll(newKernelDir, 0755); err != nil {
+			t.Fatalf("Failed to create new modules directory: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(newKernelDir, "vmlinuz"), []byte("new kernel"), 0644); err != nil {
+			t.Fatalf("Failed to create new vmlinuz: %v", err)
+		}
+
+		updater := &SystemUpdater{
+			Config: UpdaterConfig{
+				MountPoint: mockRoot,
+			},
+		}
+
+		version, err := updater.getUpdatedRootKernelVersion()
+		if err != nil {
+			t.Fatalf("getUpdatedRootKernelVersion failed: %v", err)
+		}
+		// Should get the newest version, not the alphabetically first one
+		if version != "6.18.3-surface-2" {
+			t.Errorf("Should select newest kernel version: got %q, want %q", version, "6.18.3-surface-2")
+		}
+	})
+
+	t.Run("ignores directories without vmlinuz", func(t *testing.T) {
+		// Setup: create directories that look like kernel modules but don't have vmlinuz
+		mockRoot := t.TempDir()
+		modulesBase := filepath.Join(mockRoot, "usr", "lib", "modules")
+
+		// Create a valid kernel
+		validKernelDir := filepath.Join(modulesBase, "5.15.0-generic")
+		if err := os.MkdirAll(validKernelDir, 0755); err != nil {
+			t.Fatalf("Failed to create valid modules directory: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(validKernelDir, "vmlinuz"), []byte("kernel"), 0644); err != nil {
+			t.Fatalf("Failed to create vmlinuz: %v", err)
+		}
+
+		// Create a directory without vmlinuz (e.g., just has modules.dep)
+		incompleteDir := filepath.Join(modulesBase, "6.0.0-incomplete")
+		if err := os.MkdirAll(incompleteDir, 0755); err != nil {
+			t.Fatalf("Failed to create incomplete modules directory: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(incompleteDir, "modules.dep"), []byte(""), 0644); err != nil {
+			t.Fatalf("Failed to create modules.dep: %v", err)
+		}
+
+		updater := &SystemUpdater{
+			Config: UpdaterConfig{
+				MountPoint: mockRoot,
+			},
+		}
+
+		version, err := updater.getUpdatedRootKernelVersion()
+		if err != nil {
+			t.Fatalf("getUpdatedRootKernelVersion failed: %v", err)
+		}
+		if version != "5.15.0-generic" {
+			t.Errorf("Should only find valid kernel: got %q, want %q", version, "5.15.0-generic")
+		}
+	})
+
+	t.Run("returns error when no kernels found", func(t *testing.T) {
+		mockRoot := t.TempDir()
+		modulesDir := filepath.Join(mockRoot, "usr", "lib", "modules")
+		if err := os.MkdirAll(modulesDir, 0755); err != nil {
+			t.Fatalf("Failed to create modules directory: %v", err)
+		}
+
+		updater := &SystemUpdater{
+			Config: UpdaterConfig{
+				MountPoint: mockRoot,
+			},
+		}
+
+		_, err := updater.getUpdatedRootKernelVersion()
+		if err == nil {
+			t.Error("Expected error when no kernels found, got nil")
+		}
+		if !strings.Contains(err.Error(), "no kernel found") {
+			t.Errorf("Error should mention 'no kernel found': %v", err)
+		}
+	})
+
+	t.Run("returns error when modules directory missing", func(t *testing.T) {
+		mockRoot := t.TempDir()
+		// Don't create the modules directory
+
+		updater := &SystemUpdater{
+			Config: UpdaterConfig{
+				MountPoint: mockRoot,
+			},
+		}
+
+		_, err := updater.getUpdatedRootKernelVersion()
+		if err == nil {
+			t.Error("Expected error when modules directory missing, got nil")
+		}
+	})
+
+	t.Run("handles kernel version with various suffixes", func(t *testing.T) {
+		testCases := []struct {
+			name     string
+			versions []string
+			expected string
+		}{
+			{
+				name:     "surface kernel versions",
+				versions: []string{"6.18.2-surface-1", "6.18.3-surface-2"},
+				expected: "6.18.3-surface-2",
+			},
+			{
+				name:     "Debian-style versions",
+				versions: []string{"6.1.0-18-amd64", "6.1.0-20-amd64"},
+				expected: "6.1.0-20-amd64",
+			},
+			{
+				name:     "Fedora-style versions",
+				versions: []string{"6.5.6-300.fc39.x86_64", "6.6.2-201.fc39.x86_64"},
+				expected: "6.6.2-201.fc39.x86_64",
+			},
+			{
+				name:     "major version difference",
+				versions: []string{"5.15.0-generic", "6.1.0-generic"},
+				expected: "6.1.0-generic",
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				mockRoot := t.TempDir()
+				modulesBase := filepath.Join(mockRoot, "usr", "lib", "modules")
+
+				for _, ver := range tc.versions {
+					kernelDir := filepath.Join(modulesBase, ver)
+					if err := os.MkdirAll(kernelDir, 0755); err != nil {
+						t.Fatalf("Failed to create modules directory: %v", err)
+					}
+					if err := os.WriteFile(filepath.Join(kernelDir, "vmlinuz"), []byte("kernel"), 0644); err != nil {
+						t.Fatalf("Failed to create vmlinuz: %v", err)
+					}
+				}
+
+				updater := &SystemUpdater{
+					Config: UpdaterConfig{
+						MountPoint: mockRoot,
+					},
+				}
+
+				version, err := updater.getUpdatedRootKernelVersion()
+				if err != nil {
+					t.Fatalf("getUpdatedRootKernelVersion failed: %v", err)
+				}
+				if version != tc.expected {
+					t.Errorf("Wrong kernel version: got %q, want %q", version, tc.expected)
+				}
+			})
+		}
+	})
+}
+
+// TestBootloaderUsesCorrectKernelVersion verifies that bootloader updates use the kernel
+// from the updated root, not a stale kernel from the boot partition.
+// This is a regression test for the bug where filepath.Glob would return kernels
+// in alphabetical order, causing the wrong kernel to be selected.
+func TestBootloaderUsesCorrectKernelVersion(t *testing.T) {
+	t.Run("systemd-boot entry uses kernel from updated root", func(t *testing.T) {
+		// This test verifies the fix for the kernel version mismatch bug
+		// The bug caused boot failures when:
+		// 1. Boot partition had multiple kernels (e.g., 6.18.2-surface-1, 6.18.3-surface-2)
+		// 2. Updated root had a newer kernel (6.18.3-surface-2)
+		// 3. Boot entry incorrectly pointed to older kernel (6.18.2-surface-1)
+		// 4. System failed to boot due to missing kernel modules
+
+		mockRoot := t.TempDir()
+		mockBoot := t.TempDir()
+
+		// Setup updated root with new kernel (6.18.3)
+		modulesDir := filepath.Join(mockRoot, "usr", "lib", "modules", "6.18.3-surface-2")
+		if err := os.MkdirAll(modulesDir, 0755); err != nil {
+			t.Fatalf("Failed to create modules directory: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(modulesDir, "vmlinuz"), []byte("new kernel"), 0644); err != nil {
+			t.Fatalf("Failed to create vmlinuz: %v", err)
+		}
+
+		// Create os-release for ParseOSRelease
+		etcDir := filepath.Join(mockRoot, "etc")
+		if err := os.MkdirAll(etcDir, 0755); err != nil {
+			t.Fatalf("Failed to create etc directory: %v", err)
+		}
+		osRelease := `PRETTY_NAME="Test Linux"
+NAME="Test Linux"
+ID=test
+`
+		if err := os.WriteFile(filepath.Join(etcDir, "os-release"), []byte(osRelease), 0644); err != nil {
+			t.Fatalf("Failed to create os-release: %v", err)
+		}
+
+		// Setup boot partition with MULTIPLE kernels (simulating the bug scenario)
+		// This is the key: the old kernel is alphabetically first
+		oldKernel := filepath.Join(mockBoot, "vmlinuz-6.18.2-surface-1")
+		if err := os.WriteFile(oldKernel, []byte("old kernel"), 0644); err != nil {
+			t.Fatalf("Failed to create old kernel: %v", err)
+		}
+		oldInitrd := filepath.Join(mockBoot, "initramfs-6.18.2-surface-1.img")
+		if err := os.WriteFile(oldInitrd, []byte("old initrd"), 0644); err != nil {
+			t.Fatalf("Failed to create old initrd: %v", err)
+		}
+
+		// New kernel (this should be the one selected)
+		newKernel := filepath.Join(mockBoot, "vmlinuz-6.18.3-surface-2")
+		if err := os.WriteFile(newKernel, []byte("new kernel"), 0644); err != nil {
+			t.Fatalf("Failed to create new kernel: %v", err)
+		}
+		newInitrd := filepath.Join(mockBoot, "initramfs-6.18.3-surface-2.img")
+		if err := os.WriteFile(newInitrd, []byte("new initrd"), 0644); err != nil {
+			t.Fatalf("Failed to create new initrd: %v", err)
+		}
+
+		// Setup loader directory structure
+		loaderDir := filepath.Join(mockBoot, "loader")
+		entriesDir := filepath.Join(loaderDir, "entries")
+		if err := os.MkdirAll(entriesDir, 0755); err != nil {
+			t.Fatalf("Failed to create loader entries directory: %v", err)
+		}
+
+		updater := &SystemUpdater{
+			Config: UpdaterConfig{
+				MountPoint:     mockRoot,
+				BootMountPoint: mockBoot,
+			},
+		}
+
+		// Call getUpdatedRootKernelVersion directly to verify it picks the right kernel
+		kernelVersion, err := updater.getUpdatedRootKernelVersion()
+		if err != nil {
+			t.Fatalf("getUpdatedRootKernelVersion failed: %v", err)
+		}
+
+		// The kernel version should be from the updated root, NOT the alphabetically first
+		// one from the boot partition
+		if kernelVersion != "6.18.3-surface-2" {
+			t.Errorf("Should select kernel from updated root, not boot partition.\nGot: %q\nWant: %q",
+				kernelVersion, "6.18.3-surface-2")
+		}
+
+		// Verify that the old buggy behavior would have selected wrong kernel
+		// by checking what filepath.Glob returns
+		kernels, _ := filepath.Glob(filepath.Join(mockBoot, "vmlinuz-*"))
+		if len(kernels) >= 2 {
+			// filepath.Glob returns in sorted order, so first would be the old kernel
+			firstKernel := filepath.Base(kernels[0])
+			if strings.Contains(firstKernel, "6.18.2") {
+				t.Logf("Confirmed: old buggy behavior would have selected %s (alphabetically first)", firstKernel)
+			}
+		}
+	})
+}

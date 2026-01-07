@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -1063,6 +1064,42 @@ func (u *SystemUpdater) detectBootloaderType() BootloaderType {
 	return BootloaderGRUB2
 }
 
+// getUpdatedRootKernelVersion finds the kernel version from the updated root's modules directory.
+// This ensures we use the kernel version from the newly extracted image, not a random kernel
+// from the boot partition which might be a different version.
+func (u *SystemUpdater) getUpdatedRootKernelVersion() (string, error) {
+	modulesDir := filepath.Join(u.Config.MountPoint, "usr", "lib", "modules")
+	entries, err := os.ReadDir(modulesDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to read modules directory: %w", err)
+	}
+
+	// Find kernel version directories (should typically be just one)
+	var kernelVersions []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			// Verify this directory has a kernel/vmlinuz
+			kernelPath := filepath.Join(modulesDir, entry.Name(), "vmlinuz")
+			if _, err := os.Stat(kernelPath); err == nil {
+				kernelVersions = append(kernelVersions, entry.Name())
+			}
+		}
+	}
+
+	if len(kernelVersions) == 0 {
+		return "", fmt.Errorf("no kernel found in updated root at %s", modulesDir)
+	}
+
+	// If there are multiple kernel versions (unusual), use the latest one based on string sorting
+	// This ensures deterministic behavior
+	if len(kernelVersions) > 1 {
+		// Sort in reverse order to get the newest version first
+		sort.Sort(sort.Reverse(sort.StringSlice(kernelVersions)))
+	}
+
+	return kernelVersions[0], nil
+}
+
 // updateGRUBBootloader updates GRUB configuration
 func (u *SystemUpdater) updateGRUBBootloader() error {
 	// Get UUID of new root partition
@@ -1077,13 +1114,19 @@ func (u *SystemUpdater) updateGRUBBootloader() error {
 		return fmt.Errorf("failed to get var UUID: %w", err)
 	}
 
-	// Find kernel and initramfs
-	kernels, err := filepath.Glob(filepath.Join(u.Config.BootMountPoint, "vmlinuz-*"))
-	if err != nil || len(kernels) == 0 {
-		return fmt.Errorf("no kernel found in /boot")
+	// Get kernel version from the updated root's modules directory
+	// This ensures we use the kernel from the newly extracted image, not a stale kernel
+	// that might exist on the boot partition from a previous version
+	kernelVersion, err := u.getUpdatedRootKernelVersion()
+	if err != nil {
+		return fmt.Errorf("failed to get kernel version from updated root: %w", err)
 	}
-	kernel := filepath.Base(kernels[0])
-	kernelVersion := strings.TrimPrefix(kernel, "vmlinuz-")
+
+	// Verify the kernel exists on the boot partition (it should have been copied by InstallKernelAndInitramfs)
+	kernelPath := filepath.Join(u.Config.BootMountPoint, "vmlinuz-"+kernelVersion)
+	if _, err := os.Stat(kernelPath); err != nil {
+		return fmt.Errorf("kernel vmlinuz-%s not found on boot partition (should have been copied earlier): %w", kernelVersion, err)
+	}
 
 	// Look for initramfs
 	var initrd string
@@ -1189,13 +1232,19 @@ func (u *SystemUpdater) updateSystemdBootBootloader() error {
 	}
 	activeUUID, _ := GetPartitionUUID(activeRoot)
 
-	// Find kernel and initramfs on boot partition
-	kernels, err := filepath.Glob(filepath.Join(u.Config.BootMountPoint, "vmlinuz-*"))
-	if err != nil || len(kernels) == 0 {
-		return fmt.Errorf("no kernel found on boot partition")
+	// Get kernel version from the updated root's modules directory
+	// This ensures we use the kernel from the newly extracted image, not a stale kernel
+	// that might exist on the boot partition from a previous version
+	kernelVersion, err := u.getUpdatedRootKernelVersion()
+	if err != nil {
+		return fmt.Errorf("failed to get kernel version from updated root: %w", err)
 	}
-	kernel := filepath.Base(kernels[0])
-	kernelVersion := strings.TrimPrefix(kernel, "vmlinuz-")
+
+	// Verify the kernel exists on the boot partition (it should have been copied by InstallKernelAndInitramfs)
+	kernelPath := filepath.Join(u.Config.BootMountPoint, "vmlinuz-"+kernelVersion)
+	if _, err := os.Stat(kernelPath); err != nil {
+		return fmt.Errorf("kernel vmlinuz-%s not found on boot partition (should have been copied earlier): %w", kernelVersion, err)
+	}
 
 	// Look for initramfs on boot partition
 	var initrd string

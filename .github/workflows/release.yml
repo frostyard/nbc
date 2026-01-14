@@ -40,11 +40,13 @@ jobs:
           # Your GoReleaser Pro key, if you are using the 'goreleaser-pro' distribution
           GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
 
-  publish:
-    needs: goreleaser
-    uses: frostyard/plow/.github/workflows/publish-deb.yml@main
-    with:
-      keep_versions: 10
-    secrets:
-      GPG_PRIVATE_KEY: ${{ secrets.DEB_GPG_PRIVATE_KEY }}
-      REPO_DEPLOY_KEY: ${{ secrets.DEB_REPO_DEPLOY_KEY }}
+      - name: Publish to frostyard repo
+        uses: frostyard/repogen/.github/actions/publish-to-r2@main
+        with:
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-bucket: frostyardrepo
+          packages-dir: ./dist
+          package-type: deb # or sysext
+          base-url: https://repository.frostyard.org # required for sysext

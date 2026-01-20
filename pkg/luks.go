@@ -59,6 +59,15 @@ func OpenLUKS(ctx context.Context, partition, mapperName, passphrase string, pro
 
 	progress.Message("Opening LUKS container %s as %s...", partition, mapperName)
 
+	// Check if mapper device already exists and close it first
+	mapperPath := filepath.Join("/dev/mapper", mapperName)
+	if _, err := os.Stat(mapperPath); err == nil {
+		progress.Message("Closing existing %s before reopening...", mapperName)
+		if err := CloseLUKS(ctx, mapperName, progress); err != nil {
+			return nil, fmt.Errorf("failed to close existing LUKS device %s: %w", mapperName, err)
+		}
+	}
+
 	// Open the LUKS container
 	cmd := exec.CommandContext(ctx, "cryptsetup", "luksOpen",
 		"--key-file", "-",

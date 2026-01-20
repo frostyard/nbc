@@ -2,8 +2,12 @@ package pkg
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/frostyard/nbc/pkg/testutil"
 )
 
 func TestInstallConfig_Validate(t *testing.T) {
@@ -468,4 +472,336 @@ func TestCallbackProgressAdapter(t *testing.T) {
 		adapter.Progress(50, "Test")
 		adapter.Error(context.Canceled, "Test")
 	})
+}
+
+// TestIntegration_Installer_Install tests the full installation flow using a loopback device
+func TestIntegration_Installer_Install(t *testing.T) {
+	testutil.RequireRoot(t)
+	testutil.RequireTools(t, "losetup", "sgdisk", "mkfs.vfat", "mkfs.ext4", "podman", "mount", "umount")
+
+	// Create test disk
+	disk, err := testutil.CreateTestDisk(t, 50)
+	if err != nil {
+		t.Fatalf("Failed to create test disk: %v", err)
+	}
+
+	// Create mock container image
+	imageName := "localhost/nbc-test-installer:latest"
+	if err := testutil.CreateMockContainer(t, imageName); err != nil {
+		t.Fatalf("Failed to create mock container: %v", err)
+	}
+
+	// Create installer using new API
+	mountPoint := filepath.Join(t.TempDir(), "mnt")
+	cfg := &InstallConfig{
+		ImageRef:       imageName,
+		Device:         disk.GetDevice(),
+		MountPoint:     mountPoint,
+		FilesystemType: "ext4",
+		Verbose:        true,
+	}
+
+	installer, err := NewInstaller(cfg)
+	if err != nil {
+		t.Fatalf("NewInstaller() error: %v", err)
+	}
+
+	// Track callback invocations
+	var steps []string
+	var messages []string
+	installer.SetCallbacks(&InstallCallbacks{
+		OnStep: func(step, total int, name string) {
+			steps = append(steps, name)
+			t.Logf("Step %d/%d: %s", step, total, name)
+		},
+		OnMessage: func(msg string) {
+			messages = append(messages, msg)
+		},
+		OnWarning: func(msg string) {
+			t.Logf("Warning: %s", msg)
+		},
+		OnError: func(err error, msg string) {
+			t.Logf("Error: %s: %v", msg, err)
+		},
+	})
+
+	// Perform installation
+	t.Log("Starting Installer.Install() test")
+	result, err := installer.Install(context.Background())
+	if err != nil {
+		t.Fatalf("Install() failed: %v", err)
+	}
+
+	// Ensure cleanup is called
+	if result.Cleanup != nil {
+		defer func() { _ = result.Cleanup() }()
+	}
+
+	// Verify result fields
+	if result.Device == "" {
+		t.Error("result.Device is empty")
+	}
+	if result.ImageRef == "" {
+		t.Error("result.ImageRef is empty")
+	}
+	t.Logf("Device: %s, ImageRef: %s", result.Device, result.ImageRef)
+
+	// Verify callbacks were invoked
+	if len(steps) == 0 {
+		t.Error("OnStep callback was never invoked")
+	} else {
+		t.Logf("Steps executed: %v", steps)
+	}
+
+	// Verify partitions were created
+	_ = testutil.WaitForDevice(disk.GetDevice())
+	scheme, err := DetectExistingPartitionScheme(disk.GetDevice())
+	if err != nil {
+		t.Fatalf("Failed to detect partition scheme: %v", err)
+	}
+
+	// Verify all partitions exist
+	partitions := []struct {
+		name string
+		path string
+	}{
+		{"Boot", scheme.BootPartition},
+		{"Root1", scheme.Root1Partition},
+		{"Root2", scheme.Root2Partition},
+		{"Var", scheme.VarPartition},
+	}
+
+	for _, part := range partitions {
+		if _, err := os.Stat(part.path); os.IsNotExist(err) {
+			t.Errorf("Partition %s does not exist: %s", part.name, part.path)
+		} else {
+			t.Logf("✓ Partition %s exists: %s", part.name, part.path)
+		}
+	}
+
+	// Mount and verify filesystem contents
+	t.Log("Verifying filesystem contents")
+	verifyMount := filepath.Join(t.TempDir(), "verify")
+	if err := os.MkdirAll(verifyMount, 0755); err != nil {
+		t.Fatalf("Failed to create verify mount point: %v", err)
+	}
+	defer testutil.CleanupMounts(t, verifyMount)
+
+	// Mount root1 partition
+	if err := MountPartitions(context.Background(), scheme, verifyMount, false); err != nil {
+		t.Fatalf("Failed to mount partitions for verification: %v", err)
+	}
+	defer func() { _ = UnmountPartitions(context.Background(), verifyMount, false) }()
+
+	// Check for expected directories
+	expectedDirs := []string{
+		"etc", "var", "boot", "usr",
+	}
+	for _, dir := range expectedDirs {
+		dirPath := filepath.Join(verifyMount, dir)
+		if info, err := os.Stat(dirPath); err != nil {
+			t.Errorf("Expected directory %s does not exist: %v", dir, err)
+		} else if !info.IsDir() {
+			t.Errorf("Expected %s to be a directory", dir)
+		} else {
+			t.Logf("✓ Directory exists: %s", dir)
+		}
+	}
+
+	// Check for os-release (ensures container extraction worked)
+	osReleasePath := filepath.Join(verifyMount, "etc", "os-release")
+	if _, err := os.Stat(osReleasePath); err != nil {
+		// Also check usr/lib/os-release (common location)
+		osReleasePath = filepath.Join(verifyMount, "usr", "lib", "os-release")
+		if _, err := os.Stat(osReleasePath); err != nil {
+			t.Logf("Warning: os-release not found (mock container may not have it)")
+		} else {
+			t.Logf("✓ os-release exists at %s", osReleasePath)
+		}
+	} else {
+		t.Logf("✓ os-release exists at %s", osReleasePath)
+	}
+
+	t.Log("Installer.Install() test completed successfully")
+}
+
+// TestIntegration_Installer_DryRun tests that dry-run mode doesn't modify the disk
+func TestIntegration_Installer_DryRun(t *testing.T) {
+	testutil.RequireRoot(t)
+	testutil.RequireTools(t, "losetup", "podman")
+
+	// Create test disk
+	disk, err := testutil.CreateTestDisk(t, 50)
+	if err != nil {
+		t.Fatalf("Failed to create test disk: %v", err)
+	}
+
+	// Create mock container image
+	imageName := "localhost/nbc-test-dryrun-installer:latest"
+	if err := testutil.CreateMockContainer(t, imageName); err != nil {
+		t.Fatalf("Failed to create mock container: %v", err)
+	}
+
+	// Create installer with dry-run enabled
+	mountPoint := filepath.Join(t.TempDir(), "mnt")
+	cfg := &InstallConfig{
+		ImageRef:       imageName,
+		Device:         disk.GetDevice(),
+		MountPoint:     mountPoint,
+		FilesystemType: "ext4",
+		Verbose:        true,
+		DryRun:         true,
+	}
+
+	installer, err := NewInstaller(cfg)
+	if err != nil {
+		t.Fatalf("NewInstaller() error: %v", err)
+	}
+
+	// Track callback invocations
+	var messages []string
+	installer.SetCallbacks(&InstallCallbacks{
+		OnStep: func(step, total int, name string) {
+			t.Logf("[DRY RUN] Step %d/%d: %s", step, total, name)
+		},
+		OnMessage: func(msg string) {
+			messages = append(messages, msg)
+			t.Logf("[DRY RUN] %s", msg)
+		},
+	})
+
+	// Perform dry-run installation
+	t.Log("Testing Installer.Install() in dry-run mode")
+	result, err := installer.Install(context.Background())
+	if err != nil {
+		t.Fatalf("Dry-run Install() failed: %v", err)
+	}
+
+	// Cleanup should still be provided (even if no-op)
+	if result.Cleanup != nil {
+		_ = result.Cleanup()
+	}
+
+	// In dry-run mode, OnStep is not called (no actual steps are performed)
+	// but OnMessage should be called
+	if len(messages) == 0 {
+		t.Error("OnMessage callback was never invoked during dry-run")
+	} else {
+		t.Logf("Dry-run messages: %d messages logged", len(messages))
+	}
+
+	// Verify that nothing was actually created
+	_ = testutil.WaitForDevice(disk.GetDevice())
+
+	// Check that partitions were NOT created (dry-run should not modify disk)
+	_, err = DetectExistingPartitionScheme(disk.GetDevice())
+	if err == nil {
+		t.Error("Dry-run created partitions (should not have)")
+	} else {
+		t.Logf("✓ Dry-run did not create partitions (expected)")
+	}
+
+	t.Log("Installer.Install() dry-run test completed successfully")
+}
+
+// TestIntegration_Installer_WithEncryption tests installation with LUKS encryption
+func TestIntegration_Installer_WithEncryption(t *testing.T) {
+	testutil.RequireRoot(t)
+	testutil.RequireTools(t, "losetup", "sgdisk", "mkfs.vfat", "mkfs.ext4", "podman", "mount", "umount", "cryptsetup")
+
+	// Skip if the system already has LUKS devices with the names we'd use
+	// This happens when running on an encrypted system (root1, root2, var are in use)
+	for _, name := range []string{"root1", "root2", "var"} {
+		mapperPath := filepath.Join("/dev/mapper", name)
+		if _, err := os.Stat(mapperPath); err == nil {
+			t.Skipf("Skipping encryption test: system LUKS device %s already exists (running on encrypted system)", mapperPath)
+		}
+	}
+
+	// Create test disk
+	disk, err := testutil.CreateTestDisk(t, 50)
+	if err != nil {
+		t.Fatalf("Failed to create test disk: %v", err)
+	}
+
+	// Create mock container image
+	imageName := "localhost/nbc-test-encrypted:latest"
+	if err := testutil.CreateMockContainer(t, imageName); err != nil {
+		t.Fatalf("Failed to create mock container: %v", err)
+	}
+
+	// Create installer with encryption
+	mountPoint := filepath.Join(t.TempDir(), "mnt")
+	cfg := &InstallConfig{
+		ImageRef:       imageName,
+		Device:         disk.GetDevice(),
+		MountPoint:     mountPoint,
+		FilesystemType: "ext4",
+		Verbose:        true,
+		Encryption: &EncryptionOptions{
+			Passphrase: "test-passphrase-123",
+		},
+	}
+
+	installer, err := NewInstaller(cfg)
+	if err != nil {
+		t.Fatalf("NewInstaller() error: %v", err)
+	}
+
+	// Track steps
+	var steps []string
+	installer.SetCallbacks(&InstallCallbacks{
+		OnStep: func(step, total int, name string) {
+			steps = append(steps, name)
+			t.Logf("Step %d/%d: %s", step, total, name)
+		},
+		OnMessage: func(msg string) {
+			t.Logf("  %s", msg)
+		},
+		OnWarning: func(msg string) {
+			t.Logf("Warning: %s", msg)
+		},
+	})
+
+	// Perform installation
+	t.Log("Starting encrypted installation test")
+	result, err := installer.Install(context.Background())
+	if err != nil {
+		t.Fatalf("Encrypted Install() failed: %v", err)
+	}
+
+	// Ensure cleanup
+	if result.Cleanup != nil {
+		defer func() { _ = result.Cleanup() }()
+	}
+
+	// Verify result fields
+	if result.Device == "" {
+		t.Fatal("result.Device is empty")
+	}
+
+	// Verify that LUKS mapper devices exist by checking /dev/mapper/
+	mapperDir := "/dev/mapper"
+	entries, err := os.ReadDir(mapperDir)
+	if err != nil {
+		t.Fatalf("Failed to read %s: %v", mapperDir, err)
+	}
+
+	// Look for our LUKS devices (root1, root2, var)
+	var luksDevices []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, "luks-") {
+			luksDevices = append(luksDevices, name)
+			t.Logf("Found LUKS device: %s", name)
+		}
+	}
+
+	if len(luksDevices) == 0 {
+		t.Error("Expected LUKS mapper devices but none found")
+	} else {
+		t.Logf("✓ LUKS encryption verified (%d mapper devices found)", len(luksDevices))
+	}
+
+	t.Log("Encrypted installation test completed successfully")
 }

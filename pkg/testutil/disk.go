@@ -163,6 +163,15 @@ func CreateMockContainer(t *testing.T, imageName string) error {
 		return fmt.Errorf("failed to write systemd-boot EFI: %w", err)
 	}
 
+	// Create padding data to reach 100MB minimum for VerifyExtraction
+	// This ensures the mock container passes the size verification check
+	paddingPath := filepath.Join(rootDir, "usr/share/nbc-test-padding")
+	paddingSize := 105 * 1024 * 1024 // 105 MB to be safely over the 100 MB minimum
+	paddingData := make([]byte, paddingSize)
+	if err := os.WriteFile(paddingPath, paddingData, 0644); err != nil {
+		return fmt.Errorf("failed to write padding file: %w", err)
+	}
+
 	// Create a Dockerfile
 	dockerfile := filepath.Join(tmpDir, "Dockerfile")
 	dockerfileContent := `FROM scratch

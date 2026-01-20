@@ -2,6 +2,7 @@ package pkg
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -148,27 +149,12 @@ func TestInstallConfig_Validate(t *testing.T) {
 			} else {
 				if err == nil {
 					t.Errorf("Validate() expected error containing %q, got nil", tt.wantErr)
-				} else if !containsStr(err.Error(), tt.wantErr) {
+				} else if !strings.Contains(err.Error(), tt.wantErr) {
 					t.Errorf("Validate() error = %q, want error containing %q", err.Error(), tt.wantErr)
 				}
 			}
 		})
 	}
-}
-
-// containsStr checks if s contains substr (case-sensitive)
-func containsStr(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(len(s) > 0 && len(substr) > 0 && findSubstring(s, substr)))
-}
-
-func findSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 func TestNewInstaller(t *testing.T) {

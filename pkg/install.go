@@ -595,7 +595,7 @@ func CreateCLICallbacks(jsonOutput bool) *InstallCallbacks {
 			if strings.HasPrefix(message, " ") || strings.HasPrefix(message, "[") {
 				fmt.Println(message)
 			} else {
-				fmt.Println(message)
+				fmt.Printf("  %s\n", message)
 			}
 		},
 		OnWarning: func(message string) {

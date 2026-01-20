@@ -150,7 +150,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 // buildInstallConfig constructs an InstallConfig from command-line flags.
 // It handles local image resolution and validation of flag combinations.
-func buildInstallConfig(_ context.Context, verbose, dryRun, jsonOutput bool) (*pkg.InstallConfig, error) {
+func buildInstallConfig(ctx context.Context, verbose, dryRun, jsonOutput bool) (*pkg.InstallConfig, error) {
 	// Create callbacks for early error output
 	callbacks := pkg.CreateCLICallbacks(jsonOutput)
 	reportError := func(err error, msg string) error {
@@ -245,6 +245,10 @@ func buildInstallConfig(_ context.Context, verbose, dryRun, jsonOutput bool) (*p
 		passphrase := installPassphrase
 		// Read passphrase from keyfile if provided
 		if installKeyfile != "" {
+			// Check for cancellation before file I/O
+			if err := ctx.Err(); err != nil {
+				return nil, reportError(err, "Operation cancelled")
+			}
 			keyData, err := os.ReadFile(installKeyfile)
 			if err != nil {
 				return nil, reportError(fmt.Errorf("failed to read keyfile: %w", err), "Failed to read keyfile")
@@ -285,6 +289,10 @@ func buildInstallConfig(_ context.Context, verbose, dryRun, jsonOutput bool) (*p
 
 	// Read root password if provided
 	if installRootPasswordFile != "" {
+		// Check for cancellation before file I/O
+		if err := ctx.Err(); err != nil {
+			return nil, reportError(err, "Operation cancelled")
+		}
 		passwordData, err := os.ReadFile(installRootPasswordFile)
 		if err != nil {
 			return nil, reportError(fmt.Errorf("failed to read root password file: %w", err), "Failed to read root password file")

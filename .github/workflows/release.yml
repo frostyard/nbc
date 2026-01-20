@@ -47,6 +47,9 @@ jobs:
           r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
           r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           r2-bucket: frostyardrepo
+          purge-cache: "true"
+          cloudflare-zone: ${{ secrets.CLOUDFLARE_ZONE }}
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           gpg-private-key: ${{ secrets.REPOGEN_GPG_KEY }}
           packages-dir: ./dist
           package-type: deb # or sysext

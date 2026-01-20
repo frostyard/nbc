@@ -113,23 +113,18 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	// Run installation
 	result, err := installer.Install(cmd.Context())
-	if err != nil {
-		// Still call cleanup if result is available
-		if result != nil && result.Cleanup != nil {
-			if cleanupErr := result.Cleanup(); cleanupErr != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to cleanup: %v\n", cleanupErr)
-			}
-		}
-		return err
-	}
 
-	// Always call cleanup on success (loopback device)
-	if result.Cleanup != nil {
+	// Always call cleanup if available (handles both success and error cases)
+	if result != nil && result.Cleanup != nil {
 		defer func() {
 			if cleanupErr := result.Cleanup(); cleanupErr != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to cleanup: %v\n", cleanupErr)
 			}
 		}()
+	}
+
+	if err != nil {
+		return err
 	}
 
 	// Print loopback usage instructions

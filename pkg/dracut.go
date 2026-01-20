@@ -2,6 +2,7 @@ package pkg
 
 import (
 	"bufio"
+	"context"
 	"embed"
 	"fmt"
 	"os"
@@ -150,10 +151,17 @@ func VerifyDracutEtcOverlay(targetDir string, dryRun bool) error {
 // RegenerateInitramfs regenerates the initramfs using dracut in a chroot environment.
 // This is necessary to include the etc-overlay module in the initramfs.
 // If the initramfs already contains the etc-overlay module, regeneration is skipped.
-func RegenerateInitramfs(targetDir string, dryRun bool, verbose bool) error {
+func RegenerateInitramfs(ctx context.Context, targetDir string, dryRun bool, verbose bool) error {
 	if dryRun {
 		fmt.Println("[DRY RUN] Would check/regenerate initramfs with dracut if needed")
 		return nil
+	}
+
+	// Check for cancellation
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
 	}
 
 	fmt.Println("  Checking initramfs for etc-overlay module...")
@@ -279,7 +287,7 @@ func RegenerateInitramfs(targetDir string, dryRun bool, verbose bool) error {
 			args = append(args[:3], append([]string{"--verbose"}, args[3:]...)...)
 		}
 
-		cmd := exec.Command("chroot", args...)
+		cmd := exec.CommandContext(ctx, "chroot", args...)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 

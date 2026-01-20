@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -37,7 +38,7 @@ func TestBootcInstaller_Install(t *testing.T) {
 
 	// Perform installation
 	t.Log("Starting installation test")
-	if err := installer.Install(); err != nil {
+	if err := installer.Install(context.Background()); err != nil {
 		t.Fatalf("Install failed: %v", err)
 	}
 
@@ -79,10 +80,10 @@ func TestBootcInstaller_Install(t *testing.T) {
 	defer testutil.CleanupMounts(t, verifyMount)
 
 	// Mount root1 partition
-	if err := MountPartitions(scheme, verifyMount, false); err != nil {
+	if err := MountPartitions(context.Background(), scheme, verifyMount, false); err != nil {
 		t.Fatalf("Failed to mount partitions for verification: %v", err)
 	}
-	defer func() { _ = UnmountPartitions(verifyMount, false) }()
+	defer func() { _ = UnmountPartitions(context.Background(), verifyMount, false) }()
 
 	// Check for expected directories
 	expectedDirs := []string{
@@ -177,7 +178,7 @@ func TestBootcInstaller_DryRun(t *testing.T) {
 
 	// Perform dry-run installation
 	t.Log("Testing dry-run mode")
-	if err := installer.Install(); err != nil {
+	if err := installer.Install(context.Background()); err != nil {
 		t.Fatalf("Dry-run install failed: %v", err)
 	}
 
@@ -224,7 +225,7 @@ func TestBootcInstaller_WithKernelArgs(t *testing.T) {
 
 	// Perform installation
 	t.Log("Testing installation with kernel arguments")
-	if err := installer.Install(); err != nil {
+	if err := installer.Install(context.Background()); err != nil {
 		t.Fatalf("Install failed: %v", err)
 	}
 
@@ -242,10 +243,10 @@ func TestBootcInstaller_WithKernelArgs(t *testing.T) {
 	}
 	defer testutil.CleanupMounts(t, verifyMount)
 
-	if err := MountPartitions(scheme, verifyMount, false); err != nil {
+	if err := MountPartitions(context.Background(), scheme, verifyMount, false); err != nil {
 		t.Fatalf("Failed to mount partitions: %v", err)
 	}
-	defer func() { _ = UnmountPartitions(verifyMount, false) }()
+	defer func() { _ = UnmountPartitions(context.Background(), verifyMount, false) }()
 
 	configFile := filepath.Join(verifyMount, "etc", "nbc", "config.json")
 	config, err := readConfigFromFile(configFile)

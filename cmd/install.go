@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -94,20 +95,81 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	dryRun := viper.GetBool("dry-run")
 	jsonOutput := viper.GetBool("json")
 
-	// Create progress reporter for early error output
-	progress := pkg.NewProgressReporter(jsonOutput, 6)
+	// Build configuration from flags
+	cfg, err := buildInstallConfig(cmd.Context(), verbose, dryRun, jsonOutput)
+	if err != nil {
+		return err
+	}
 
-	// Variables for local image handling
-	var localLayoutPath string
-	var localMetadata *pkg.CachedImageMetadata
+	// Create installer
+	installer, err := pkg.NewInstaller(cfg)
+	if err != nil {
+		return err
+	}
+
+	// Set up callbacks for progress reporting
+	callbacks := pkg.CreateCLICallbacks(jsonOutput)
+	installer.SetCallbacks(callbacks)
+
+	// Run installation
+	result, err := installer.Install(cmd.Context())
+
+	// Always call cleanup if available (loopback device)
+	if result != nil && result.Cleanup != nil {
+		defer func() {
+			if cleanupErr := result.Cleanup(); cleanupErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to cleanup: %v\n", cleanupErr)
+			}
+		}()
+	}
+
+	if err != nil {
+		return err
+	}
+
+	// Print loopback usage instructions
+	if result.LoopbackPath != "" && !jsonOutput {
+		fmt.Println()
+		fmt.Println("Loopback image created successfully!")
+		fmt.Println()
+		fmt.Println("To boot the image with QEMU:")
+		fmt.Printf("  qemu-system-x86_64 -enable-kvm -m 2048 -drive file=%s,format=raw -bios /usr/share/ovmf/OVMF.fd\n", result.LoopbackPath)
+		fmt.Println()
+		fmt.Println("To convert to other formats:")
+		fmt.Printf("  qemu-img convert -f raw -O qcow2 %s disk.qcow2\n", result.LoopbackPath)
+		fmt.Printf("  qemu-img convert -f raw -O vmdk %s disk.vmdk\n", result.LoopbackPath)
+	}
+
+	return nil
+}
+
+// buildInstallConfig constructs an InstallConfig from command-line flags.
+// It handles local image resolution and validation of flag combinations.
+func buildInstallConfig(_ context.Context, verbose, dryRun, jsonOutput bool) (*pkg.InstallConfig, error) {
+	// Create callbacks for early error output
+	callbacks := pkg.CreateCLICallbacks(jsonOutput)
+	reportError := func(err error, msg string) error {
+		if callbacks.OnError != nil {
+			callbacks.OnError(err, msg)
+		}
+		return err
+	}
+
+	cfg := &pkg.InstallConfig{
+		ImageRef:       installImage,
+		Device:         installDevice,
+		FilesystemType: installFilesystem,
+		KernelArgs:     installKernelArgs,
+		RootPassword:   "",
+		Verbose:        verbose,
+		DryRun:         dryRun,
+		SkipPull:       installSkipPull,
+	}
 
 	// Resolve image source: --image, --local-image, or auto-detect from staged-install
 	if installImage != "" && installLocalImage != "" {
 		err := fmt.Errorf("--image and --local-image are mutually exclusive")
-		if jsonOutput {
-			progress.Error(err, "Invalid options")
-		}
-		return err
+		return nil, reportError(err, "Invalid options")
 	}
 
 	if installLocalImage != "" {
@@ -115,14 +177,14 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		cache := pkg.NewStagedInstallCache()
 		_, metadata, err := cache.GetImage(installLocalImage)
 		if err != nil {
-			if jsonOutput {
-				progress.Error(err, "Failed to load local image")
-			}
-			return fmt.Errorf("failed to load local image: %w", err)
+			return nil, reportError(fmt.Errorf("failed to load local image: %w", err), "Failed to load local image")
 		}
-		localLayoutPath = cache.GetLayoutPath(metadata.ImageDigest)
-		localMetadata = metadata
-		installImage = metadata.ImageRef
+		cfg.LocalImage = &pkg.LocalImageSource{
+			LayoutPath: cache.GetLayoutPath(metadata.ImageDigest),
+			Metadata:   metadata,
+		}
+		cfg.ImageRef = "" // Clear image ref since we're using local image
+		cfg.SkipPull = true
 		if !jsonOutput {
 			fmt.Printf("Using staged image: %s\n", metadata.ImageRef)
 			fmt.Printf("  Digest: %s\n", metadata.ImageDigest)
@@ -132,25 +194,22 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		cache := pkg.NewStagedInstallCache()
 		images, err := cache.List()
 		if err != nil {
-			if jsonOutput {
-				progress.Error(err, "Failed to check staged images")
-			}
-			return fmt.Errorf("failed to check staged images: %w", err)
+			return nil, reportError(fmt.Errorf("failed to check staged images: %w", err), "Failed to check staged images")
 		}
 
 		if len(images) == 0 {
 			err := fmt.Errorf("no --image specified and no staged images found in %s", pkg.StagedInstallDir)
-			if jsonOutput {
-				progress.Error(err, "No image specified")
-			}
-			return err
+			return nil, reportError(err, "No image specified")
 		}
 
 		if len(images) == 1 {
 			// Auto-select the only staged image
-			localMetadata = &images[0]
-			localLayoutPath = cache.GetLayoutPath(localMetadata.ImageDigest)
-			installImage = localMetadata.ImageRef
+			localMetadata := &images[0]
+			cfg.LocalImage = &pkg.LocalImageSource{
+				LayoutPath: cache.GetLayoutPath(localMetadata.ImageDigest),
+				Metadata:   localMetadata,
+			}
+			cfg.SkipPull = true
 			if !jsonOutput {
 				fmt.Printf("Auto-detected staged image: %s\n", localMetadata.ImageRef)
 				fmt.Printf("  Digest: %s\n", localMetadata.ImageDigest)
@@ -163,184 +222,70 @@ func runInstall(cmd *cobra.Command, args []string) error {
 				fmt.Fprintf(&b, "  %s (%s)\n", img.ImageDigest, img.ImageRef)
 			}
 			err := fmt.Errorf("%s", b.String())
-			if jsonOutput {
-				progress.Error(err, "Multiple staged images found")
-			}
-			return err
+			return nil, reportError(err, "Multiple staged images found")
 		}
 	}
 
-	// Validate filesystem type
-	if installFilesystem != "ext4" && installFilesystem != "btrfs" {
-		err := fmt.Errorf("unsupported filesystem type: %s (supported: ext4, btrfs)", installFilesystem)
-		if jsonOutput {
-			progress.Error(err, "Invalid filesystem type")
-		}
-		return err
-	}
-
-	// Validate encryption options
+	// Handle encryption options
 	if installEncrypt {
 		if installPassphrase == "" && installKeyfile == "" {
 			err := fmt.Errorf("--passphrase or --keyfile is required when --encrypt is set")
-			if jsonOutput {
-				progress.Error(err, "Missing passphrase")
-			}
-			return err
+			return nil, reportError(err, "Missing passphrase")
 		}
 		if installPassphrase != "" && installKeyfile != "" {
 			err := fmt.Errorf("--passphrase and --keyfile are mutually exclusive")
-			if jsonOutput {
-				progress.Error(err, "Invalid encryption options")
-			}
-			return err
+			return nil, reportError(err, "Invalid encryption options")
 		}
+
+		passphrase := installPassphrase
 		// Read passphrase from keyfile if provided
 		if installKeyfile != "" {
 			keyData, err := os.ReadFile(installKeyfile)
 			if err != nil {
-				err = fmt.Errorf("failed to read keyfile: %w", err)
-				if jsonOutput {
-					progress.Error(err, "Failed to read keyfile")
-				}
-				return err
+				return nil, reportError(fmt.Errorf("failed to read keyfile: %w", err), "Failed to read keyfile")
 			}
-			installPassphrase = strings.TrimRight(string(keyData), "\n\r")
+			passphrase = strings.TrimRight(string(keyData), "\n\r")
+		}
+
+		cfg.Encryption = &pkg.EncryptionOptions{
+			Passphrase: passphrase,
+			TPM2:       installTPM2,
 		}
 	}
 
 	if installTPM2 && !installEncrypt {
 		err := fmt.Errorf("--tpm2 requires --encrypt to be set")
-		if jsonOutput {
-			progress.Error(err, "Invalid encryption options")
-		}
-		return err
+		return nil, reportError(err, "Invalid encryption options")
 	}
 
-	// Validate device/loopback options
+	// Handle device/loopback options
 	if installDevice != "" && installViaLoopback != "" {
 		err := fmt.Errorf("--device and --via-loopback are mutually exclusive")
-		if jsonOutput {
-			progress.Error(err, "Invalid options")
-		}
-		return err
+		return nil, reportError(err, "Invalid options")
 	}
 
 	if installDevice == "" && installViaLoopback == "" {
 		err := fmt.Errorf("either --device or --via-loopback is required")
-		if jsonOutput {
-			progress.Error(err, "Missing target")
-		}
-		return err
+		return nil, reportError(err, "Missing target")
 	}
-
-	// Validate loopback image size
-	if installViaLoopback != "" && installImageSize < pkg.MinLoopbackSizeGB {
-		err := fmt.Errorf("--image-size must be at least %dGB", pkg.MinLoopbackSizeGB)
-		if jsonOutput {
-			progress.Error(err, "Invalid image size")
-		}
-		return err
-	}
-
-	// Handle loopback setup
-	var loopbackDevice *pkg.LoopbackDevice
-	var device string
-	var err error
 
 	if installViaLoopback != "" {
-		// Setup loopback device
-		if !jsonOutput {
-			fmt.Println("Setting up loopback device...")
+		cfg.Loopback = &pkg.LoopbackOptions{
+			ImagePath: installViaLoopback,
+			SizeGB:    installImageSize,
+			Force:     installForce,
 		}
-		loopbackDevice, err = pkg.SetupLoopbackInstall(installViaLoopback, installImageSize, installForce)
-		if err != nil {
-			if jsonOutput {
-				progress.Error(err, "Failed to setup loopback")
-			}
-			return fmt.Errorf("failed to setup loopback: %w", err)
-		}
-		device = loopbackDevice.Device
-
-		// Ensure cleanup on exit
-		defer func() {
-			if loopbackDevice != nil {
-				if cleanupErr := loopbackDevice.Cleanup(); cleanupErr != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to cleanup loopback device: %v\n", cleanupErr)
-				}
-			}
-		}()
-	} else {
-		// Resolve device path
-		device, err = pkg.GetDiskByPath(installDevice)
-		if err != nil {
-			if jsonOutput {
-				progress.Error(err, "Invalid device")
-			}
-			return fmt.Errorf("invalid device: %w", err)
-		}
+		cfg.Device = "" // Clear device since we're using loopback
 	}
 
-	if verbose && !jsonOutput {
-		fmt.Printf("Resolved device: %s\n", device)
-	}
-
-	// Create installer
-	installer := pkg.NewBootcInstaller(installImage, device)
-	installer.SetVerbose(verbose)
-	installer.SetDryRun(dryRun)
-	installer.SetFilesystemType(installFilesystem)
-	installer.SetJSONOutput(jsonOutput)
-
-	// Set local image if using staged image
-	if localLayoutPath != "" {
-		installer.SetLocalImage(localLayoutPath, localMetadata)
-	}
-
-	// Add kernel arguments
-	for _, arg := range installKernelArgs {
-		installer.AddKernelArg(arg)
-	}
-
-	// Set encryption options
-	if installEncrypt {
-		installer.SetEncryption(installPassphrase, installKeyfile, installTPM2)
-	}
-
-	// Set root password if provided
+	// Read root password if provided
 	if installRootPasswordFile != "" {
 		passwordData, err := os.ReadFile(installRootPasswordFile)
 		if err != nil {
-			err = fmt.Errorf("failed to read root password file: %w", err)
-			if jsonOutput {
-				progress.Error(err, "Failed to read root password file")
-			}
-			return err
+			return nil, reportError(fmt.Errorf("failed to read root password file: %w", err), "Failed to read root password file")
 		}
-		installer.SetRootPassword(strings.TrimRight(string(passwordData), "\n\r"))
+		cfg.RootPassword = strings.TrimRight(string(passwordData), "\n\r")
 	}
 
-	// Run installation (skip pull if using local image)
-	skipPull := installSkipPull || localLayoutPath != ""
-	if err := installer.InstallComplete(skipPull); err != nil {
-		if jsonOutput {
-			progress.Error(err, "Installation failed")
-		}
-		return err
-	}
-
-	// Print loopback usage instructions
-	if installViaLoopback != "" && !jsonOutput {
-		fmt.Println()
-		fmt.Println("Loopback image created successfully!")
-		fmt.Println()
-		fmt.Println("To boot the image with QEMU:")
-		fmt.Printf("  qemu-system-x86_64 -enable-kvm -m 2048 -drive file=%s,format=raw -bios /usr/share/ovmf/OVMF.fd\n", installViaLoopback)
-		fmt.Println()
-		fmt.Println("To convert to other formats:")
-		fmt.Printf("  qemu-img convert -f raw -O qcow2 %s disk.qcow2\n", installViaLoopback)
-		fmt.Printf("  qemu-img convert -f raw -O vmdk %s disk.vmdk\n", installViaLoopback)
-	}
-
-	return nil
+	return cfg, nil
 }

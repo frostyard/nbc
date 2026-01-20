@@ -3,6 +3,7 @@ package pkg
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -100,7 +101,7 @@ func TestExtractTar_PreservesSpecialBits(t *testing.T) {
 
 	// Extract the tar
 	reader := bytes.NewReader(buf.Bytes())
-	if err := extractTar(reader, targetDir); err != nil {
+	if err := extractTar(context.Background(), reader, targetDir); err != nil {
 		t.Fatalf("extractTar failed: %v", err)
 	}
 
@@ -186,7 +187,7 @@ func TestExtractTar_WhiteoutHandling(t *testing.T) {
 
 	// Extract the tar
 	reader := bytes.NewReader(buf.Bytes())
-	if err := extractTar(reader, targetDir); err != nil {
+	if err := extractTar(context.Background(), reader, targetDir); err != nil {
 		t.Fatalf("extractTar failed: %v", err)
 	}
 
@@ -245,7 +246,7 @@ func TestExtractTar_OpaqueWhiteout(t *testing.T) {
 
 	// Extract the tar
 	reader := bytes.NewReader(buf.Bytes())
-	if err := extractTar(reader, targetDir); err != nil {
+	if err := extractTar(context.Background(), reader, targetDir); err != nil {
 		t.Fatalf("extractTar failed: %v", err)
 	}
 

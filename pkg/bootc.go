@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,7 +14,10 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
-// BootcInstaller handles bootc container installation
+// BootcInstaller handles bootc container installation.
+//
+// Deprecated: Use Installer from NewInstaller() instead.
+// This type will be moved to internal in a future release.
 type BootcInstaller struct {
 	ImageRef        string
 	Device          string
@@ -30,7 +34,10 @@ type BootcInstaller struct {
 	RootPassword    string               // Root password to set (optional)
 }
 
-// NewBootcInstaller creates a new BootcInstaller
+// NewBootcInstaller creates a new BootcInstaller.
+//
+// Deprecated: Use NewInstaller() instead.
+// This function will be moved to internal in a future release.
 func NewBootcInstaller(imageRef, device string) *BootcInstaller {
 	return &BootcInstaller{
 		ImageRef:       imageRef,
@@ -149,7 +156,11 @@ func CheckRequiredTools() error {
 
 // PullImage validates the image reference and checks if it's accessible
 // The actual image pull happens during Extract() to avoid duplicate work
-func (b *BootcInstaller) PullImage() error {
+func (b *BootcInstaller) PullImage(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	p := b.Progress
 
 	if b.DryRun {
@@ -181,7 +192,11 @@ func (b *BootcInstaller) PullImage() error {
 }
 
 // Install performs the bootc installation to the target disk
-func (b *BootcInstaller) Install() error {
+func (b *BootcInstaller) Install(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	p := b.Progress
 
 	if b.DryRun {
@@ -199,7 +214,7 @@ func (b *BootcInstaller) Install() error {
 
 	// Step 1: Create partitions
 	p.Step(1, "Creating partitions")
-	scheme, err := CreatePartitions(b.Device, b.DryRun, p)
+	scheme, err := CreatePartitions(ctx, b.Device, b.DryRun, p)
 	if err != nil {
 		return fmt.Errorf("failed to create partitions: %w", err)
 	}
@@ -210,24 +225,24 @@ func (b *BootcInstaller) Install() error {
 	// Step 1.5: Setup LUKS encryption if enabled
 	if b.Encryption != nil && b.Encryption.Enabled {
 		p.Message("Setting up LUKS encryption...")
-		if err := SetupLUKS(scheme, b.Encryption.Passphrase, b.DryRun, p); err != nil {
+		if err := SetupLUKS(ctx, scheme, b.Encryption.Passphrase, b.DryRun, p); err != nil {
 			return fmt.Errorf("failed to setup LUKS encryption: %w", err)
 		}
 
 		// Ensure LUKS devices are always cleaned up, even if later steps fail
-		defer scheme.CloseLUKSDevices()
+		defer scheme.CloseLUKSDevices(ctx)
 
 	}
 
 	// Step 2: Format partitions
 	p.Step(2, "Formatting partitions")
-	if err := FormatPartitions(scheme, b.DryRun); err != nil {
+	if err := FormatPartitions(ctx, scheme, b.DryRun); err != nil {
 		return fmt.Errorf("failed to format partitions: %w", err)
 	}
 
 	// Step 3: Mount partitions
 	p.Step(3, "Mounting partitions")
-	if err := MountPartitions(scheme, b.MountPoint, b.DryRun); err != nil {
+	if err := MountPartitions(ctx, scheme, b.MountPoint, b.DryRun); err != nil {
 		return fmt.Errorf("failed to mount partitions: %w", err)
 	}
 
@@ -235,10 +250,10 @@ func (b *BootcInstaller) Install() error {
 	defer func() {
 		if !b.DryRun {
 			p.Message("Cleaning up...")
-			_ = UnmountPartitions(b.MountPoint, b.DryRun)
+			_ = UnmountPartitions(ctx, b.MountPoint, b.DryRun)
 			// Close LUKS devices if encrypted
 			if scheme.Encrypted {
-				scheme.CloseLUKSDevices()
+				scheme.CloseLUKSDevices(ctx)
 			}
 			_ = os.RemoveAll(b.MountPoint)
 		}
@@ -254,7 +269,7 @@ func (b *BootcInstaller) Install() error {
 	}
 	extractor.SetVerbose(b.Verbose)
 	extractor.SetJSONOutput(b.JSONOutput)
-	if err := extractor.Extract(); err != nil {
+	if err := extractor.Extract(ctx); err != nil {
 		return fmt.Errorf("failed to extract container: %w", err)
 	}
 
@@ -280,7 +295,7 @@ func (b *BootcInstaller) Install() error {
 
 	// Regenerate initramfs to include the etc-overlay module
 	// This ensures the overlay is set up during early boot
-	if err := RegenerateInitramfs(b.MountPoint, b.DryRun, b.Verbose); err != nil {
+	if err := RegenerateInitramfs(ctx, b.MountPoint, b.DryRun, b.Verbose); err != nil {
 		// Don't fail on initramfs regeneration - the container's initramfs might still work
 		// if it was built with etc-overlay support
 		p.Warning("initramfs regeneration failed: %v", err)
@@ -291,7 +306,7 @@ func (b *BootcInstaller) Install() error {
 	p.Step(5, "Configuring system")
 
 	// Create fstab
-	if err := CreateFstab(b.MountPoint, scheme); err != nil {
+	if err := CreateFstab(ctx, b.MountPoint, scheme); err != nil {
 		return fmt.Errorf("failed to create fstab: %w", err)
 	}
 
@@ -443,7 +458,7 @@ func (b *BootcInstaller) Install() error {
 	bootloaderType := DetectBootloader(b.MountPoint)
 	bootloader.SetType(bootloaderType)
 
-	if err := bootloader.Install(); err != nil {
+	if err := bootloader.Install(ctx); err != nil {
 		return fmt.Errorf("failed to install bootloader: %w", err)
 	}
 
@@ -452,7 +467,7 @@ func (b *BootcInstaller) Install() error {
 		p.Message("Enrolling TPM2 for automatic unlock (%d LUKS devices)...", len(scheme.LUKSDevices))
 		for i, luksDevice := range scheme.LUKSDevices {
 			p.Message("  [%d/%d] Enrolling TPM2 for %s (%s)...", i+1, len(scheme.LUKSDevices), luksDevice.MapperName, luksDevice.Partition)
-			if err := EnrollTPM2(luksDevice.Partition, b.Encryption); err != nil {
+			if err := EnrollTPM2(ctx, luksDevice.Partition, b.Encryption); err != nil {
 				return fmt.Errorf("failed to enroll TPM2 for %s: %w", luksDevice.Partition, err)
 			}
 			p.Message("  [%d/%d] Enrolled TPM2 for %s", i+1, len(scheme.LUKSDevices), luksDevice.MapperName)
@@ -463,7 +478,11 @@ func (b *BootcInstaller) Install() error {
 }
 
 // Verify performs post-installation verification
-func (b *BootcInstaller) Verify() error {
+func (b *BootcInstaller) Verify(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	p := b.Progress
 
 	if b.DryRun {
@@ -493,7 +512,11 @@ func (b *BootcInstaller) Verify() error {
 }
 
 // InstallComplete performs the complete installation workflow
-func (b *BootcInstaller) InstallComplete(skipPull bool) error {
+func (b *BootcInstaller) InstallComplete(ctx context.Context, skipPull bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// Acquire exclusive lock for system operation
 	lock, err := AcquireSystemLock()
 	if err != nil {
@@ -509,6 +532,11 @@ func (b *BootcInstaller) InstallComplete(skipPull bool) error {
 		return fmt.Errorf("missing required tools: %w", err)
 	}
 
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// Validate disk
 	p.MessagePlain("Validating disk %s...", b.Device)
 	minSize := uint64(10 * 1024 * 1024 * 1024) // 10 GB minimum
@@ -518,9 +546,14 @@ func (b *BootcInstaller) InstallComplete(skipPull bool) error {
 
 	// Pull image if not skipped
 	if !skipPull {
-		if err := b.PullImage(); err != nil {
+		if err := b.PullImage(ctx); err != nil {
 			return err
 		}
+	}
+
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	// Confirm before wiping (only in non-JSON mode, JSON mode should use --force or be non-interactive)
@@ -539,17 +572,17 @@ func (b *BootcInstaller) InstallComplete(skipPull bool) error {
 
 	// Wipe disk
 	p.MessagePlain("Wiping disk %s...", b.Device)
-	if err := WipeDisk(b.Device, b.DryRun); err != nil {
+	if err := WipeDisk(ctx, b.Device, b.DryRun); err != nil {
 		return err
 	}
 
 	// Install
-	if err := b.Install(); err != nil {
+	if err := b.Install(ctx); err != nil {
 		return err
 	}
 
 	// Verify
-	if err := b.Verify(); err != nil {
+	if err := b.Verify(ctx); err != nil {
 		p.Warning("verification failed: %v", err)
 	}
 

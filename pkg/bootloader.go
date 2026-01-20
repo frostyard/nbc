@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -62,7 +63,7 @@ func (b *BootloaderInstaller) SetEncryption(config *LUKSConfig) {
 }
 
 // buildKernelCmdline builds the kernel command line with LUKS support if encrypted
-func (b *BootloaderInstaller) buildKernelCmdline() ([]string, error) {
+func (b *BootloaderInstaller) buildKernelCmdline(ctx context.Context) ([]string, error) {
 	fsType := b.Scheme.FilesystemType
 	if fsType == "" {
 		fsType = "ext4"
@@ -104,7 +105,7 @@ func (b *BootloaderInstaller) buildKernelCmdline() ([]string, error) {
 		}
 
 		// Mount boot partition via systemd.mount-extra (always FAT32, never encrypted)
-		bootUUID, err := GetPartitionUUID(b.Scheme.BootPartition)
+		bootUUID, err := GetPartitionUUID(ctx, b.Scheme.BootPartition)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get boot UUID: %w", err)
 		}
@@ -115,18 +116,18 @@ func (b *BootloaderInstaller) buildKernelCmdline() ([]string, error) {
 		varSpec = "/dev/mapper/var"
 	} else {
 		// Non-encrypted root - use UUID
-		rootUUID, err := GetPartitionUUID(b.Scheme.Root1Partition)
+		rootUUID, err := GetPartitionUUID(ctx, b.Scheme.Root1Partition)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get root UUID: %w", err)
 		}
 
-		varUUID, err := GetPartitionUUID(b.Scheme.VarPartition)
+		varUUID, err := GetPartitionUUID(ctx, b.Scheme.VarPartition)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get var UUID: %w", err)
 		}
 
 		// Get boot partition UUID (always FAT32, never encrypted)
-		bootUUID, err := GetPartitionUUID(b.Scheme.BootPartition)
+		bootUUID, err := GetPartitionUUID(ctx, b.Scheme.BootPartition)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get boot UUID: %w", err)
 		}
@@ -333,7 +334,14 @@ func (b *BootloaderInstaller) copyKernelFromModules() error {
 }
 
 // Install installs the bootloader
-func (b *BootloaderInstaller) Install() error {
+func (b *BootloaderInstaller) Install(ctx context.Context) error {
+	// Check for cancellation
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	fmt.Printf("Installing %s bootloader...\n", b.Type)
 
 	// Ensure EFI directory structure uses proper uppercase naming (UEFI spec requirement)
@@ -347,12 +355,19 @@ func (b *BootloaderInstaller) Install() error {
 		return fmt.Errorf("failed to copy kernel from modules: %w", err)
 	}
 
+	// Check for cancellation before bootloader-specific install
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	var err error
 	switch b.Type {
 	case BootloaderGRUB2:
-		err = b.installGRUB2()
+		err = b.installGRUB2(ctx)
 	case BootloaderSystemdBoot:
-		err = b.installSystemdBoot()
+		err = b.installSystemdBoot(ctx)
 	default:
 		return fmt.Errorf("unsupported bootloader type: %s", b.Type)
 	}
@@ -362,7 +377,7 @@ func (b *BootloaderInstaller) Install() error {
 	}
 
 	// Register EFI boot entry using efibootmgr if available
-	if regErr := b.registerEFIBootEntry(); regErr != nil {
+	if regErr := b.registerEFIBootEntry(ctx); regErr != nil {
 		// Not fatal - the removable media fallback path should still work
 		fmt.Printf("  Warning: failed to register EFI boot entry: %v\n", regErr)
 	}
@@ -371,7 +386,7 @@ func (b *BootloaderInstaller) Install() error {
 }
 
 // installGRUB2 installs GRUB2 bootloader
-func (b *BootloaderInstaller) installGRUB2() error {
+func (b *BootloaderInstaller) installGRUB2(ctx context.Context) error {
 	fmt.Println("  Installing GRUB2...")
 
 	// Check if grub-install is available
@@ -396,7 +411,7 @@ func (b *BootloaderInstaller) installGRUB2() error {
 		args = append(args, "--verbose")
 	}
 
-	cmd := exec.Command(grubInstallCmd, args...)
+	cmd := exec.CommandContext(ctx, grubInstallCmd, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -432,7 +447,7 @@ func (b *BootloaderInstaller) installGRUB2() error {
 	}
 
 	// Generate GRUB configuration
-	if err := b.generateGRUBConfig(); err != nil {
+	if err := b.generateGRUBConfig(ctx); err != nil {
 		return fmt.Errorf("failed to generate GRUB config: %w", err)
 	}
 
@@ -441,7 +456,7 @@ func (b *BootloaderInstaller) installGRUB2() error {
 }
 
 // generateGRUBConfig generates GRUB configuration
-func (b *BootloaderInstaller) generateGRUBConfig() error {
+func (b *BootloaderInstaller) generateGRUBConfig(ctx context.Context) error {
 	fmt.Println("  Generating GRUB configuration...")
 
 	// Find kernel and initramfs
@@ -468,7 +483,7 @@ func (b *BootloaderInstaller) generateGRUBConfig() error {
 	}
 
 	// Build kernel command line (with LUKS support if encrypted)
-	kernelCmdline, err := b.buildKernelCmdline()
+	kernelCmdline, err := b.buildKernelCmdline(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to build kernel command line: %w", err)
 	}
@@ -513,7 +528,14 @@ menuentry '%s' {
 }
 
 // installSystemdBoot installs systemd-boot bootloader
-func (b *BootloaderInstaller) installSystemdBoot() error {
+func (b *BootloaderInstaller) installSystemdBoot(ctx context.Context) error {
+	// Check for cancellation
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	fmt.Println("  Installing systemd-boot...")
 
 	espPath := filepath.Join(b.TargetDir, "boot")
@@ -571,7 +593,7 @@ func (b *BootloaderInstaller) installSystemdBoot() error {
 	}
 
 	// Generate loader configuration
-	if err := b.generateSystemdBootConfig(); err != nil {
+	if err := b.generateSystemdBootConfig(ctx); err != nil {
 		return fmt.Errorf("failed to generate systemd-boot config: %w", err)
 	}
 
@@ -624,7 +646,7 @@ func copyEFIFile(src, dst string) error {
 }
 
 // generateSystemdBootConfig generates systemd-boot configuration
-func (b *BootloaderInstaller) generateSystemdBootConfig() error {
+func (b *BootloaderInstaller) generateSystemdBootConfig(ctx context.Context) error {
 	fmt.Println("  Generating systemd-boot configuration...")
 
 	// Find kernel on boot partition (combined EFI/boot partition)
@@ -651,7 +673,7 @@ func (b *BootloaderInstaller) generateSystemdBootConfig() error {
 	}
 
 	// Build kernel command line (with LUKS support if encrypted)
-	kernelCmdline, err := b.buildKernelCmdline()
+	kernelCmdline, err := b.buildKernelCmdline(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to build kernel command line: %w", err)
 	}
@@ -962,7 +984,7 @@ func DetectBootloader(targetDir string) BootloaderType {
 
 // registerEFIBootEntry uses efibootmgr to register a boot entry in UEFI firmware
 // This ensures the system is bootable even if the firmware doesn't auto-detect the bootloader
-func (b *BootloaderInstaller) registerEFIBootEntry() error {
+func (b *BootloaderInstaller) registerEFIBootEntry(ctx context.Context) error {
 	// Check if efibootmgr is available
 	efibootmgrPath, err := exec.LookPath("efibootmgr")
 	if err != nil {
@@ -1020,7 +1042,7 @@ func (b *BootloaderInstaller) registerEFIBootEntry() error {
 		args = append(args, "--verbose")
 	}
 
-	cmd := exec.Command(efibootmgrPath, args...)
+	cmd := exec.CommandContext(ctx, efibootmgrPath, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("efibootmgr failed: %w\nOutput: %s", err, string(output))

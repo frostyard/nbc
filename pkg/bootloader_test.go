@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -129,7 +130,7 @@ func TestBuildKernelCmdline_NonEncrypted(t *testing.T) {
 			}
 		}()
 
-		_, _ = installer.buildKernelCmdline()
+		_, _ = installer.buildKernelCmdline(context.Background())
 	})
 
 	t.Run("returns error with empty root partition", func(t *testing.T) {
@@ -138,7 +139,7 @@ func TestBuildKernelCmdline_NonEncrypted(t *testing.T) {
 			VarPartition:   "/dev/sda4",
 		}
 		installer := NewBootloaderInstaller("/mnt", "/dev/sda", scheme, "Test")
-		_, err := installer.buildKernelCmdline()
+		_, err := installer.buildKernelCmdline(context.Background())
 		if err == nil {
 			t.Error("buildKernelCmdline should fail with empty root partition")
 		}
@@ -156,13 +157,13 @@ func TestBuildKernelCmdline_BootloaderWithBootMount(t *testing.T) {
 	}
 
 	// Create partitions
-	scheme, err := CreatePartitions(disk.GetDevice(), false, NewProgressReporter(false, 1))
+	scheme, err := CreatePartitions(context.Background(), disk.GetDevice(), false, NewProgressReporter(false, 1))
 	if err != nil {
 		t.Fatalf("Failed to create partitions: %v", err)
 	}
 
 	// Format boot and var partitions so they have UUIDs
-	if err := FormatPartitions(scheme, false); err != nil {
+	if err := FormatPartitions(context.Background(), scheme, false); err != nil {
 		t.Fatalf("Failed to format partitions: %v", err)
 	}
 
@@ -172,22 +173,22 @@ func TestBuildKernelCmdline_BootloaderWithBootMount(t *testing.T) {
 	_ = testutil.WaitForDevice(scheme.VarPartition)
 
 	// Get actual UUIDs
-	bootUUID, err := GetPartitionUUID(scheme.BootPartition)
+	bootUUID, err := GetPartitionUUID(context.Background(), scheme.BootPartition)
 	if err != nil {
 		t.Fatalf("Failed to get boot UUID: %v", err)
 	}
-	rootUUID, err := GetPartitionUUID(scheme.Root1Partition)
+	rootUUID, err := GetPartitionUUID(context.Background(), scheme.Root1Partition)
 	if err != nil {
 		t.Fatalf("Failed to get root UUID: %v", err)
 	}
-	varUUID, err := GetPartitionUUID(scheme.VarPartition)
+	varUUID, err := GetPartitionUUID(context.Background(), scheme.VarPartition)
 	if err != nil {
 		t.Fatalf("Failed to get var UUID: %v", err)
 	}
 
 	t.Run("non-encrypted includes boot mount", func(t *testing.T) {
 		installer := NewBootloaderInstaller("/mnt", disk.GetDevice(), scheme, "Test OS")
-		cmdline, err := installer.buildKernelCmdline()
+		cmdline, err := installer.buildKernelCmdline(context.Background())
 		if err != nil {
 			t.Fatalf("buildKernelCmdline failed: %v", err)
 		}
@@ -225,10 +226,10 @@ func TestBuildKernelCmdline_BootloaderWithBootMount(t *testing.T) {
 	t.Run("encrypted includes boot mount", func(t *testing.T) {
 		// Setup LUKS encryption for testing
 		passphrase := "test-passphrase"
-		if err := SetupLUKS(scheme, passphrase, false, NewProgressReporter(false, 1)); err != nil {
+		if err := SetupLUKS(context.Background(), scheme, passphrase, false, NewProgressReporter(false, 1)); err != nil {
 			t.Fatalf("Failed to setup LUKS: %v", err)
 		}
-		defer scheme.CloseLUKSDevices()
+		defer scheme.CloseLUKSDevices(context.Background())
 
 		installer := NewBootloaderInstaller("/mnt", disk.GetDevice(), scheme, "Test OS")
 
@@ -238,7 +239,7 @@ func TestBuildKernelCmdline_BootloaderWithBootMount(t *testing.T) {
 			TPM2:    false,
 		})
 
-		cmdline, err := installer.buildKernelCmdline()
+		cmdline, err := installer.buildKernelCmdline(context.Background())
 		if err != nil {
 			t.Fatalf("buildKernelCmdline failed: %v", err)
 		}

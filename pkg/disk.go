@@ -2,6 +2,7 @@ package pkg
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -178,20 +179,28 @@ func ValidateDisk(device string, minSize uint64) error {
 }
 
 // WipeDisk securely wipes a disk's partition table
-func WipeDisk(device string, dryRun bool) error {
+func WipeDisk(ctx context.Context, device string, dryRun bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	if dryRun {
 		fmt.Printf("[DRY RUN] Would wipe disk: %s\n", device)
 		return nil
 	}
 
 	// Use wipefs to remove filesystem signatures
-	cmd := exec.Command("wipefs", "--all", device)
+	cmd := exec.CommandContext(ctx, "wipefs", "--all", device)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to wipe disk: %w\nOutput: %s", err, string(output))
 	}
 
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// Use sgdisk to zap GPT structures
-	cmd = exec.Command("sgdisk", "--zap-all", device)
+	cmd = exec.CommandContext(ctx, "sgdisk", "--zap-all", device)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to zap GPT: %w\nOutput: %s", err, string(output))
 	}

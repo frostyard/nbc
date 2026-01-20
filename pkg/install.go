@@ -26,11 +26,11 @@
 //	})
 //
 //	result, err := installer.Install(context.Background())
-//	if result != nil && result.Cleanup != nil {
-//	    defer result.Cleanup()
-//	}
 //	if err != nil {
 //	    log.Fatal(err)
+//	}
+//	if result != nil && result.Cleanup != nil {
+//	    defer result.Cleanup()
 //	}
 package pkg
 

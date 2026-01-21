@@ -148,15 +148,15 @@ func ParseSizeGB(sizeStr string) (int, error) {
 
 // SetupLoopbackInstall creates a loopback image file and attaches it.
 // Returns the LoopbackDevice for cleanup and the device path for installation.
-func SetupLoopbackInstall(imagePath string, sizeGB int, force bool) (*LoopbackDevice, error) {
+func SetupLoopbackInstall(imagePath string, sizeGB int, force bool, progress *ProgressReporter) (*LoopbackDevice, error) {
 	// Create the image file
-	fmt.Printf("Creating loopback image: %s (%dGB)\n", imagePath, sizeGB)
+	progress.MessagePlain("Creating loopback image: %s (%dGB)", imagePath, sizeGB)
 	if err := CreateLoopbackFile(imagePath, sizeGB, force); err != nil {
 		return nil, err
 	}
 
 	// Attach as loopback device
-	fmt.Printf("  Attaching loopback device...\n")
+	progress.Message("Attaching loopback device...")
 	device, err := AttachLoopback(imagePath)
 	if err != nil {
 		// Clean up the image file on failure
@@ -164,7 +164,7 @@ func SetupLoopbackInstall(imagePath string, sizeGB int, force bool) (*LoopbackDe
 		return nil, err
 	}
 
-	fmt.Printf("  Loopback device: %s\n", device)
+	progress.Message("Loopback device: %s", device)
 
 	return &LoopbackDevice{
 		ImagePath: imagePath,
@@ -174,11 +174,13 @@ func SetupLoopbackInstall(imagePath string, sizeGB int, force bool) (*LoopbackDe
 }
 
 // Cleanup detaches the loopback device.
-func (l *LoopbackDevice) Cleanup() error {
+func (l *LoopbackDevice) Cleanup(progress *ProgressReporter) error {
 	if l == nil || l.Device == "" {
 		return nil
 	}
 
-	fmt.Printf("Detaching loopback device %s...\n", l.Device)
+	if progress != nil {
+		progress.MessagePlain("Detaching loopback device %s...", l.Device)
+	}
 	return DetachLoopback(l.Device)
 }

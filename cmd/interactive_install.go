@@ -429,32 +429,38 @@ func runInteractiveInstall(cmd *cobra.Command, args []string) error {
 	fmt.Println("Starting installation...")
 	fmt.Println()
 
-	// Determine image and local image settings
-	var imageRef string
-	var localLayoutPath string
-	var localMetadata *pkg.CachedImageMetadata
-	skipPull := false
+	// Build InstallConfig from interactive options
+	cfg := &pkg.InstallConfig{
+		FilesystemType: opts.filesystem,
+		Verbose:        verbose,
+		DryRun:         dryRun,
+		RootPassword:   opts.rootPassword,
+	}
 
+	// Parse kernel args
+	if opts.kernelArgs != "" {
+		cfg.KernelArgs = strings.Fields(opts.kernelArgs)
+	}
+
+	// Handle image source
 	if opts.imageSource == "staged" {
 		cache := pkg.NewStagedInstallCache()
 		_, metadata, err := cache.GetImage(opts.stagedImage)
 		if err != nil {
 			return fmt.Errorf("failed to load staged image: %w", err)
 		}
-		localLayoutPath = cache.GetLayoutPath(metadata.ImageDigest)
-		localMetadata = metadata
-		imageRef = metadata.ImageRef
-		skipPull = true
+		cfg.LocalImage = &pkg.LocalImageSource{
+			LayoutPath: cache.GetLayoutPath(metadata.ImageDigest),
+			Metadata:   metadata,
+		}
+		cfg.SkipPull = true
 		fmt.Printf("Using staged image: %s\n", metadata.ImageRef)
 		fmt.Printf("  Digest: %s\n", metadata.ImageDigest)
 	} else {
-		imageRef = opts.image
+		cfg.ImageRef = opts.image
 	}
 
 	// Handle loopback or physical device
-	var device string
-	var loopbackDevice *pkg.LoopbackDevice
-
 	if opts.installTarget == "loopback" {
 		// Parse loopback size
 		loopbackSize, err := pkg.ParseSizeGB(opts.loopbackSizeStr)
@@ -462,74 +468,60 @@ func runInteractiveInstall(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("invalid loopback size: %w", err)
 		}
 
-		// Setup loopback device
-		fmt.Println("Setting up loopback device...")
-		loopbackDevice, err = pkg.SetupLoopbackInstall(opts.loopbackPath, loopbackSize, false)
-		if err != nil {
-			return fmt.Errorf("failed to setup loopback: %w", err)
+		cfg.Loopback = &pkg.LoopbackOptions{
+			ImagePath: opts.loopbackPath,
+			SizeGB:    loopbackSize,
+			Force:     false,
 		}
-		device = loopbackDevice.Device
-
-		// Ensure cleanup on exit
-		defer func() {
-			if loopbackDevice != nil {
-				if cleanupErr := loopbackDevice.Cleanup(); cleanupErr != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to cleanup loopback device: %v\n", cleanupErr)
-				}
-			}
-		}()
 	} else {
-		// Resolve device path
-		device, err = pkg.GetDiskByPath(opts.device)
-		if err != nil {
-			return fmt.Errorf("invalid device: %w", err)
-		}
-	}
-
-	// Create installer
-	installer := pkg.NewBootcInstaller(imageRef, device)
-	installer.SetVerbose(verbose)
-	installer.SetDryRun(dryRun)
-	installer.SetFilesystemType(opts.filesystem)
-
-	// Set local image if using staged image
-	if localLayoutPath != "" {
-		installer.SetLocalImage(localLayoutPath, localMetadata)
-	}
-
-	// Add kernel arguments
-	if opts.kernelArgs != "" {
-		for _, arg := range strings.Fields(opts.kernelArgs) {
-			installer.AddKernelArg(arg)
-		}
+		cfg.Device = opts.device
 	}
 
 	// Set encryption options
 	if opts.encrypt {
-		installer.SetEncryption(opts.passphrase, "", opts.tpm2)
+		cfg.Encryption = &pkg.EncryptionOptions{
+			Passphrase: opts.passphrase,
+			TPM2:       opts.tpm2,
+		}
 	}
 
-	// Set root password
-	if opts.rootPassword != "" {
-		installer.SetRootPassword(opts.rootPassword)
+	// Create installer
+	installer, err := pkg.NewInstaller(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create installer: %w", err)
 	}
+
+	// Set up callbacks for progress reporting
+	callbacks := pkg.CreateCLICallbacks(false)
+	installer.SetCallbacks(callbacks)
 
 	// Run installation
-	if err := installer.InstallComplete(skipPull); err != nil {
+	result, err := installer.Install(cmd.Context())
+
+	// Always call cleanup if available (handles both success and error cases)
+	if result != nil && result.Cleanup != nil {
+		defer func() {
+			if cleanupErr := result.Cleanup(); cleanupErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to cleanup: %v\n", cleanupErr)
+			}
+		}()
+	}
+
+	if err != nil {
 		return err
 	}
 
 	// Print loopback usage instructions
-	if opts.installTarget == "loopback" {
+	if result.LoopbackPath != "" {
 		fmt.Println()
 		fmt.Println("Loopback image created successfully!")
 		fmt.Println()
 		fmt.Println("To boot the image with QEMU:")
-		fmt.Printf("  qemu-system-x86_64 -enable-kvm -m 2048 -drive file=%s,format=raw -bios /usr/share/ovmf/OVMF.fd\n", opts.loopbackPath)
+		fmt.Printf("  qemu-system-x86_64 -enable-kvm -m 2048 -drive file=%s,format=raw -bios /usr/share/ovmf/OVMF.fd\n", result.LoopbackPath)
 		fmt.Println()
 		fmt.Println("To convert to other formats:")
-		fmt.Printf("  qemu-img convert -f raw -O qcow2 %s disk.qcow2\n", opts.loopbackPath)
-		fmt.Printf("  qemu-img convert -f raw -O vmdk %s disk.vmdk\n", opts.loopbackPath)
+		fmt.Printf("  qemu-img convert -f raw -O qcow2 %s disk.qcow2\n", result.LoopbackPath)
+		fmt.Printf("  qemu-img convert -f raw -O vmdk %s disk.vmdk\n", result.LoopbackPath)
 	}
 
 	return nil

@@ -2,6 +2,7 @@ package pkg
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -325,7 +326,7 @@ func (u *SystemUpdater) buildKernelCmdline(rootUUID, varUUID, fsType string, isT
 		}
 
 		// Get boot partition UUID (always FAT32, never encrypted)
-		bootUUID, err := GetPartitionUUID(u.Scheme.BootPartition)
+		bootUUID, err := GetPartitionUUID(context.Background(), u.Scheme.BootPartition)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get boot UUID: %w", err)
 		}
@@ -341,7 +342,7 @@ func (u *SystemUpdater) buildKernelCmdline(rootUUID, varUUID, fsType string, isT
 	} else {
 		// Non-encrypted system - use UUID
 		// Get boot partition UUID (always FAT32, never encrypted)
-		bootUUID, err := GetPartitionUUID(u.Scheme.BootPartition)
+		bootUUID, err := GetPartitionUUID(context.Background(), u.Scheme.BootPartition)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get boot UUID: %w", err)
 		}
@@ -580,7 +581,7 @@ func (u *SystemUpdater) Update() error {
 
 			// Try TPM2 auto-unlock first if enabled
 			if u.Encryption.TPM2 {
-				_, tpmErr := TryTPM2Unlock(u.Target, u.TargetMapperName, p)
+				_, tpmErr := TryTPM2Unlock(context.Background(), u.Target, u.TargetMapperName, p)
 				if tpmErr == nil {
 					p.Message("LUKS container unlocked via TPM2")
 					opened = true
@@ -598,7 +599,7 @@ func (u *SystemUpdater) Update() error {
 					return fmt.Errorf("failed to read passphrase: %w", err)
 				}
 
-				_, err = OpenLUKS(u.Target, u.TargetMapperName, passphrase, p)
+				_, err = OpenLUKS(context.Background(), u.Target, u.TargetMapperName, passphrase, p)
 				if err != nil {
 					return fmt.Errorf("failed to open LUKS container: %w", err)
 				}
@@ -612,7 +613,7 @@ func (u *SystemUpdater) Update() error {
 		// Ensure we close LUKS on cleanup
 		defer func() {
 			if u.TargetMapperName != "" {
-				_ = CloseLUKS(u.TargetMapperName, nil)
+				_ = CloseLUKS(context.Background(), u.TargetMapperName, nil)
 			}
 		}()
 	}
@@ -650,7 +651,7 @@ func (u *SystemUpdater) Update() error {
 	}
 	extractor.SetVerbose(u.Config.Verbose)
 	extractor.SetJSONOutput(u.Config.JSONOutput)
-	if err := extractor.Extract(); err != nil {
+	if err := extractor.Extract(context.Background()); err != nil {
 		return fmt.Errorf("failed to extract container: %w", err)
 	}
 
@@ -671,12 +672,12 @@ func (u *SystemUpdater) Update() error {
 	} else {
 		p.Message("Installing etc-overlay dracut module and regenerating initramfs")
 		// Install the embedded dracut module for /etc overlay persistence
-		if err := InstallDracutEtcOverlay(u.Config.MountPoint, u.Config.DryRun); err != nil {
+		if err := InstallDracutEtcOverlay(u.Config.MountPoint, u.Config.DryRun, p); err != nil {
 			return fmt.Errorf("failed to install dracut etc-overlay module: %w", err)
 		}
 
 		// Regenerate initramfs to include the etc-overlay module
-		if err := RegenerateInitramfs(u.Config.MountPoint, u.Config.DryRun, u.Config.Verbose); err != nil {
+		if err := RegenerateInitramfs(context.Background(), u.Config.MountPoint, u.Config.DryRun, u.Config.Verbose, p); err != nil {
 			p.Warning("initramfs regeneration failed: %v", err)
 			p.Warning("Boot may fail if container's initramfs lacks etc-overlay support")
 		}
@@ -732,7 +733,7 @@ func (u *SystemUpdater) Update() error {
 
 			// Try TPM2 auto-unlock first if enabled
 			if u.Encryption.TPM2 {
-				_, tpmErr := TryTPM2Unlock(varLUKSDevice, "var", p)
+				_, tpmErr := TryTPM2Unlock(context.Background(), varLUKSDevice, "var", p)
 				if tpmErr == nil {
 					p.Message("Var LUKS container unlocked via TPM2")
 					opened = true
@@ -750,7 +751,7 @@ func (u *SystemUpdater) Update() error {
 					return fmt.Errorf("failed to read passphrase: %w", err)
 				}
 
-				_, err = OpenLUKS(varLUKSDevice, "var", passphrase, p)
+				_, err = OpenLUKS(context.Background(), varLUKSDevice, "var", passphrase, p)
 				if err != nil {
 					return fmt.Errorf("failed to open var LUKS container: %w", err)
 				}
@@ -771,7 +772,7 @@ func (u *SystemUpdater) Update() error {
 		_ = exec.Command("umount", varMountPoint).Run()
 		// Close var LUKS if we opened it
 		if varLUKSOpened {
-			_ = CloseLUKS("var", nil)
+			_ = CloseLUKS(context.Background(), "var", nil)
 		}
 	}()
 
@@ -1103,13 +1104,13 @@ func (u *SystemUpdater) getUpdatedRootKernelVersion() (string, error) {
 // updateGRUBBootloader updates GRUB configuration
 func (u *SystemUpdater) updateGRUBBootloader() error {
 	// Get UUID of new root partition
-	targetUUID, err := GetPartitionUUID(u.Target)
+	targetUUID, err := GetPartitionUUID(context.Background(), u.Target)
 	if err != nil {
 		return fmt.Errorf("failed to get target UUID: %w", err)
 	}
 
 	// Get /var UUID for kernel command line mount
-	varUUID, err := GetPartitionUUID(u.Scheme.VarPartition)
+	varUUID, err := GetPartitionUUID(context.Background(), u.Scheme.VarPartition)
 	if err != nil {
 		return fmt.Errorf("failed to get var UUID: %w", err)
 	}
@@ -1181,7 +1182,7 @@ func (u *SystemUpdater) updateGRUBBootloader() error {
 		activeRoot = u.Scheme.Root2Partition
 	}
 
-	activeUUID, _ := GetPartitionUUID(activeRoot)
+	activeUUID, _ := GetPartitionUUID(context.Background(), activeRoot)
 
 	// Build previous kernel command line (for the currently active root)
 	previousCmdline, err := u.buildKernelCmdline(activeUUID, varUUID, fsType, false)
@@ -1209,19 +1210,19 @@ menuentry '%s (Previous)' {
 		return fmt.Errorf("failed to write grub.cfg: %w", err)
 	}
 
-	fmt.Printf("  Updated GRUB to boot from %s\n", u.Target)
+	u.Progress.Message("  Updated GRUB to boot from %s", u.Target)
 	return nil
 }
 
 // updateSystemdBootBootloader updates systemd-boot configuration
 func (u *SystemUpdater) updateSystemdBootBootloader() error {
 	// Get UUIDs
-	targetUUID, err := GetPartitionUUID(u.Target)
+	targetUUID, err := GetPartitionUUID(context.Background(), u.Target)
 	if err != nil {
 		return fmt.Errorf("failed to get target UUID: %w", err)
 	}
 
-	varUUID, err := GetPartitionUUID(u.Scheme.VarPartition)
+	varUUID, err := GetPartitionUUID(context.Background(), u.Scheme.VarPartition)
 	if err != nil {
 		return fmt.Errorf("failed to get var UUID: %w", err)
 	}
@@ -1230,7 +1231,7 @@ func (u *SystemUpdater) updateSystemdBootBootloader() error {
 	if !u.Active {
 		activeRoot = u.Scheme.Root2Partition
 	}
-	activeUUID, _ := GetPartitionUUID(activeRoot)
+	activeUUID, _ := GetPartitionUUID(context.Background(), activeRoot)
 
 	// Get kernel version from the updated root's modules directory
 	// This ensures we use the kernel from the newly extracted image, not a stale kernel

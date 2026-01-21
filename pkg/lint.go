@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -214,7 +215,7 @@ func (l *Linter) LintContainerImage(imageRef string) (*LintResult, error) {
 	// In quiet mode, use JSON output to suppress text messages
 	// (the JSON events won't be seen since we're not processing them)
 	extractor.SetJSONOutput(l.quiet)
-	err = extractor.Extract()
+	err = extractor.Extract(context.Background())
 
 	// Restore stdout
 	if l.quiet && oldStdout != nil {

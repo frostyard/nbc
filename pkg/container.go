@@ -2,6 +2,7 @@ package pkg
 
 import (
 	"archive/tar"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -57,8 +58,17 @@ func (c *ContainerExtractor) SetJSONOutput(jsonOutput bool) {
 	c.Progress = NewProgressReporter(jsonOutput, 1)
 }
 
+// SetProgress sets the progress reporter directly
+func (c *ContainerExtractor) SetProgress(p *ProgressReporter) {
+	c.Progress = p
+}
+
 // Extract extracts the container filesystem to the target directory using go-containerregistry
-func (c *ContainerExtractor) Extract() error {
+func (c *ContainerExtractor) Extract(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	var img v1.Image
 	var err error
 
@@ -84,20 +94,20 @@ func (c *ContainerExtractor) Extract() error {
 
 			// Try podman CLI first for localhost images (more reliable than daemon API)
 			// Check if podman is available and image exists
-			checkCmd := exec.Command("podman", "image", "exists", c.ImageRef)
+			checkCmd := exec.CommandContext(ctx, "podman", "image", "exists", c.ImageRef)
 			if checkCmd.Run() == nil {
 				// Image exists in podman, save it to OCI layout directory for extraction
 				c.Progress.Message("Found image in podman, using local copy")
 				tmpLayout := filepath.Join(os.TempDir(), fmt.Sprintf("nbc-oci-%d", os.Getpid()))
 				defer func() {
 					if err := os.RemoveAll(tmpLayout); err != nil {
-						fmt.Printf("Warning: failed to remove temporary OCI layout: %v\n", err)
+						c.Progress.Warning("failed to remove temporary OCI layout: %v", err)
 					}
 				}()
 
 				// Create the layout directory
 				if err := os.MkdirAll(tmpLayout, 0755); err == nil {
-					saveCmd := exec.Command("podman", "image", "save", "--format=oci-dir", "-o", tmpLayout, c.ImageRef)
+					saveCmd := exec.CommandContext(ctx, "podman", "image", "save", "--format=oci-dir", "-o", tmpLayout, c.ImageRef)
 					if err := saveCmd.Run(); err == nil {
 						// Load from the OCI layout directory
 						img, err = LoadImageFromOCILayout(tmpLayout)
@@ -146,6 +156,11 @@ func (c *ContainerExtractor) Extract() error {
 		}
 	}
 
+	// Check for cancellation before layer extraction
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// Get image layers
 	c.Progress.Message("Extracting layers...")
 	layers, err := img.Layers()
@@ -155,6 +170,11 @@ func (c *ContainerExtractor) Extract() error {
 
 	// Extract each layer
 	for i, layer := range layers {
+		// Check for cancellation between layers
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		if c.Verbose {
 			digest, _ := layer.Digest()
 			c.Progress.Message("Extracting layer %d/%d (%s)...", i+1, len(layers), digest)
@@ -167,7 +187,7 @@ func (c *ContainerExtractor) Extract() error {
 		}
 
 		// Extract tar contents to target directory
-		if err := extractTar(rc, c.TargetDir); err != nil {
+		if err := extractTar(ctx, rc, c.TargetDir); err != nil {
 			_ = rc.Close()
 			return fmt.Errorf("failed to extract layer %d: %w", i, err)
 		}
@@ -181,10 +201,19 @@ func (c *ContainerExtractor) Extract() error {
 }
 
 // extractTar extracts a tar stream to a target directory
-func extractTar(r io.Reader, targetDir string) error {
+func extractTar(ctx context.Context, r io.Reader, targetDir string) error {
 	tr := tar.NewReader(r)
+	fileCount := 0
 
 	for {
+		// Check for cancellation every 1000 files
+		if fileCount%1000 == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+		fileCount++
+
 		header, err := tr.Next()
 		if err == io.EOF {
 			break
@@ -371,11 +400,13 @@ func extractTar(r io.Reader, targetDir string) error {
 }
 
 // CreateFstab creates an /etc/fstab file with the proper mount points
-func CreateFstab(targetDir string, scheme *PartitionScheme) error {
-	fmt.Println("Creating /etc/fstab...")
+func CreateFstab(ctx context.Context, targetDir string, scheme *PartitionScheme, progress *ProgressReporter) error {
+	if progress != nil {
+		progress.Message("Creating /etc/fstab...")
+	}
 
 	// Only need root2 UUID for the commented-out alternate root entry
-	root2UUID, err := GetPartitionUUID(scheme.Root2Partition)
+	root2UUID, err := GetPartitionUUID(ctx, scheme.Root2Partition)
 	if err != nil {
 		return fmt.Errorf("failed to get root2 UUID: %w", err)
 	}
@@ -403,7 +434,9 @@ func CreateFstab(targetDir string, scheme *PartitionScheme) error {
 		return fmt.Errorf("failed to write fstab: %w", err)
 	}
 
-	fmt.Println("  Created /etc/fstab")
+	if progress != nil {
+		progress.Message("Created /etc/fstab")
+	}
 	return nil
 }
 

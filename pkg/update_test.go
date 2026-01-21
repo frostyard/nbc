@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -270,7 +271,7 @@ func installTestSystem(t *testing.T, version string) (*testutil.TestDisk, *Parti
 
 	defer testutil.CleanupMounts(t, mountPoint)
 
-	if err := installer.Install(); err != nil {
+	if err := installer.Install(context.Background()); err != nil {
 		t.Fatalf("Install failed: %v", err)
 	}
 
@@ -442,13 +443,13 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 	}
 
 	// Create partitions
-	scheme, err := CreatePartitions(disk.GetDevice(), false, NewProgressReporter(false, 1))
+	scheme, err := CreatePartitions(context.Background(), disk.GetDevice(), false, NewProgressReporter(false, 1))
 	if err != nil {
 		t.Fatalf("Failed to create partitions: %v", err)
 	}
 
 	// Format partitions so they have UUIDs
-	if err := FormatPartitions(scheme, false); err != nil {
+	if err := FormatPartitions(context.Background(), scheme, false, nil); err != nil {
 		t.Fatalf("Failed to format partitions: %v", err)
 	}
 
@@ -459,19 +460,19 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 	_ = testutil.WaitForDevice(scheme.VarPartition)
 
 	// Get actual UUIDs
-	bootUUID, err := GetPartitionUUID(scheme.BootPartition)
+	bootUUID, err := GetPartitionUUID(context.Background(), scheme.BootPartition)
 	if err != nil {
 		t.Fatalf("Failed to get boot UUID: %v", err)
 	}
-	root1UUID, err := GetPartitionUUID(scheme.Root1Partition)
+	root1UUID, err := GetPartitionUUID(context.Background(), scheme.Root1Partition)
 	if err != nil {
 		t.Fatalf("Failed to get root1 UUID: %v", err)
 	}
-	root2UUID, err := GetPartitionUUID(scheme.Root2Partition)
+	root2UUID, err := GetPartitionUUID(context.Background(), scheme.Root2Partition)
 	if err != nil {
 		t.Fatalf("Failed to get root2 UUID: %v", err)
 	}
-	varUUID, err := GetPartitionUUID(scheme.VarPartition)
+	varUUID, err := GetPartitionUUID(context.Background(), scheme.VarPartition)
 	if err != nil {
 		t.Fatalf("Failed to get var UUID: %v", err)
 	}
@@ -543,10 +544,10 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 	t.Run("encrypted includes boot mount", func(t *testing.T) {
 		// Setup LUKS encryption
 		passphrase := "test-passphrase"
-		if err := SetupLUKS(scheme, passphrase, false, NewProgressReporter(false, 1)); err != nil {
+		if err := SetupLUKS(context.Background(), scheme, passphrase, false, NewProgressReporter(false, 1)); err != nil {
 			t.Fatalf("Failed to setup LUKS: %v", err)
 		}
-		defer scheme.CloseLUKSDevices()
+		defer scheme.CloseLUKSDevices(context.Background())
 
 		root1Dev := scheme.GetLUKSDevice("root1")
 		root2Dev := scheme.GetLUKSDevice("root2")

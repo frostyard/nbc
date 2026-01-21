@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -25,11 +26,15 @@ type LUKSDevice struct {
 }
 
 // CreateLUKSContainer creates a LUKS2 container on the given partition
-func CreateLUKSContainer(partition, passphrase string, progress *ProgressReporter) error {
+func CreateLUKSContainer(ctx context.Context, partition, passphrase string, progress *ProgressReporter) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	progress.Message("Creating LUKS container on %s...", partition)
 
 	// Create LUKS2 container with passphrase via stdin
-	cmd := exec.Command("cryptsetup", "luksFormat",
+	cmd := exec.CommandContext(ctx, "cryptsetup", "luksFormat",
 		"--type", "luks2",
 		"--batch-mode",
 		"--key-file", "-",
@@ -47,11 +52,24 @@ func CreateLUKSContainer(partition, passphrase string, progress *ProgressReporte
 }
 
 // OpenLUKS opens a LUKS container and returns the device info
-func OpenLUKS(partition, mapperName, passphrase string, progress *ProgressReporter) (*LUKSDevice, error) {
+func OpenLUKS(ctx context.Context, partition, mapperName, passphrase string, progress *ProgressReporter) (*LUKSDevice, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	progress.Message("Opening LUKS container %s as %s...", partition, mapperName)
 
+	// Check if mapper device already exists and close it first
+	mapperPath := filepath.Join("/dev/mapper", mapperName)
+	if _, err := os.Stat(mapperPath); err == nil {
+		progress.Message("Closing existing %s before reopening...", mapperName)
+		if err := CloseLUKS(ctx, mapperName, progress); err != nil {
+			return nil, fmt.Errorf("failed to close existing LUKS device %s: %w", mapperName, err)
+		}
+	}
+
 	// Open the LUKS container
-	cmd := exec.Command("cryptsetup", "luksOpen",
+	cmd := exec.CommandContext(ctx, "cryptsetup", "luksOpen",
 		"--key-file", "-",
 		partition,
 		mapperName,
@@ -65,10 +83,10 @@ func OpenLUKS(partition, mapperName, passphrase string, progress *ProgressReport
 	}
 
 	// Get LUKS UUID
-	luksUUID, err := GetLUKSUUID(partition)
+	luksUUID, err := GetLUKSUUID(ctx, partition)
 	if err != nil {
 		// Try to close the container before returning error
-		_ = CloseLUKS(mapperName, progress)
+		_ = CloseLUKS(ctx, mapperName, progress)
 		return nil, err
 	}
 
@@ -82,12 +100,16 @@ func OpenLUKS(partition, mapperName, passphrase string, progress *ProgressReport
 
 // TryTPM2Unlock attempts to open a LUKS container using TPM2 token
 // Returns the LUKSDevice on success, or an error if TPM2 unlock failed
-func TryTPM2Unlock(partition, mapperName string, progress *ProgressReporter) (*LUKSDevice, error) {
+func TryTPM2Unlock(ctx context.Context, partition, mapperName string, progress *ProgressReporter) (*LUKSDevice, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	progress.Message("Attempting TPM2 unlock for %s as %s...", partition, mapperName)
 
 	// Use cryptsetup with --token-only to only try token-based unlock (TPM2)
 	// This will fail if no TPM2 token is enrolled or TPM2 is unavailable
-	cmd := exec.Command("cryptsetup", "open",
+	cmd := exec.CommandContext(ctx, "cryptsetup", "open",
 		"--token-only",
 		partition,
 		mapperName,
@@ -100,10 +122,10 @@ func TryTPM2Unlock(partition, mapperName string, progress *ProgressReporter) (*L
 	}
 
 	// Get LUKS UUID
-	luksUUID, err := GetLUKSUUID(partition)
+	luksUUID, err := GetLUKSUUID(ctx, partition)
 	if err != nil {
 		// Try to close the container before returning error
-		_ = CloseLUKS(mapperName, progress)
+		_ = CloseLUKS(ctx, mapperName, progress)
 		return nil, err
 	}
 
@@ -116,12 +138,12 @@ func TryTPM2Unlock(partition, mapperName string, progress *ProgressReporter) (*L
 }
 
 // CloseLUKS closes a LUKS container
-func CloseLUKS(mapperName string, progress *ProgressReporter) error {
+func CloseLUKS(ctx context.Context, mapperName string, progress *ProgressReporter) error {
 	if progress != nil {
 		progress.Message("Closing LUKS container %s...", mapperName)
 	}
 
-	cmd := exec.Command("cryptsetup", "luksClose", mapperName)
+	cmd := exec.CommandContext(ctx, "cryptsetup", "luksClose", mapperName)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -133,8 +155,8 @@ func CloseLUKS(mapperName string, progress *ProgressReporter) error {
 }
 
 // GetLUKSUUID retrieves the LUKS container UUID (not filesystem UUID)
-func GetLUKSUUID(partition string) (string, error) {
-	cmd := exec.Command("cryptsetup", "luksUUID", partition)
+func GetLUKSUUID(ctx context.Context, partition string) (string, error) {
+	cmd := exec.CommandContext(ctx, "cryptsetup", "luksUUID", partition)
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get LUKS UUID for %s: %w", partition, err)
@@ -149,7 +171,11 @@ func GetLUKSUUID(partition string) (string, error) {
 }
 
 // EnrollTPM2 enrolls a TPM2 key for automatic unlock with no PCRs
-func EnrollTPM2(partition string, config *LUKSConfig) error {
+func EnrollTPM2(ctx context.Context, partition string, config *LUKSConfig) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	fmt.Printf("  Enrolling TPM2 key on %s (no PCRs)...\n", partition)
 
 	var keyFilePath string
@@ -181,7 +207,7 @@ func EnrollTPM2(partition string, config *LUKSConfig) error {
 	defer cleanup()
 
 	// Use systemd-cryptenroll to add TPM2 key with no PCR binding
-	cmd := exec.Command("systemd-cryptenroll",
+	cmd := exec.CommandContext(ctx, "systemd-cryptenroll",
 		"--unlock-key-file="+keyFilePath,
 		"--tpm2-device=auto",
 		"--tpm2-pcrs=", // Empty PCRs = no binding

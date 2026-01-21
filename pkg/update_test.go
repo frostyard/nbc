@@ -449,7 +449,7 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 	}
 
 	// Format partitions so they have UUIDs
-	if err := FormatPartitions(context.Background(), scheme, false); err != nil {
+	if err := FormatPartitions(context.Background(), scheme, false, nil); err != nil {
 		t.Fatalf("Failed to format partitions: %v", err)
 	}
 

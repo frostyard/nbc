@@ -177,20 +177,20 @@ func GetCurrentBootDevice() (string, error) {
 }
 
 // GetCurrentBootDeviceInfo returns detailed information about the boot device
-func GetCurrentBootDeviceInfo(verbose bool) (string, error) {
+func GetCurrentBootDeviceInfo(verbose bool, progress *ProgressReporter) (string, error) {
 	device, err := GetCurrentBootDevice()
 	if err != nil {
 		return "", err
 	}
 
-	if verbose {
+	if verbose && progress != nil {
 		// Get disk info
 		deviceName := filepath.Base(device)
 		diskInfo, err := getDiskInfo(deviceName)
 		if err != nil {
-			fmt.Printf("Auto-detected boot device: %s\n", device)
+			progress.Message("Auto-detected boot device: %s", device)
 		} else {
-			fmt.Printf("Auto-detected boot device: %s (%s, %s)\n",
+			progress.Message("Auto-detected boot device: %s (%s, %s)",
 				device, diskInfo.Model, FormatSize(diskInfo.Size))
 		}
 	}

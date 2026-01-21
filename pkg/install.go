@@ -89,6 +89,9 @@ type InstallConfig struct {
 	// DryRun simulates the installation without making changes.
 	DryRun bool
 
+	// JSONOutput enables JSON Lines output format.
+	JSONOutput bool
+
 	// SkipPull skips pulling the image (assumes it's already available).
 	SkipPull bool
 }
@@ -183,6 +186,7 @@ type Installer struct {
 	// Internal state
 	loopback  *LoopbackDevice
 	startTime time.Time
+	progress  *ProgressReporter
 
 	// TODO: Remove progressAdapter when ProgressReporter is deprecated
 	progressAdapter *callbackProgressAdapter
@@ -262,7 +266,8 @@ func NewInstaller(cfg *InstallConfig) (*Installer, error) {
 	}
 
 	return &Installer{
-		config: cfg,
+		config:   cfg,
+		progress: NewProgressReporter(cfg.JSONOutput, 6),
 	}, nil
 }
 
@@ -296,7 +301,9 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 	defer func() {
 		if i.loopback != nil {
 			result.LoopbackPath = i.loopback.ImagePath
-			result.Cleanup = i.loopback.Cleanup
+			result.Cleanup = func() error {
+				return i.loopback.Cleanup(i.asLegacyProgress())
+			}
 		} else {
 			result.Cleanup = func() error { return nil }
 		}
@@ -361,7 +368,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 
 	// Wipe disk (in non-dry-run mode, confirmation should be handled by CLI)
 	i.callOnMessage(fmt.Sprintf("Wiping disk %s...", device))
-	if err := WipeDisk(ctx, device, i.config.DryRun); err != nil {
+	if err := WipeDisk(ctx, device, i.config.DryRun, i.asLegacyProgress()); err != nil {
 		i.callOnError(err, "Failed to wipe disk")
 		return result, err
 	}
@@ -407,7 +414,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 
 	// Step 2: Format partitions
 	i.callOnStep(2, 6, "Formatting partitions")
-	if err := FormatPartitions(ctx, scheme, i.config.DryRun); err != nil {
+	if err := FormatPartitions(ctx, scheme, i.config.DryRun, i.asLegacyProgress()); err != nil {
 		err = fmt.Errorf("failed to format partitions: %w", err)
 		i.callOnError(err, "Formatting failed")
 		return result, err
@@ -415,7 +422,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 
 	// Step 3: Mount partitions
 	i.callOnStep(3, 6, "Mounting partitions")
-	if err := MountPartitions(ctx, scheme, i.config.MountPoint, i.config.DryRun); err != nil {
+	if err := MountPartitions(ctx, scheme, i.config.MountPoint, i.config.DryRun, i.asLegacyProgress()); err != nil {
 		err = fmt.Errorf("failed to mount partitions: %w", err)
 		i.callOnError(err, "Mounting failed")
 		return result, err
@@ -424,7 +431,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 	// Ensure cleanup on error
 	defer func() {
 		i.callOnMessage("Cleaning up...")
-		_ = UnmountPartitions(ctx, i.config.MountPoint, i.config.DryRun)
+		_ = UnmountPartitions(ctx, i.config.MountPoint, i.config.DryRun, i.asLegacyProgress())
 		if scheme != nil && scheme.Encrypted {
 			scheme.CloseLUKSDevices(ctx)
 		}
@@ -440,6 +447,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 		extractor = NewContainerExtractor(i.config.ImageRef, i.config.MountPoint)
 	}
 	extractor.SetVerbose(i.config.Verbose)
+	extractor.SetProgress(i.progress)
 	if err := extractor.Extract(ctx); err != nil {
 		err = fmt.Errorf("failed to extract container: %w", err)
 		i.callOnError(err, "Container extraction failed")
@@ -463,14 +471,14 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 	}
 
 	// Install the embedded dracut module for /etc overlay persistence
-	if err := InstallDracutEtcOverlay(i.config.MountPoint, i.config.DryRun); err != nil {
+	if err := InstallDracutEtcOverlay(i.config.MountPoint, i.config.DryRun, i.progress); err != nil {
 		err = fmt.Errorf("failed to install dracut etc-overlay module: %w", err)
 		i.callOnError(err, "Dracut module installation failed")
 		return result, err
 	}
 
 	// Regenerate initramfs to include the etc-overlay module
-	if err := RegenerateInitramfs(ctx, i.config.MountPoint, i.config.DryRun, i.config.Verbose); err != nil {
+	if err := RegenerateInitramfs(ctx, i.config.MountPoint, i.config.DryRun, i.config.Verbose, i.progress); err != nil {
 		i.callOnWarning(fmt.Sprintf("initramfs regeneration failed: %v", err))
 		i.callOnWarning("Boot may fail if container's initramfs lacks etc-overlay support")
 	}
@@ -479,7 +487,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 	i.callOnStep(5, 6, "Configuring system")
 
 	// Create fstab
-	if err := CreateFstab(ctx, i.config.MountPoint, scheme); err != nil {
+	if err := CreateFstab(ctx, i.config.MountPoint, scheme, i.progress); err != nil {
 		err = fmt.Errorf("failed to create fstab: %w", err)
 		i.callOnError(err, "Fstab creation failed")
 		return result, err
@@ -546,7 +554,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 
 	// Set root password if provided
 	if i.config.RootPassword != "" {
-		if err := SetRootPasswordInTarget(i.config.MountPoint, i.config.RootPassword, i.config.DryRun); err != nil {
+		if err := SetRootPasswordInTarget(i.config.MountPoint, i.config.RootPassword, i.config.DryRun, i.asLegacyProgress()); err != nil {
 			err = fmt.Errorf("failed to set root password: %w", err)
 			i.callOnError(err, "Root password setup failed")
 			return result, err
@@ -625,6 +633,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 
 	bootloader := NewBootloaderInstaller(i.config.MountPoint, device, scheme, osName)
 	bootloader.SetVerbose(i.config.Verbose)
+	bootloader.SetProgress(i.asLegacyProgress())
 
 	// Set encryption config if enabled
 	if i.config.Encryption != nil {
@@ -691,6 +700,7 @@ func (i *Installer) setupDevice(ctx context.Context) (string, error) {
 			i.config.Loopback.ImagePath,
 			i.config.Loopback.SizeGB,
 			i.config.Loopback.Force,
+			i.asLegacyProgress(),
 		)
 		if err != nil {
 			err = fmt.Errorf("failed to setup loopback: %w", err)
@@ -721,7 +731,7 @@ func (i *Installer) pullImage(ctx context.Context) error {
 	i.callOnMessage(fmt.Sprintf("Validating image reference: %s", i.config.ImageRef))
 
 	// Validate and check image accessibility using PullImage helper
-	if err := PullImage(ctx, i.config.ImageRef, i.config.Verbose); err != nil {
+	if err := PullImage(ctx, i.config.ImageRef, i.config.Verbose, i.asLegacyProgress()); err != nil {
 		i.callOnError(err, "Failed to access image")
 		return err
 	}
@@ -763,11 +773,9 @@ func (i *Installer) verify(ctx context.Context, device string) error {
 }
 
 // asLegacyProgress returns a ProgressReporter for functions that still use it.
-// This creates a ProgressReporter that forwards to the installer's callbacks.
+// This returns the installer's progress reporter which respects JSONOutput setting.
 func (i *Installer) asLegacyProgress() *ProgressReporter {
-	// Create a reporter that will print to stdout (for functions that call it)
-	// This works because the installer callbacks will handle the actual output
-	return NewProgressReporter(false, 6)
+	return i.progress
 }
 
 // Callback helper methods (nil-safe)

@@ -588,10 +588,10 @@ func TestIntegration_Installer_Install(t *testing.T) {
 	defer testutil.CleanupMounts(t, verifyMount)
 
 	// Mount root1 partition
-	if err := MountPartitions(context.Background(), scheme, verifyMount, false); err != nil {
+	if err := MountPartitions(context.Background(), scheme, verifyMount, false, NewProgressReporter(false, 1)); err != nil {
 		t.Fatalf("Failed to mount partitions for verification: %v", err)
 	}
-	defer func() { _ = UnmountPartitions(context.Background(), verifyMount, false) }()
+	defer func() { _ = UnmountPartitions(context.Background(), verifyMount, false, NewProgressReporter(false, 1)) }()
 
 	// Check for expected directories
 	expectedDirs := []string{

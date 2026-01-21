@@ -251,13 +251,13 @@ func (s *PartitionScheme) CloseLUKSDevices(ctx context.Context) {
 }
 
 // FormatPartitions formats the partitions with appropriate filesystems
-func FormatPartitions(ctx context.Context, scheme *PartitionScheme, dryRun bool) error {
+func FormatPartitions(ctx context.Context, scheme *PartitionScheme, dryRun bool, progress *ProgressReporter) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
 	if dryRun {
-		fmt.Println("[DRY RUN] Would format partitions")
+		progress.MessagePlain("[DRY RUN] Would format partitions")
 		return nil
 	}
 
@@ -267,11 +267,11 @@ func FormatPartitions(ctx context.Context, scheme *PartitionScheme, dryRun bool)
 		fsType = "ext4"
 	}
 
-	fmt.Printf("Formatting partitions (filesystem: %s)...\n", fsType)
+	progress.MessagePlain("Formatting partitions (filesystem: %s)...", fsType)
 
 	// Format boot partition as FAT32 (EFI System Partition)
 	// Boot partition is never encrypted
-	fmt.Printf("  Formatting %s as FAT32 (boot/EFI)...\n", scheme.BootPartition)
+	progress.Message("Formatting %s as FAT32 (boot/EFI)...", scheme.BootPartition)
 	cmd := exec.CommandContext(ctx, "mkfs.vfat", "-F", "32", "-n", "UEFI", scheme.BootPartition)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to format boot partition: %w\nOutput: %s", err, string(output))
@@ -287,24 +287,24 @@ func FormatPartitions(ctx context.Context, scheme *PartitionScheme, dryRun bool)
 	varDev := scheme.GetVarDevice()
 
 	// Format first root partition (or LUKS mapper device)
-	fmt.Printf("  Formatting %s as %s...\n", root1Dev, fsType)
+	progress.Message("Formatting %s as %s...", root1Dev, fsType)
 	if err := formatPartition(ctx, root1Dev, fsType, "root1"); err != nil {
 		return fmt.Errorf("failed to format root1 partition: %w", err)
 	}
 
 	// Format second root partition (or LUKS mapper device)
-	fmt.Printf("  Formatting %s as %s...\n", root2Dev, fsType)
+	progress.Message("Formatting %s as %s...", root2Dev, fsType)
 	if err := formatPartition(ctx, root2Dev, fsType, "root2"); err != nil {
 		return fmt.Errorf("failed to format root2 partition: %w", err)
 	}
 
 	// Format /var partition (or LUKS mapper device)
-	fmt.Printf("  Formatting %s as %s...\n", varDev, fsType)
+	progress.Message("Formatting %s as %s...", varDev, fsType)
 	if err := formatPartition(ctx, varDev, fsType, "var"); err != nil {
 		return fmt.Errorf("failed to format var partition: %w", err)
 	}
 
-	fmt.Println("Formatting complete")
+	progress.MessagePlain("Formatting complete")
 	return nil
 }
 
@@ -336,17 +336,17 @@ func formatPartition(ctx context.Context, partition, fsType, label string) error
 }
 
 // MountPartitions mounts the partitions to a temporary directory
-func MountPartitions(ctx context.Context, scheme *PartitionScheme, mountPoint string, dryRun bool) error {
+func MountPartitions(ctx context.Context, scheme *PartitionScheme, mountPoint string, dryRun bool, progress *ProgressReporter) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
 	if dryRun {
-		fmt.Printf("[DRY RUN] Would mount partitions at %s\n", mountPoint)
+		progress.MessagePlain("[DRY RUN] Would mount partitions at %s", mountPoint)
 		return nil
 	}
 
-	fmt.Printf("Mounting partitions at %s...\n", mountPoint)
+	progress.MessagePlain("Mounting partitions at %s...", mountPoint)
 
 	// Create mount point if it doesn't exist
 	if err := os.MkdirAll(mountPoint, 0755); err != nil {
@@ -385,18 +385,18 @@ func MountPartitions(ctx context.Context, scheme *PartitionScheme, mountPoint st
 		return fmt.Errorf("failed to mount var partition: %w\nOutput: %s", err, string(output))
 	}
 
-	fmt.Println("Partitions mounted successfully")
+	progress.MessagePlain("Partitions mounted successfully")
 	return nil
 }
 
 // UnmountPartitions unmounts all partitions
-func UnmountPartitions(ctx context.Context, mountPoint string, dryRun bool) error {
+func UnmountPartitions(ctx context.Context, mountPoint string, dryRun bool, progress *ProgressReporter) error {
 	if dryRun {
-		fmt.Printf("[DRY RUN] Would unmount partitions at %s\n", mountPoint)
+		progress.MessagePlain("[DRY RUN] Would unmount partitions at %s", mountPoint)
 		return nil
 	}
 
-	fmt.Println("Unmounting partitions...")
+	progress.MessagePlain("Unmounting partitions...")
 
 	// Unmount in reverse order
 	bootDir := filepath.Join(mountPoint, "boot")
@@ -404,17 +404,17 @@ func UnmountPartitions(ctx context.Context, mountPoint string, dryRun bool) erro
 
 	// Unmount boot
 	if err := exec.CommandContext(ctx, "umount", bootDir).Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to unmount boot: %v\n", err)
+		progress.Warning("failed to unmount boot: %v", err)
 	}
 
 	// Unmount /var
 	if err := exec.CommandContext(ctx, "umount", varDir).Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to unmount var: %v\n", err)
+		progress.Warning("failed to unmount var: %v", err)
 	}
 
 	// Unmount root
 	if err := exec.CommandContext(ctx, "umount", mountPoint).Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to unmount root: %v\n", err)
+		progress.Warning("failed to unmount root: %v", err)
 	}
 
 	return nil

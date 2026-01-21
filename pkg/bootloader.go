@@ -27,7 +27,8 @@ type BootloaderInstaller struct {
 	KernelArgs []string
 	OSName     string
 	Verbose    bool
-	Encryption *LUKSConfig // Encryption configuration
+	Encryption *LUKSConfig       // Encryption configuration
+	Progress   *ProgressReporter // Progress reporter for output
 }
 
 // NewBootloaderInstaller creates a new BootloaderInstaller
@@ -39,6 +40,7 @@ func NewBootloaderInstaller(targetDir, device string, scheme *PartitionScheme, o
 		Scheme:     scheme,
 		KernelArgs: []string{},
 		OSName:     osName,
+		Progress:   NewProgressReporter(false, 1), // Default to non-JSON
 	}
 }
 
@@ -55,6 +57,11 @@ func (b *BootloaderInstaller) AddKernelArg(arg string) {
 // SetVerbose enables verbose output
 func (b *BootloaderInstaller) SetVerbose(verbose bool) {
 	b.Verbose = verbose
+}
+
+// SetProgress sets the progress reporter
+func (b *BootloaderInstaller) SetProgress(p *ProgressReporter) {
+	b.Progress = p
 }
 
 // SetEncryption sets the encryption configuration
@@ -96,12 +103,12 @@ func (b *BootloaderInstaller) buildKernelCmdline(ctx context.Context) ([]string,
 		// TPM2 auto-unlock if enabled
 		if b.Encryption != nil && b.Encryption.TPM2 {
 			if b.Verbose {
-				fmt.Println("  Adding TPM2 unlock options to kernel cmdline")
+				b.Progress.Message("Adding TPM2 unlock options to kernel cmdline")
 			}
 			kernelCmdline = append(kernelCmdline, "rd.luks.options="+rootDev.LUKSUUID+"=tpm2-device=auto")
 			kernelCmdline = append(kernelCmdline, "rd.luks.options="+varDev.LUKSUUID+"=tpm2-device=auto")
 		} else if b.Verbose {
-			fmt.Printf("  TPM2 options not added: Encryption=%v, TPM2=%v\n", b.Encryption != nil, b.Encryption != nil && b.Encryption.TPM2)
+			b.Progress.Message("TPM2 options not added: Encryption=%v, TPM2=%v", b.Encryption != nil, b.Encryption != nil && b.Encryption.TPM2)
 		}
 
 		// Mount boot partition via systemd.mount-extra (always FAT32, never encrypted)
@@ -306,7 +313,7 @@ func (b *BootloaderInstaller) copyKernelFromModules() error {
 		if err := copyFile(srcKernel, destKernel); err != nil {
 			return fmt.Errorf("failed to copy kernel %s: %w", kernelName, err)
 		}
-		fmt.Printf("  Copied kernel to boot partition: %s\n", kernelName)
+		b.Progress.Message("Copied kernel to boot partition: %s", kernelName)
 
 		// Look for initramfs in /usr/lib/modules/$KERNEL_VERSION/
 		initrdPatterns := []string{
@@ -324,7 +331,7 @@ func (b *BootloaderInstaller) copyKernelFromModules() error {
 				if err := copyFile(pattern, destInitrd); err != nil {
 					return fmt.Errorf("failed to copy initramfs %s: %w", initrdName, err)
 				}
-				fmt.Printf("  Copied initramfs to boot partition: %s\n", initrdName)
+				b.Progress.Message("Copied initramfs to boot partition: %s", initrdName)
 				break // Only copy the first matching initramfs
 			}
 		}
@@ -342,12 +349,12 @@ func (b *BootloaderInstaller) Install(ctx context.Context) error {
 	default:
 	}
 
-	fmt.Printf("Installing %s bootloader...\n", b.Type)
+	b.Progress.MessagePlain("Installing %s bootloader...", b.Type)
 
 	// Ensure EFI directory structure uses proper uppercase naming (UEFI spec requirement)
 	espPath := filepath.Join(b.TargetDir, "boot")
 	if err := ensureUppercaseEFIDirectory(espPath); err != nil {
-		fmt.Printf("  Warning: %v\n", err)
+		b.Progress.Warning("%v", err)
 	}
 
 	// Copy kernel and initramfs from /usr/lib/modules to /boot
@@ -379,7 +386,7 @@ func (b *BootloaderInstaller) Install(ctx context.Context) error {
 	// Register EFI boot entry using efibootmgr if available
 	if regErr := b.registerEFIBootEntry(ctx); regErr != nil {
 		// Not fatal - the removable media fallback path should still work
-		fmt.Printf("  Warning: failed to register EFI boot entry: %v\n", regErr)
+		b.Progress.Warning("failed to register EFI boot entry: %v", regErr)
 	}
 
 	return nil
@@ -387,7 +394,7 @@ func (b *BootloaderInstaller) Install(ctx context.Context) error {
 
 // installGRUB2 installs GRUB2 bootloader
 func (b *BootloaderInstaller) installGRUB2(ctx context.Context) error {
-	fmt.Println("  Installing GRUB2...")
+	b.Progress.Message("Installing GRUB2...")
 
 	// Check if grub-install is available
 	grubInstallCmd := "grub-install"
@@ -442,7 +449,7 @@ func (b *BootloaderInstaller) installGRUB2(ctx context.Context) error {
 			return fmt.Errorf("failed to setup Secure Boot chain: %w", err)
 		}
 		if secureBootEnabled {
-			fmt.Println("  Configured GRUB2 with Secure Boot support")
+			b.Progress.Message("Configured GRUB2 with Secure Boot support")
 		}
 	}
 
@@ -451,13 +458,13 @@ func (b *BootloaderInstaller) installGRUB2(ctx context.Context) error {
 		return fmt.Errorf("failed to generate GRUB config: %w", err)
 	}
 
-	fmt.Println("  GRUB2 installation complete")
+	b.Progress.Message("GRUB2 installation complete")
 	return nil
 }
 
 // generateGRUBConfig generates GRUB configuration
 func (b *BootloaderInstaller) generateGRUBConfig(ctx context.Context) error {
-	fmt.Println("  Generating GRUB configuration...")
+	b.Progress.Message("Generating GRUB configuration...")
 
 	// Find kernel and initramfs
 	bootDir := filepath.Join(b.TargetDir, "boot")
@@ -523,7 +530,7 @@ menuentry '%s' {
 		return fmt.Errorf("failed to write grub.cfg: %w", err)
 	}
 
-	fmt.Printf("  Created GRUB configuration at %s\n", grubCfgPath)
+	b.Progress.Message("Created GRUB configuration at %s", grubCfgPath)
 	return nil
 }
 
@@ -536,7 +543,7 @@ func (b *BootloaderInstaller) installSystemdBoot(ctx context.Context) error {
 	default:
 	}
 
-	fmt.Println("  Installing systemd-boot...")
+	b.Progress.Message("Installing systemd-boot...")
 
 	espPath := filepath.Join(b.TargetDir, "boot")
 
@@ -587,9 +594,9 @@ func (b *BootloaderInstaller) installSystemdBoot(ctx context.Context) error {
 		if err := copyEFIFile(efiSource, filepath.Join(efiBootDir, "BOOTX64.EFI")); err != nil {
 			return fmt.Errorf("failed to copy fallback EFI: %w", err)
 		}
-		fmt.Println("  Installed systemd-boot EFI binaries (no Secure Boot shim found)")
+		b.Progress.Message("Installed systemd-boot EFI binaries (no Secure Boot shim found)")
 	} else {
-		fmt.Println("  Installed systemd-boot with Secure Boot support")
+		b.Progress.Message("Installed systemd-boot with Secure Boot support")
 	}
 
 	// Generate loader configuration
@@ -597,7 +604,7 @@ func (b *BootloaderInstaller) installSystemdBoot(ctx context.Context) error {
 		return fmt.Errorf("failed to generate systemd-boot config: %w", err)
 	}
 
-	fmt.Println("  systemd-boot installation complete")
+	b.Progress.Message("systemd-boot installation complete")
 	return nil
 }
 
@@ -647,7 +654,7 @@ func copyEFIFile(src, dst string) error {
 
 // generateSystemdBootConfig generates systemd-boot configuration
 func (b *BootloaderInstaller) generateSystemdBootConfig(ctx context.Context) error {
-	fmt.Println("  Generating systemd-boot configuration...")
+	b.Progress.Message("Generating systemd-boot configuration...")
 
 	// Find kernel on boot partition (combined EFI/boot partition)
 	bootDir := filepath.Join(b.TargetDir, "boot")
@@ -716,7 +723,7 @@ options %s
 		return fmt.Errorf("failed to write boot entry: %w", err)
 	}
 
-	fmt.Printf("  Created boot entry: %s\n", b.OSName)
+	b.Progress.Message("Created boot entry: %s", b.OSName)
 	return nil
 }
 
@@ -849,22 +856,22 @@ func (b *BootloaderInstaller) setupSecureBootChain(bootloaderEFI string) (bool, 
 	// We must use the signed binary, not the output from grub-install
 	signedGrubPath := findSignedGrubEFI(b.TargetDir)
 	if signedGrubPath == "" {
-		fmt.Println("  Warning: No signed grubx64.efi found in container image")
-		fmt.Println("  Secure Boot may fail - using unsigned GRUB from grub-install")
+		b.Progress.Warning("No signed grubx64.efi found in container image")
+		b.Progress.Warning("Secure Boot may fail - using unsigned GRUB from grub-install")
 		// Fall back to the provided bootloaderEFI (likely unsigned)
 		signedGrubPath = bootloaderEFI
 	} else {
-		fmt.Printf("  Found signed GRUB: %s\n", signedGrubPath)
+		b.Progress.Message("Found signed GRUB: %s", signedGrubPath)
 	}
 
-	fmt.Println("  Setting up Secure Boot chain with shim...")
+	b.Progress.Message("Setting up Secure Boot chain with shim...")
 
 	// Copy shim as BOOTX64.EFI (the UEFI default bootloader path)
 	shimDest := filepath.Join(efiBootDir, "BOOTX64.EFI")
 	if err := copyEFIFile(shimPath, shimDest); err != nil {
 		return false, fmt.Errorf("failed to copy shim to BOOTX64.EFI: %w", err)
 	}
-	fmt.Printf("  Installed shim as BOOTX64.EFI (Secure Boot entry point)\n")
+	b.Progress.Message("Installed shim as BOOTX64.EFI (Secure Boot entry point)")
 
 	// Copy the signed grubx64.efi (what shim expects to chain-load)
 	// Shim is compiled to look for grubx64.efi in the same directory
@@ -872,7 +879,7 @@ func (b *BootloaderInstaller) setupSecureBootChain(bootloaderEFI string) (bool, 
 	if err := copyEFIFile(signedGrubPath, bootloaderDest); err != nil {
 		return false, fmt.Errorf("failed to copy signed grubx64.efi: %w", err)
 	}
-	fmt.Printf("  Installed signed grubx64.efi (chain-loaded by shim)\n")
+	b.Progress.Message("Installed signed grubx64.efi (chain-loaded by shim)")
 
 	// Copy MOK manager if available (for key enrollment)
 	mokPath := findMokManager(b.TargetDir)
@@ -880,9 +887,9 @@ func (b *BootloaderInstaller) setupSecureBootChain(bootloaderEFI string) (bool, 
 		mokDest := filepath.Join(efiBootDir, "mmx64.efi")
 		if err := copyEFIFile(mokPath, mokDest); err != nil {
 			// MOK manager is optional, just warn
-			fmt.Printf("  Warning: failed to copy MOK manager: %v\n", err)
+			b.Progress.Warning("failed to copy MOK manager: %v", err)
 		} else {
-			fmt.Println("  Installed MOK manager (mmx64.efi)")
+			b.Progress.Message("Installed MOK manager (mmx64.efi)")
 		}
 	}
 
@@ -897,7 +904,7 @@ func (b *BootloaderInstaller) setupSecureBootChain(bootloaderEFI string) (bool, 
 		if _, err := os.Stat(fbPath); err == nil {
 			fbDest := filepath.Join(efiBootDir, "fbx64.efi")
 			if err := copyEFIFile(fbPath, fbDest); err == nil {
-				fmt.Println("  Installed fallback bootloader (fbx64.efi)")
+				b.Progress.Message("Installed fallback bootloader (fbx64.efi)")
 			}
 			break
 		}
@@ -921,20 +928,20 @@ func (b *BootloaderInstaller) setupSystemdBootSecureBootChain(shimPath, efiBootD
 	// Find signed systemd-boot
 	signedSystemdBoot := findSignedSystemdBootEFI(b.TargetDir)
 	if signedSystemdBoot == "" {
-		fmt.Println("  Warning: No signed systemd-boot found in container image")
-		fmt.Println("  Secure Boot may fail with systemd-boot")
+		b.Progress.Warning("No signed systemd-boot found in container image")
+		b.Progress.Warning("Secure Boot may fail with systemd-boot")
 		return false, nil
 	}
 
-	fmt.Printf("  Found signed systemd-boot: %s\n", signedSystemdBoot)
-	fmt.Println("  Setting up Secure Boot chain for systemd-boot...")
+	b.Progress.Message("Found signed systemd-boot: %s", signedSystemdBoot)
+	b.Progress.Message("Setting up Secure Boot chain for systemd-boot...")
 
 	// Copy shim as BOOTX64.EFI (the UEFI default bootloader path)
 	shimDest := filepath.Join(efiBootDir, "BOOTX64.EFI")
 	if err := copyEFIFile(shimPath, shimDest); err != nil {
 		return false, fmt.Errorf("failed to copy shim to BOOTX64.EFI: %w", err)
 	}
-	fmt.Printf("  Installed shim as BOOTX64.EFI (Secure Boot entry point)\n")
+	b.Progress.Message("Installed shim as BOOTX64.EFI (Secure Boot entry point)")
 
 	// Copy signed systemd-boot as grubx64.efi - shim will load it
 	// Shim is compiled to look for grubx64.efi, but it only verifies the signature.
@@ -944,14 +951,14 @@ func (b *BootloaderInstaller) setupSystemdBootSecureBootChain(shimPath, efiBootD
 	if err := copyEFIFile(signedSystemdBoot, bootloaderDest); err != nil {
 		return false, fmt.Errorf("failed to copy signed systemd-boot as grubx64.efi: %w", err)
 	}
-	fmt.Printf("  Installed signed systemd-boot as grubx64.efi (chain-loaded by shim)\n")
+	b.Progress.Message("Installed signed systemd-boot as grubx64.efi (chain-loaded by shim)")
 
 	// Copy MOK manager if available (for key enrollment if needed)
 	mokPath := findMokManager(b.TargetDir)
 	if mokPath != "" {
 		mokDest := filepath.Join(efiBootDir, "mmx64.efi")
 		if err := copyEFIFile(mokPath, mokDest); err == nil {
-			fmt.Println("  Installed MOK manager (mmx64.efi)")
+			b.Progress.Message("Installed MOK manager (mmx64.efi)")
 		}
 	}
 
@@ -988,13 +995,13 @@ func (b *BootloaderInstaller) registerEFIBootEntry(ctx context.Context) error {
 	// Check if efibootmgr is available
 	efibootmgrPath, err := exec.LookPath("efibootmgr")
 	if err != nil {
-		fmt.Println("  efibootmgr not found, skipping EFI boot entry registration")
+		b.Progress.Message("efibootmgr not found, skipping EFI boot entry registration")
 		return nil
 	}
 
 	// Check if we're running on an EFI system (efivars must be accessible)
 	if _, err := os.Stat("/sys/firmware/efi/efivars"); os.IsNotExist(err) {
-		fmt.Println("  Not running on EFI system, skipping boot entry registration")
+		b.Progress.Message("Not running on EFI system, skipping boot entry registration")
 		return nil
 	}
 
@@ -1028,7 +1035,7 @@ func (b *BootloaderInstaller) registerEFIBootEntry(ctx context.Context) error {
 		label = "Linux"
 	}
 
-	fmt.Printf("  Registering EFI boot entry: %s\n", label)
+	b.Progress.Message("Registering EFI boot entry: %s", label)
 
 	args := []string{
 		"--create",
@@ -1048,7 +1055,7 @@ func (b *BootloaderInstaller) registerEFIBootEntry(ctx context.Context) error {
 		return fmt.Errorf("efibootmgr failed: %w\nOutput: %s", err, string(output))
 	}
 
-	fmt.Printf("  Registered EFI boot entry successfully\n")
+	b.Progress.Message("Registered EFI boot entry successfully")
 	return nil
 }
 

@@ -106,17 +106,17 @@ func (b *BootcInstaller) SetRootPassword(password string) {
 
 // SetRootPasswordInTarget sets the root password in the installed system using chpasswd
 // The password is passed via stdin for security (not visible in process list)
-func SetRootPasswordInTarget(targetDir, password string, dryRun bool) error {
+func SetRootPasswordInTarget(targetDir, password string, dryRun bool, progress *ProgressReporter) error {
 	if password == "" {
 		return nil // No password to set
 	}
 
 	if dryRun {
-		fmt.Println("  [DRY RUN] Would set root password")
+		progress.Message("[DRY RUN] Would set root password")
 		return nil
 	}
 
-	fmt.Println("  Setting root password...")
+	progress.Message("Setting root password...")
 
 	// Use chpasswd with -R flag to handle chroot internally
 	// Password is passed via stdin for security
@@ -128,7 +128,7 @@ func SetRootPasswordInTarget(targetDir, password string, dryRun bool) error {
 		return fmt.Errorf("failed to set root password: %w", err)
 	}
 
-	fmt.Println("  Root password set successfully")
+	progress.Message("Root password set successfully")
 	return nil
 }
 
@@ -157,7 +157,7 @@ func CheckRequiredTools() error {
 // PullImage validates an image reference and checks if it's accessible.
 // This is a standalone function for use by Installer.
 // The actual image pull happens during Extract() to avoid duplicate work.
-func PullImage(ctx context.Context, imageRef string, verbose bool) error {
+func PullImage(ctx context.Context, imageRef string, verbose bool, progress *ProgressReporter) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -168,8 +168,8 @@ func PullImage(ctx context.Context, imageRef string, verbose bool) error {
 		return fmt.Errorf("invalid image reference: %w", err)
 	}
 
-	if verbose {
-		fmt.Printf("  Image: %s\n", ref.String())
+	if verbose && progress != nil {
+		progress.Message("  Image: %s", ref.String())
 	}
 
 	// For localhost images, check if they exist locally via podman/docker
@@ -283,13 +283,13 @@ func (b *BootcInstaller) Install(ctx context.Context) error {
 
 	// Step 2: Format partitions
 	p.Step(2, "Formatting partitions")
-	if err := FormatPartitions(ctx, scheme, b.DryRun); err != nil {
+	if err := FormatPartitions(ctx, scheme, b.DryRun, p); err != nil {
 		return fmt.Errorf("failed to format partitions: %w", err)
 	}
 
 	// Step 3: Mount partitions
 	p.Step(3, "Mounting partitions")
-	if err := MountPartitions(ctx, scheme, b.MountPoint, b.DryRun); err != nil {
+	if err := MountPartitions(ctx, scheme, b.MountPoint, b.DryRun, p); err != nil {
 		return fmt.Errorf("failed to mount partitions: %w", err)
 	}
 
@@ -297,7 +297,7 @@ func (b *BootcInstaller) Install(ctx context.Context) error {
 	defer func() {
 		if !b.DryRun {
 			p.Message("Cleaning up...")
-			_ = UnmountPartitions(ctx, b.MountPoint, b.DryRun)
+			_ = UnmountPartitions(ctx, b.MountPoint, b.DryRun, p)
 			// Close LUKS devices if encrypted
 			if scheme.Encrypted {
 				scheme.CloseLUKSDevices(ctx)
@@ -336,13 +336,13 @@ func (b *BootcInstaller) Install(ctx context.Context) error {
 
 	// Install the embedded dracut module for /etc overlay persistence
 	// This ensures we use nbc's version of the module, not the container's
-	if err := InstallDracutEtcOverlay(b.MountPoint, b.DryRun); err != nil {
+	if err := InstallDracutEtcOverlay(b.MountPoint, b.DryRun, p); err != nil {
 		return fmt.Errorf("failed to install dracut etc-overlay module: %w", err)
 	}
 
 	// Regenerate initramfs to include the etc-overlay module
 	// This ensures the overlay is set up during early boot
-	if err := RegenerateInitramfs(ctx, b.MountPoint, b.DryRun, b.Verbose); err != nil {
+	if err := RegenerateInitramfs(ctx, b.MountPoint, b.DryRun, b.Verbose, p); err != nil {
 		// Don't fail on initramfs regeneration - the container's initramfs might still work
 		// if it was built with etc-overlay support
 		p.Warning("initramfs regeneration failed: %v", err)
@@ -353,7 +353,7 @@ func (b *BootcInstaller) Install(ctx context.Context) error {
 	p.Step(5, "Configuring system")
 
 	// Create fstab
-	if err := CreateFstab(ctx, b.MountPoint, scheme); err != nil {
+	if err := CreateFstab(ctx, b.MountPoint, scheme, p); err != nil {
 		return fmt.Errorf("failed to create fstab: %w", err)
 	}
 
@@ -410,7 +410,7 @@ func (b *BootcInstaller) Install(ctx context.Context) error {
 
 	// Set root password if provided
 	if b.RootPassword != "" {
-		if err := SetRootPasswordInTarget(b.MountPoint, b.RootPassword, b.DryRun); err != nil {
+		if err := SetRootPasswordInTarget(b.MountPoint, b.RootPassword, b.DryRun, p); err != nil {
 			return fmt.Errorf("failed to set root password: %w", err)
 		}
 	}
@@ -490,6 +490,7 @@ func (b *BootcInstaller) Install(ctx context.Context) error {
 
 	bootloader := NewBootloaderInstaller(b.MountPoint, b.Device, scheme, osName)
 	bootloader.SetVerbose(b.Verbose)
+	bootloader.SetProgress(p)
 
 	// Set encryption config if enabled
 	if b.Encryption != nil && b.Encryption.Enabled {
@@ -619,7 +620,7 @@ func (b *BootcInstaller) InstallComplete(ctx context.Context, skipPull bool) err
 
 	// Wipe disk
 	p.MessagePlain("Wiping disk %s...", b.Device)
-	if err := WipeDisk(ctx, b.Device, b.DryRun); err != nil {
+	if err := WipeDisk(ctx, b.Device, b.DryRun, p); err != nil {
 		return err
 	}
 

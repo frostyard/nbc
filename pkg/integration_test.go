@@ -43,7 +43,7 @@ func TestIntegration_PartitionAndFormat(t *testing.T) {
 
 	// Format partitions
 	t.Log("Formatting partitions...")
-	if err := FormatPartitions(context.Background(), scheme, false); err != nil {
+	if err := FormatPartitions(context.Background(), scheme, false, NewProgressReporter(false, 1)); err != nil {
 		t.Fatalf("FormatPartitions failed: %v", err)
 	}
 
@@ -84,7 +84,7 @@ func TestIntegration_MountUnmount(t *testing.T) {
 
 	_ = testutil.WaitForDevice(disk.GetDevice())
 
-	if err := FormatPartitions(context.Background(), scheme, false); err != nil {
+	if err := FormatPartitions(context.Background(), scheme, false, NewProgressReporter(false, 1)); err != nil {
 		t.Fatalf("FormatPartitions failed: %v", err)
 	}
 
@@ -96,7 +96,7 @@ func TestIntegration_MountUnmount(t *testing.T) {
 
 	// Mount partitions
 	t.Log("Mounting partitions...")
-	if err := MountPartitions(context.Background(), scheme, mountPoint, false); err != nil {
+	if err := MountPartitions(context.Background(), scheme, mountPoint, false, NewProgressReporter(false, 1)); err != nil {
 		t.Fatalf("MountPartitions failed: %v", err)
 	}
 
@@ -121,7 +121,7 @@ func TestIntegration_MountUnmount(t *testing.T) {
 
 	// Unmount partitions
 	t.Log("Unmounting partitions...")
-	if err := UnmountPartitions(context.Background(), mountPoint, false); err != nil {
+	if err := UnmountPartitions(context.Background(), mountPoint, false, NewProgressReporter(false, 1)); err != nil {
 		t.Errorf("UnmountPartitions failed: %v", err)
 	}
 }
@@ -187,7 +187,7 @@ func TestIntegration_EtcOverlaySetup(t *testing.T) {
 
 	_ = testutil.WaitForDevice(disk.GetDevice())
 
-	if err := FormatPartitions(context.Background(), scheme, false); err != nil {
+	if err := FormatPartitions(context.Background(), scheme, false, nil); err != nil {
 		t.Fatalf("FormatPartitions failed: %v", err)
 	}
 
@@ -196,11 +196,11 @@ func TestIntegration_EtcOverlaySetup(t *testing.T) {
 		t.Fatalf("Failed to create mount point: %v", err)
 	}
 
-	if err := MountPartitions(context.Background(), scheme, mountPoint, false); err != nil {
+	if err := MountPartitions(context.Background(), scheme, mountPoint, false, nil); err != nil {
 		t.Fatalf("MountPartitions failed: %v", err)
 	}
 	defer func() {
-		_ = UnmountPartitions(context.Background(), mountPoint, false)
+		_ = UnmountPartitions(context.Background(), mountPoint, false, nil)
 	}()
 
 	// Create /etc with required content
@@ -250,7 +250,7 @@ func TestIntegration_TmpfilesConfig(t *testing.T) {
 
 	_ = testutil.WaitForDevice(disk.GetDevice())
 
-	if err := FormatPartitions(context.Background(), scheme, false); err != nil {
+	if err := FormatPartitions(context.Background(), scheme, false, nil); err != nil {
 		t.Fatalf("FormatPartitions failed: %v", err)
 	}
 
@@ -259,11 +259,11 @@ func TestIntegration_TmpfilesConfig(t *testing.T) {
 		t.Fatalf("Failed to create mount point: %v", err)
 	}
 
-	if err := MountPartitions(context.Background(), scheme, mountPoint, false); err != nil {
+	if err := MountPartitions(context.Background(), scheme, mountPoint, false, nil); err != nil {
 		t.Fatalf("MountPartitions failed: %v", err)
 	}
 	defer func() {
-		_ = UnmountPartitions(context.Background(), mountPoint, false)
+		_ = UnmountPartitions(context.Background(), mountPoint, false, nil)
 	}()
 
 	// Install tmpfiles.d config
@@ -301,7 +301,7 @@ func TestIntegration_SystemConfig(t *testing.T) {
 
 	_ = testutil.WaitForDevice(disk.GetDevice())
 
-	if err := FormatPartitions(context.Background(), scheme, false); err != nil {
+	if err := FormatPartitions(context.Background(), scheme, false, nil); err != nil {
 		t.Fatalf("FormatPartitions failed: %v", err)
 	}
 
@@ -310,11 +310,11 @@ func TestIntegration_SystemConfig(t *testing.T) {
 		t.Fatalf("Failed to create mount point: %v", err)
 	}
 
-	if err := MountPartitions(context.Background(), scheme, mountPoint, false); err != nil {
+	if err := MountPartitions(context.Background(), scheme, mountPoint, false, nil); err != nil {
 		t.Fatalf("MountPartitions failed: %v", err)
 	}
 	defer func() {
-		_ = UnmountPartitions(context.Background(), mountPoint, false)
+		_ = UnmountPartitions(context.Background(), mountPoint, false, nil)
 	}()
 
 	// Write system config
@@ -397,7 +397,7 @@ func TestIntegration_Crypttab(t *testing.T) {
 
 	_ = testutil.WaitForDevice(disk.GetDevice())
 
-	if err := FormatPartitions(context.Background(), scheme, false); err != nil {
+	if err := FormatPartitions(context.Background(), scheme, false, nil); err != nil {
 		t.Fatalf("FormatPartitions failed: %v", err)
 	}
 
@@ -406,11 +406,11 @@ func TestIntegration_Crypttab(t *testing.T) {
 		t.Fatalf("Failed to create mount point: %v", err)
 	}
 
-	if err := MountPartitions(context.Background(), scheme, mountPoint, false); err != nil {
+	if err := MountPartitions(context.Background(), scheme, mountPoint, false, nil); err != nil {
 		t.Fatalf("MountPartitions failed: %v", err)
 	}
 	defer func() {
-		_ = UnmountPartitions(context.Background(), mountPoint, false)
+		_ = UnmountPartitions(context.Background(), mountPoint, false, nil)
 	}()
 
 	// Generate crypttab content

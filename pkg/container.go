@@ -58,6 +58,11 @@ func (c *ContainerExtractor) SetJSONOutput(jsonOutput bool) {
 	c.Progress = NewProgressReporter(jsonOutput, 1)
 }
 
+// SetProgress sets the progress reporter directly
+func (c *ContainerExtractor) SetProgress(p *ProgressReporter) {
+	c.Progress = p
+}
+
 // Extract extracts the container filesystem to the target directory using go-containerregistry
 func (c *ContainerExtractor) Extract(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
@@ -96,7 +101,7 @@ func (c *ContainerExtractor) Extract(ctx context.Context) error {
 				tmpLayout := filepath.Join(os.TempDir(), fmt.Sprintf("nbc-oci-%d", os.Getpid()))
 				defer func() {
 					if err := os.RemoveAll(tmpLayout); err != nil {
-						fmt.Printf("Warning: failed to remove temporary OCI layout: %v\n", err)
+						c.Progress.Warning("failed to remove temporary OCI layout: %v", err)
 					}
 				}()
 
@@ -395,8 +400,10 @@ func extractTar(ctx context.Context, r io.Reader, targetDir string) error {
 }
 
 // CreateFstab creates an /etc/fstab file with the proper mount points
-func CreateFstab(ctx context.Context, targetDir string, scheme *PartitionScheme) error {
-	fmt.Println("Creating /etc/fstab...")
+func CreateFstab(ctx context.Context, targetDir string, scheme *PartitionScheme, progress *ProgressReporter) error {
+	if progress != nil {
+		progress.Message("Creating /etc/fstab...")
+	}
 
 	// Only need root2 UUID for the commented-out alternate root entry
 	root2UUID, err := GetPartitionUUID(ctx, scheme.Root2Partition)
@@ -427,7 +434,9 @@ func CreateFstab(ctx context.Context, targetDir string, scheme *PartitionScheme)
 		return fmt.Errorf("failed to write fstab: %w", err)
 	}
 
-	fmt.Println("  Created /etc/fstab")
+	if progress != nil {
+		progress.Message("Created /etc/fstab")
+	}
 	return nil
 }
 

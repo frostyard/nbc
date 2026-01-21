@@ -75,7 +75,9 @@ func (c *ImageCache) GetLayoutPath(digest string) string {
 }
 
 // Download pulls a container image and saves it to the cache in OCI layout format
-func (c *ImageCache) Download(imageRef string) (*CachedImageMetadata, error) {
+// Download pulls a container image and saves it to the cache in OCI layout format.
+// If progress is non-nil and set to JSON mode, interactive spinners are skipped.
+func (c *ImageCache) Download(imageRef string, progress *ProgressReporter) (*CachedImageMetadata, error) {
 	// Acquire exclusive lock for cache write operation
 	lock, err := AcquireCacheLock()
 	if err != nil {
@@ -89,12 +91,15 @@ func (c *ImageCache) Download(imageRef string) (*CachedImageMetadata, error) {
 		return nil, fmt.Errorf("failed to parse image reference: %w", err)
 	}
 
+	// Check if we should use interactive mode (no progress reporter or non-JSON progress)
+	useInteractive := progress == nil || !progress.IsJSON()
+
 	// Check if TTY is attached for spinner
 	isTTY := term.IsTerminal(int(os.Stdout.Fd()))
 
-	// Start spinner if TTY
+	// Start spinner if TTY and interactive mode
 	var stopSpinner chan struct{}
-	if isTTY {
+	if useInteractive && isTTY {
 		stopSpinner = make(chan struct{})
 		go func() {
 			spinChars := []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'}
@@ -111,6 +116,8 @@ func (c *ImageCache) Download(imageRef string) (*CachedImageMetadata, error) {
 				}
 			}
 		}()
+	} else if progress != nil {
+		progress.Message("Downloading image...")
 	} else {
 		fmt.Println("Downloading image...")
 	}
@@ -141,19 +148,28 @@ func (c *ImageCache) Download(imageRef string) (*CachedImageMetadata, error) {
 	digestStr := digest.String()
 	imageDir := filepath.Join(c.CacheDir, digestToDir(digestStr))
 
+	// Helper to emit messages
+	emitMessage := func(format string, args ...interface{}) {
+		if progress != nil {
+			progress.Message(format, args...)
+		} else {
+			fmt.Printf(format+"\n", args...)
+		}
+	}
+
 	// Check if already cached (with valid metadata)
 	if _, err := os.Stat(imageDir); err == nil {
 		metadata, err := c.readMetadata(imageDir)
 		if err == nil {
-			fmt.Printf("Image already cached: %s\n", digestStr)
+			emitMessage("Image already cached: %s", digestStr)
 			return metadata, nil
 		}
 		// Directory exists but metadata is missing/invalid - cleanup and re-download
-		fmt.Printf("Cleaning up incomplete cache entry: %s\n", digestStr)
+		emitMessage("Cleaning up incomplete cache entry: %s", digestStr)
 		_ = os.RemoveAll(imageDir)
 	}
 
-	fmt.Printf("Saving image to cache: %s\n", digestStr)
+	emitMessage("Saving image to cache: %s", digestStr)
 
 	// Create cache directory
 	if err := os.MkdirAll(imageDir, 0755); err != nil {
@@ -186,7 +202,7 @@ func (c *ImageCache) Download(imageRef string) (*CachedImageMetadata, error) {
 		return nil, fmt.Errorf("failed to write metadata: %w", err)
 	}
 
-	fmt.Printf("Image cached successfully: %s\n", digestStr)
+	emitMessage("Image cached successfully: %s", digestStr)
 	return metadata, nil
 }
 
@@ -408,7 +424,7 @@ func (c *ImageCache) IsCached(digest string) (bool, error) {
 }
 
 // Remove removes a cached image by digest or digest prefix
-func (c *ImageCache) Remove(digestOrPrefix string) error {
+func (c *ImageCache) Remove(digestOrPrefix string, progress *ProgressReporter) error {
 	// Acquire exclusive lock for cache write operation
 	lock, err := AcquireCacheLock()
 	if err != nil {
@@ -445,12 +461,16 @@ func (c *ImageCache) Remove(digestOrPrefix string) error {
 		return fmt.Errorf("failed to remove cached image: %w", err)
 	}
 
-	fmt.Printf("Removed cached image: %s\n", dirToDigest(matches[0]))
+	if progress != nil {
+		progress.Message("Removed cached image: %s", dirToDigest(matches[0]))
+	} else {
+		fmt.Printf("Removed cached image: %s\n", dirToDigest(matches[0]))
+	}
 	return nil
 }
 
 // Clear removes all cached images
-func (c *ImageCache) Clear() error {
+func (c *ImageCache) Clear(progress *ProgressReporter) error {
 	// Acquire exclusive lock for cache write operation
 	lock, err := AcquireCacheLock()
 	if err != nil {
@@ -476,7 +496,11 @@ func (c *ImageCache) Clear() error {
 		}
 	}
 
-	fmt.Printf("Cleared cache: %s\n", c.CacheDir)
+	if progress != nil {
+		progress.Message("Cleared cache: %s", c.CacheDir)
+	} else {
+		fmt.Printf("Cleared cache: %s\n", c.CacheDir)
+	}
 	return nil
 }
 

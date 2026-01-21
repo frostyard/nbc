@@ -163,6 +163,7 @@ func buildInstallConfig(ctx context.Context, verbose, dryRun, jsonOutput bool) (
 		RootPassword:   "",
 		Verbose:        verbose,
 		DryRun:         dryRun,
+		JSONOutput:     jsonOutput,
 		SkipPull:       installSkipPull,
 	}
 

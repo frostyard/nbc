@@ -75,7 +75,7 @@ func TestFormatPartitions(t *testing.T) {
 
 	// Format partitions
 	t.Log("Formatting partitions")
-	if err := FormatPartitions(context.Background(), scheme, false); err != nil {
+	if err := FormatPartitions(context.Background(), scheme, false, NewProgressReporter(false, 1)); err != nil {
 		t.Fatalf("FormatPartitions failed: %v", err)
 	}
 
@@ -114,7 +114,7 @@ func TestMountPartitions(t *testing.T) {
 
 	_ = testutil.WaitForDevice(disk.GetDevice())
 
-	if err := FormatPartitions(context.Background(), scheme, false); err != nil {
+	if err := FormatPartitions(context.Background(), scheme, false, NewProgressReporter(false, 1)); err != nil {
 		t.Fatalf("FormatPartitions failed: %v", err)
 	}
 
@@ -129,7 +129,7 @@ func TestMountPartitions(t *testing.T) {
 
 	// Mount partitions
 	t.Log("Mounting partitions")
-	if err := MountPartitions(context.Background(), scheme, mountPoint, false); err != nil {
+	if err := MountPartitions(context.Background(), scheme, mountPoint, false, NewProgressReporter(false, 1)); err != nil {
 		t.Fatalf("MountPartitions failed: %v", err)
 	}
 
@@ -154,7 +154,7 @@ func TestMountPartitions(t *testing.T) {
 
 	// Cleanup
 	t.Log("Unmounting partitions")
-	if err := UnmountPartitions(context.Background(), mountPoint, false); err != nil {
+	if err := UnmountPartitions(context.Background(), mountPoint, false, NewProgressReporter(false, 1)); err != nil {
 		t.Errorf("UnmountPartitions failed: %v", err)
 	}
 }

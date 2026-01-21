@@ -672,12 +672,12 @@ func (u *SystemUpdater) Update() error {
 	} else {
 		p.Message("Installing etc-overlay dracut module and regenerating initramfs")
 		// Install the embedded dracut module for /etc overlay persistence
-		if err := InstallDracutEtcOverlay(u.Config.MountPoint, u.Config.DryRun); err != nil {
+		if err := InstallDracutEtcOverlay(u.Config.MountPoint, u.Config.DryRun, p); err != nil {
 			return fmt.Errorf("failed to install dracut etc-overlay module: %w", err)
 		}
 
 		// Regenerate initramfs to include the etc-overlay module
-		if err := RegenerateInitramfs(context.Background(), u.Config.MountPoint, u.Config.DryRun, u.Config.Verbose); err != nil {
+		if err := RegenerateInitramfs(context.Background(), u.Config.MountPoint, u.Config.DryRun, u.Config.Verbose, p); err != nil {
 			p.Warning("initramfs regeneration failed: %v", err)
 			p.Warning("Boot may fail if container's initramfs lacks etc-overlay support")
 		}
@@ -1210,7 +1210,7 @@ menuentry '%s (Previous)' {
 		return fmt.Errorf("failed to write grub.cfg: %w", err)
 	}
 
-	fmt.Printf("  Updated GRUB to boot from %s\n", u.Target)
+	u.Progress.Message("  Updated GRUB to boot from %s", u.Target)
 	return nil
 }
 

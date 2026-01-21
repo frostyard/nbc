@@ -136,7 +136,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		}
 	} else {
 		// Auto-detect boot device
-		device, err = pkg.GetCurrentBootDeviceInfo(verbose && !jsonOutput)
+		device, err = pkg.GetCurrentBootDeviceInfo(verbose, progress)
 		if err != nil {
 			if jsonOutput {
 				progress.Error(err, "Failed to auto-detect boot device")
@@ -217,12 +217,12 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 			if verbose && !jsonOutput {
 				fmt.Printf("Removing existing staged update: %s\n", existing.ImageDigest)
 			}
-			_ = updateCache.Clear()
+			_ = updateCache.Clear(progress)
 		}
 
 		// Download to staged-update cache
 		updateCache.SetVerbose(verbose)
-		metadata, err := updateCache.Download(imageRef)
+		metadata, err := updateCache.Download(imageRef, progress)
 		if err != nil {
 			if jsonOutput {
 				progress.Error(err, "Failed to download update")
@@ -379,7 +379,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	// Clean up staged update cache on success
 	if localLayoutPath != "" {
 		updateCache := pkg.NewStagedUpdateCache()
-		if err := updateCache.Clear(); err != nil {
+		if err := updateCache.Clear(progress); err != nil {
 			// Non-fatal, just warn
 			if verbose && !jsonOutput {
 				fmt.Printf("Warning: failed to clean up staged update cache: %v\n", err)

@@ -179,13 +179,15 @@ func ValidateDisk(device string, minSize uint64) error {
 }
 
 // WipeDisk securely wipes a disk's partition table
-func WipeDisk(ctx context.Context, device string, dryRun bool) error {
+func WipeDisk(ctx context.Context, device string, dryRun bool, progress *ProgressReporter) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
 	if dryRun {
-		fmt.Printf("[DRY RUN] Would wipe disk: %s\n", device)
+		if progress != nil {
+			progress.Message("[DRY RUN] Would wipe disk: %s", device)
+		}
 		return nil
 	}
 

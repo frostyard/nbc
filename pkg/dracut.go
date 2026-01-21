@@ -2,6 +2,7 @@ package pkg
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"embed"
 	"fmt"
@@ -21,13 +22,13 @@ var dracutModuleFS embed.FS
 // InstallDracutEtcOverlay installs the embedded etc-overlay dracut module to the target filesystem.
 // This overwrites any existing module from the container image to ensure the nbc binary's
 // version is used (which may have fixes not yet in the published container image).
-func InstallDracutEtcOverlay(targetDir string, dryRun bool) error {
+func InstallDracutEtcOverlay(targetDir string, dryRun bool, progress *ProgressReporter) error {
 	if dryRun {
-		fmt.Println("[DRY RUN] Would install etc-overlay dracut module")
+		progress.Message("[DRY RUN] Would install etc-overlay dracut module")
 		return nil
 	}
 
-	fmt.Println("  Installing etc-overlay dracut module...")
+	progress.Message("Installing etc-overlay dracut module...")
 
 	moduleDir := filepath.Join(targetDir, "usr", "lib", "dracut", "modules.d", "95etc-overlay")
 
@@ -58,7 +59,7 @@ func InstallDracutEtcOverlay(targetDir string, dryRun bool) error {
 		}
 	}
 
-	fmt.Println("  ✓ Dracut etc-overlay module installed")
+	progress.Message("✓ Dracut etc-overlay module installed")
 	return nil
 }
 
@@ -121,13 +122,13 @@ func InitramfsHasEtcOverlay(initramfsPath string) (bool, error) {
 // VerifyDracutEtcOverlay verifies that the etc-overlay dracut module exists in the target filesystem.
 // The module is installed via the nbc deb/rpm package to /usr/lib/dracut/modules.d/95etc-overlay/.
 // This function checks that the container/host has nbc installed with the dracut module.
-func VerifyDracutEtcOverlay(targetDir string, dryRun bool) error {
+func VerifyDracutEtcOverlay(targetDir string, dryRun bool, progress *ProgressReporter) error {
 	if dryRun {
-		fmt.Println("[DRY RUN] Would verify etc-overlay dracut module exists")
+		progress.Message("[DRY RUN] Would verify etc-overlay dracut module exists")
 		return nil
 	}
 
-	fmt.Println("  Verifying etc-overlay dracut module...")
+	progress.Message("Verifying etc-overlay dracut module...")
 
 	moduleDir := filepath.Join(targetDir, "usr", "lib", "dracut", "modules.d", "95etc-overlay")
 
@@ -144,16 +145,16 @@ func VerifyDracutEtcOverlay(targetDir string, dryRun bool) error {
 		}
 	}
 
-	fmt.Println("  ✓ Dracut etc-overlay module verified")
+	progress.Message("✓ Dracut etc-overlay module verified")
 	return nil
 }
 
 // RegenerateInitramfs regenerates the initramfs using dracut in a chroot environment.
 // This is necessary to include the etc-overlay module in the initramfs.
 // If the initramfs already contains the etc-overlay module, regeneration is skipped.
-func RegenerateInitramfs(ctx context.Context, targetDir string, dryRun bool, verbose bool) error {
+func RegenerateInitramfs(ctx context.Context, targetDir string, dryRun bool, verbose bool, progress *ProgressReporter) error {
 	if dryRun {
-		fmt.Println("[DRY RUN] Would check/regenerate initramfs with dracut if needed")
+		progress.Message("[DRY RUN] Would check/regenerate initramfs with dracut if needed")
 		return nil
 	}
 
@@ -164,7 +165,7 @@ func RegenerateInitramfs(ctx context.Context, targetDir string, dryRun bool, ver
 	default:
 	}
 
-	fmt.Println("  Checking initramfs for etc-overlay module...")
+	progress.Message("Checking initramfs for etc-overlay module...")
 
 	// Check if dracut is available in the target
 	// We need to track the path relative to the chroot (for use inside chroot)
@@ -178,8 +179,8 @@ func RegenerateInitramfs(ctx context.Context, targetDir string, dryRun bool, ver
 		if _, err := os.Stat(dracutPath); err == nil {
 			dracutChrootPath = "/sbin/dracut"
 		} else {
-			fmt.Println("  Warning: dracut not found in target, skipping initramfs regeneration")
-			fmt.Println("  The container image's initramfs will be used (may not have etc-overlay support)")
+			progress.Warning("dracut not found in target, skipping initramfs regeneration")
+			progress.Message("The container image's initramfs will be used (may not have etc-overlay support)")
 			return nil
 		}
 	}
@@ -211,11 +212,11 @@ func RegenerateInitramfs(ctx context.Context, targetDir string, dryRun bool, ver
 		if _, err := os.Stat(initramfsPath); err != nil {
 			if os.IsNotExist(err) {
 				if verbose {
-					fmt.Printf("    Info: initramfs for %s not found at %s, will regenerate\n", kernelVersion, initramfsPath)
+					progress.Message("Info: initramfs for %s not found at %s, will regenerate", kernelVersion, initramfsPath)
 				}
 			} else {
 				if verbose {
-					fmt.Printf("    Warning: could not stat initramfs for %s at %s: %v\n", kernelVersion, initramfsPath, err)
+					progress.Warning("could not stat initramfs for %s at %s: %v", kernelVersion, initramfsPath, err)
 				}
 			}
 			needsRegeneration = append(needsRegeneration, kernelVersion)
@@ -224,24 +225,24 @@ func RegenerateInitramfs(ctx context.Context, targetDir string, dryRun bool, ver
 		hasModule, err := InitramfsHasEtcOverlay(initramfsPath)
 		if err != nil {
 			if verbose {
-				fmt.Printf("    Warning: could not check initramfs for %s: %v\n", kernelVersion, err)
+				progress.Warning("could not check initramfs for %s: %v", kernelVersion, err)
 			}
 			needsRegeneration = append(needsRegeneration, kernelVersion)
 			continue
 		}
 		if hasModule {
-			fmt.Printf("    ✓ Initramfs for %s already has etc-overlay module\n", kernelVersion)
+			progress.Message("✓ Initramfs for %s already has etc-overlay module", kernelVersion)
 		} else {
 			needsRegeneration = append(needsRegeneration, kernelVersion)
 		}
 	}
 
 	if len(needsRegeneration) == 0 {
-		fmt.Println("  All initramfs images already have etc-overlay module, skipping regeneration")
+		progress.Message("All initramfs images already have etc-overlay module, skipping regeneration")
 		return nil
 	}
 
-	fmt.Printf("  Regenerating initramfs for %d kernel(s)...\n", len(needsRegeneration))
+	progress.Message("Regenerating initramfs for %d kernel(s)...", len(needsRegeneration))
 
 	// Setup bind mounts for chroot
 	// Track successful mounts for cleanup
@@ -271,7 +272,7 @@ func RegenerateInitramfs(ctx context.Context, targetDir string, dryRun bool, ver
 	for _, kernelVersion := range needsRegeneration {
 		chrootInitramfsPath := filepath.Join("/usr/lib/modules", kernelVersion, "initramfs.img")
 
-		fmt.Printf("    Regenerating initramfs for kernel %s...\n", kernelVersion)
+		progress.Message("Regenerating initramfs for kernel %s...", kernelVersion)
 
 		// Run dracut in chroot
 		args := []string{
@@ -288,16 +289,35 @@ func RegenerateInitramfs(ctx context.Context, targetDir string, dryRun bool, ver
 		}
 
 		cmd := exec.CommandContext(ctx, "chroot", args...)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+
+		// Capture output to avoid cluttering JSON output
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
 
 		if err := cmd.Run(); err != nil {
+			// Include captured output in error reporting
+			combinedOutput := strings.TrimSpace(stderr.String() + stdout.String())
+			if combinedOutput != "" {
+				if progress.IsJSON() {
+					progress.Error(fmt.Errorf("dracut failed: %s", combinedOutput), "initramfs regeneration")
+				} else {
+					fmt.Printf("    dracut output:\n%s\n", combinedOutput)
+				}
+			}
 			return fmt.Errorf("failed to regenerate initramfs for kernel %s: %w", kernelVersion, err)
 		}
 
-		fmt.Printf("    ✓ Initramfs regenerated for %s\n", kernelVersion)
+		// In verbose non-JSON mode, show the output
+		if verbose && !progress.IsJSON() {
+			if out := strings.TrimSpace(stdout.String()); out != "" {
+				fmt.Printf("%s\n", out)
+			}
+		}
+
+		progress.Message("✓ Initramfs regenerated for %s", kernelVersion)
 	}
 
-	fmt.Println("  Initramfs regeneration complete")
+	progress.Message("Initramfs regeneration complete")
 	return nil
 }

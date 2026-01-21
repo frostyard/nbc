@@ -331,12 +331,14 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 	}
 	defer func() { _ = lock.Release() }()
 
-	// Check prerequisites
-	i.callOnMessage("Checking prerequisites...")
-	if err := CheckRequiredTools(); err != nil {
-		err = fmt.Errorf("missing required tools: %w", err)
-		i.callOnError(err, "Prerequisites check failed")
-		return result, err
+	// Check prerequisites (skip in dry-run mode since we won't actually use the tools)
+	if !i.config.DryRun {
+		i.callOnMessage("Checking prerequisites...")
+		if err := CheckRequiredTools(); err != nil {
+			err = fmt.Errorf("missing required tools: %w", err)
+			i.callOnError(err, "Prerequisites check failed")
+			return result, err
+		}
 	}
 
 	// Validate disk

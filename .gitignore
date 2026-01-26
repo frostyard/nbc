@@ -35,6 +35,9 @@ config.yaml
 # Logs
 *.log
 
+# Test failure diagnostics
+test-failures/
+
 
 # direnv
 .envrc

@@ -72,8 +72,9 @@ test-incus: test-incus-go ## Run Incus VM integration tests (Go-based, requires 
 # Note: LUKS encryption VM test coverage deferred to Phase 2
 # TODO(phase-2): Add TestIncus_Encryption for full LUKS VM testing
 
-test-incus-go: build ## Run Go-based Incus VM integration tests
+test-incus-go: ## Run Go-based Incus VM integration tests
 	@echo "Running Go-based Incus integration tests (requires root and incus)..."
+	@$(MAKE) build
 	@if [ "$$(id -u)" -ne 0 ]; then \
 		echo "Re-running with sudo..."; \
 		sudo -E env "PATH=$$PATH:/usr/sbin:/sbin" $(MAKE) _test-incus-go; \

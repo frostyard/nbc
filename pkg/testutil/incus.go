@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
@@ -163,15 +165,20 @@ func (f *IncusFixture) CreateVM(image string) error {
 
 // WaitForReady polls the VM until systemd reports system is running.
 // Uses the provided context for timeout/cancellation.
+// On timeout, returns an error including the last action and duration waited.
 func (f *IncusFixture) WaitForReady(ctx context.Context) error {
 	f.t.Helper()
 	f.t.Logf("Waiting for VM %s to be ready", f.vmName)
+
+	startTime := time.Now()
+	lastAction := "systemctl is-system-running --wait"
 
 	// Poll until systemd reports running or context is cancelled
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for VM ready: %w", ctx.Err())
+			duration := time.Since(startTime).Round(time.Second)
+			return fmt.Errorf("timed out after %v waiting for %s: %w", duration, lastAction, ctx.Err())
 		default:
 		}
 
@@ -187,7 +194,8 @@ func (f *IncusFixture) WaitForReady(ctx context.Context) error {
 		// Small delay between polls
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for VM ready: %w", ctx.Err())
+			duration := time.Since(startTime).Round(time.Second)
+			return fmt.Errorf("timed out after %v waiting for %s: %w", duration, lastAction, ctx.Err())
 		default:
 			// Continue polling
 		}
@@ -401,6 +409,113 @@ func (f *IncusFixture) RestoreSnapshot(name string) error {
 	}
 
 	return op.Wait()
+}
+
+// CreateBaselineSnapshot creates a snapshot named "baseline" of the current VM state.
+// This should be called immediately after VM boot, before any test operations.
+// If name is empty, defaults to "baseline".
+func (f *IncusFixture) CreateBaselineSnapshot(name string) error {
+	f.t.Helper()
+	if name == "" {
+		name = "baseline"
+	}
+	return f.CreateSnapshot(name)
+}
+
+// ResetToSnapshot restores the VM to a snapshot and waits for it to be ready.
+// This is intended for per-test reset to ensure isolation.
+// Uses the provided context for timeout during the ready wait.
+func (f *IncusFixture) ResetToSnapshot(ctx context.Context, name string) error {
+	f.t.Helper()
+	f.t.Logf("Resetting VM %s to snapshot %s", f.vmName, name)
+
+	// Restore the snapshot (stops, restores, starts)
+	if err := f.RestoreSnapshot(name); err != nil {
+		return fmt.Errorf("restore snapshot: %w", err)
+	}
+
+	// Wait for VM to be ready again
+	if err := f.WaitForReady(ctx); err != nil {
+		return fmt.Errorf("wait for ready after reset: %w", err)
+	}
+
+	return nil
+}
+
+// DumpDiagnostics captures diagnostic information on test failure.
+// It writes to test-failures/{testName}_{timestamp}.log and logs a summary inline.
+// The reason parameter is included in the log (e.g., "timeout after 60s waiting for VM boot").
+func (f *IncusFixture) DumpDiagnostics(reason string) {
+	f.t.Helper()
+
+	// Create diagnostics directory
+	logDir := "test-failures"
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		f.t.Logf("Warning: failed to create diagnostics directory: %v", err)
+		return
+	}
+
+	// Generate log filename
+	testName := sanitize(f.t.Name())
+	timestamp := time.Now().Unix()
+	logPath := filepath.Join(logDir, fmt.Sprintf("%s_%d.log", testName, timestamp))
+
+	var buf bytes.Buffer
+
+	// Header with reason
+	buf.WriteString("=== Diagnostic Dump ===\n")
+	buf.WriteString(fmt.Sprintf("Test: %s\n", f.t.Name()))
+	buf.WriteString(fmt.Sprintf("VM: %s\n", f.vmName))
+	buf.WriteString(fmt.Sprintf("Time: %s\n", time.Now().Format(time.RFC3339)))
+	buf.WriteString(fmt.Sprintf("Reason: %s\n\n", reason))
+
+	// Last 50 lines of console output (via journalctl)
+	buf.WriteString("=== Last 50 lines of console (journalctl -n 50) ===\n")
+	consoleOutput, err := f.ExecCommand("journalctl", "-n", "50", "--no-pager")
+	if err != nil {
+		buf.WriteString(fmt.Sprintf("Error getting journal: %v\n", err))
+	} else {
+		buf.WriteString(consoleOutput)
+	}
+	buf.WriteString("\n")
+
+	// Mounted volumes
+	buf.WriteString("=== Mounted volumes (findmnt -l) ===\n")
+	mounts, err := f.ExecCommand("findmnt", "-l")
+	if err != nil {
+		buf.WriteString(fmt.Sprintf("Error getting mounts: %v\n", err))
+	} else {
+		buf.WriteString(mounts)
+	}
+	buf.WriteString("\n")
+
+	// Network state
+	buf.WriteString("=== Network state (ip addr) ===\n")
+	netState, err := f.ExecCommand("ip", "addr")
+	if err != nil {
+		buf.WriteString(fmt.Sprintf("Error getting network state: %v\n", err))
+	} else {
+		buf.WriteString(netState)
+	}
+	buf.WriteString("\n")
+
+	// Write to file
+	if err := os.WriteFile(logPath, buf.Bytes(), 0644); err != nil {
+		f.t.Logf("Warning: failed to write diagnostics to %s: %v", logPath, err)
+		return
+	}
+
+	// Log summary inline: last 10 lines of console + log file path
+	f.t.Logf("Diagnostic dump saved to: %s", logPath)
+	f.t.Logf("Reason: %s", reason)
+	if consoleOutput != "" {
+		lines := strings.Split(consoleOutput, "\n")
+		start := len(lines) - 10
+		if start < 0 {
+			start = 0
+		}
+		f.t.Logf("Last 10 lines of console:\n%s", strings.Join(lines[start:], "\n"))
+	}
 }
 
 // sanitize converts a test name to a safe VM name.

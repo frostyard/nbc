@@ -65,57 +65,12 @@ test-update: ## Run update tests (requires root)
 _test-update: ## Internal target for update tests
 	@go test -v ./pkg/... -run "^(TestSystemUpdater)" -timeout 20m
 
-test-incus: ## Run Incus VM integration tests (requires root and incus)
-	@echo "Running Incus integration tests (requires root and incus)..."
-	@if [ "$$(id -u)" -ne 0 ]; then \
-		echo "Re-running with sudo and preserving environment..."; \
-		sudo -E env "PATH=$$PATH:/usr/sbin:/sbin" $(MAKE) _test-incus; \
-	else \
-		$(MAKE) _test-incus; \
-	fi
+test-incus: test-incus-go ## Run Incus VM integration tests (Go-based, requires root and incus)
 
-_test-incus: ## Internal target for Incus tests
-	@./test_incus.sh
-
-test-incus-quick: ## Run quick Incus install test (requires root and incus)
-	@echo "Running quick Incus install test..."
-	@if [ "$$(id -u)" -ne 0 ]; then \
-		sudo -E env "PATH=$$PATH:/usr/sbin:/sbin" $(MAKE) _test-incus-quick; \
-	else \
-		$(MAKE) _test-incus-quick; \
-	fi
-
-_test-incus-quick: ## Internal target for quick Incus tests
-	@./test_incus_quick.sh
-
-test-incus-encryption: ## Run Incus encryption tests (requires root and incus)
-	@echo "Running Incus encryption tests..."
-	@if [ "$$(id -u)" -ne 0 ]; then \
-		sudo -E env "PATH=$$PATH:/usr/sbin:/sbin" $(MAKE) _test-incus-encryption; \
-	else \
-		$(MAKE) _test-incus-encryption; \
-	fi
-
-_test-incus-encryption: ## Internal target for Incus encryption tests
-	@./test_incus_encryption.sh
-
-test-incus-loopback: ## Run Incus loopback installation test (requires root and incus)
-	@echo "Running Incus loopback tests..."
-	@if [ "$$(id -u)" -ne 0 ]; then \
-		sudo -E env "PATH=$$PATH:/usr/sbin:/sbin" $(MAKE) _test-incus-loopback; \
-	else \
-		$(MAKE) _test-incus-loopback; \
-	fi
-
-_test-incus-loopback: ## Internal target for Incus loopback tests
-	@./test_incus_loopback.sh
-
-test-incus-all: ## Run all Incus tests (shortest to longest)
-	@echo "Running all Incus tests..."
-	@$(MAKE) test-incus-quick
-	@$(MAKE) test-incus-loopback
-	@$(MAKE) test-incus-encryption
-	@$(MAKE) test-incus
+# Legacy bash script targets removed - use test-incus (Go-based) instead
+# See pkg/incus_test.go for TestIncus_* tests
+# Note: LUKS encryption VM test coverage deferred to Phase 2
+# TODO(phase-2): Add TestIncus_Encryption for full LUKS VM testing
 
 test-incus-go: build ## Run Go-based Incus VM integration tests
 	@echo "Running Go-based Incus integration tests (requires root and incus)..."

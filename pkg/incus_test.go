@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,52 @@ import (
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 )
+
+// nbcBinaryPath returns the absolute path to the nbc binary.
+// It looks for the binary in the project root (parent of pkg/).
+func nbcBinaryPath(t *testing.T) string {
+	t.Helper()
+
+	// Get the directory of this test file
+	// Tests run from the package directory, so we need to go up one level
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
+
+	// Try project root (parent of pkg)
+	projectRoot := filepath.Dir(wd)
+	nbcPath := filepath.Join(projectRoot, "nbc")
+	if _, err := os.Stat(nbcPath); err == nil {
+		return nbcPath
+	}
+
+	// Try current directory (in case running from project root)
+	nbcPath = filepath.Join(wd, "nbc")
+	if _, err := os.Stat(nbcPath); err == nil {
+		return nbcPath
+	}
+
+	// Try looking up the tree for go.mod to find project root
+	dir := wd
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			nbcPath = filepath.Join(dir, "nbc")
+			if _, err := os.Stat(nbcPath); err == nil {
+				return nbcPath
+			}
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+
+	t.Fatalf("nbc binary not found. Run 'make build' first. Searched from: %s", wd)
+	return ""
+}
 
 // TestMain provides clean slate for VM tests.
 // It cleans up orphaned resources from previous runs before and after the test suite.
@@ -78,7 +125,8 @@ func TestIncus_Install(t *testing.T) {
 
 	// Build and push nbc binary
 	// (assumes binary built externally via Makefile target)
-	if err := fixture.PushFile("./nbc", "/usr/local/bin/nbc"); err != nil {
+	nbcPath := nbcBinaryPath(t)
+	if err := fixture.PushFile(nbcPath, "/usr/local/bin/nbc"); err != nil {
 		t.Fatalf("Failed to push nbc: %v", err)
 	}
 	_, _ = fixture.ExecCommand("chmod", "+x", "/usr/local/bin/nbc")
@@ -206,7 +254,8 @@ func TestIncus_FullCycle(t *testing.T) {
 	}
 
 	// Build and push nbc binary
-	if err := fixture.PushFile("./nbc", "/usr/local/bin/nbc"); err != nil {
+	nbcPath := nbcBinaryPath(t)
+	if err := fixture.PushFile(nbcPath, "/usr/local/bin/nbc"); err != nil {
 		t.Fatalf("Failed to push nbc: %v", err)
 	}
 	_, _ = fixture.ExecCommand("chmod", "+x", "/usr/local/bin/nbc")

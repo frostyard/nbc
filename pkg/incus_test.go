@@ -1,5 +1,10 @@
 package pkg
 
+// TODO(phase-2): Add TestIncus_Encryption for full LUKS encryption VM testing.
+// Currently covered by unit tests in install_test.go and bootloader_test.go.
+// Full VM test (install with --encrypt, verify LUKS, boot from encrypted disk)
+// was in test_incus_encryption.sh, deferred for Phase 2.
+
 import (
 	"bytes"
 	"context"

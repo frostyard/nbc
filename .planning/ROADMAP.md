@@ -34,7 +34,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 6 plans in 6 waves
 
 Plans:
-- [ ] 01-01-PLAN.md — Add dependencies (incus client, goldie) and timeout constants
+- [x] 01-01-PLAN.md — Add dependencies (incus client, goldie) and timeout constants
 - [ ] 01-02-PLAN.md — Create Incus fixture and golden file helpers
 - [ ] 01-03-PLAN.md — Add cleanup utilities, snapshots, and diagnostics
 - [ ] 01-04-PLAN.md — Migrate first VM test (install) to Go
@@ -120,7 +120,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Testing Reliability | 0/6 | Planned | - |
+| 1. Testing Reliability | 1/6 | In progress | - |
 | 2. Pre-Extraction Cleanup | 0/? | Not started | - |
 | 3. Interface Foundation | 0/? | Not started | - |
 | 4. SDK Extraction | 0/? | Not started | - |
@@ -129,4 +129,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 ---
 *Roadmap created: 2026-01-26*
-*Last updated: 2026-01-26*
+*Last updated: 2026-01-26 — 01-01 complete*

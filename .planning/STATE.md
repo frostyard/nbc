@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-01-26)
 ## Current Position
 
 Phase: 1 of 6 (Testing Reliability)
-Plan: 0 of ? in current phase
-Status: Ready to plan
-Last activity: 2026-01-26 — Roadmap created
+Plan: 1 of 6 in current phase
+Status: In progress
+Last activity: 2026-01-26 — Completed 01-01-PLAN.md
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] 17%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
-- Average duration: -
-- Total execution time: 0 hours
+- Total plans completed: 1
+- Average duration: 1 min
+- Total execution time: 1 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 1. Testing Reliability | 1/6 | 1 min | 1 min |
 
 **Recent Trend:**
-- Last 5 plans: N/A
-- Trend: N/A
+- Last 5 plans: 01-01 (1m)
+- Trend: N/A (first plan)
 
 *Updated after each plan completion*
 
@@ -44,6 +44,8 @@ Recent decisions affecting current work:
 
 - Testing before SDK extraction — reliable tests enable safe refactoring
 - Use github.com/frostyard/pm/progress for all output — owned library, clean interface
+- Use incus/v6 Go client for VM operations — official client with proper API
+- Use goldie/v2 for golden file testing — mature, -update flag, colored diffs
 
 ### Pending Todos
 
@@ -55,6 +57,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-01-26
-Stopped at: Roadmap created, ready to plan Phase 1
+Last session: 2026-01-26T21:07:39Z
+Stopped at: Completed 01-01-PLAN.md
 Resume file: None

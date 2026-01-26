@@ -44,9 +44,17 @@ func NormalizeOutput(s string) string {
 	timestampRe := regexp.MustCompile(`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[Z+-][\d:]*`)
 	s = timestampRe.ReplaceAllString(s, "TIMESTAMP")
 
-	// Replace date-only format: 2024-01-15
-	dateRe := regexp.MustCompile(`\d{4}-\d{2}-\d{2}(?![T\d])`)
-	s = dateRe.ReplaceAllString(s, "DATE")
+	// Replace date-only format: 2024-01-15 (not followed by T for timestamp)
+	// We already replaced timestamps above, so standalone dates like "2024-01-15 " or end-of-line are safe.
+	// Match dates at word boundary (space, comma, end of line, etc)
+	dateRe := regexp.MustCompile(`\d{4}-\d{2}-\d{2}(\s|,|$|[^T0-9])`)
+	s = dateRe.ReplaceAllStringFunc(s, func(match string) string {
+		// Preserve the trailing character (space, comma, etc.) if present
+		if len(match) > 10 {
+			return "DATE" + match[10:]
+		}
+		return "DATE"
+	})
 
 	// Replace UUIDs: 8-4-4-4-12 format (lowercase hex)
 	uuidRe := regexp.MustCompile(`[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}`)
@@ -68,6 +76,11 @@ func NormalizeOutput(s string) string {
 	// Replace PIDs in common patterns: (pid=12345) -> (pid=PID)
 	pidRe := regexp.MustCompile(`\bpid[=:]\s*\d+`)
 	s = pidRe.ReplaceAllString(s, "pid=PID")
+
+	// Replace version strings: v0.14.0-25-g5568b48 -> VERSION
+	// Matches semantic versions with optional pre-release and git suffix
+	versionRe := regexp.MustCompile(`v\d+\.\d+\.\d+(-\d+-g[a-f0-9]+)?`)
+	s = versionRe.ReplaceAllString(s, "VERSION")
 
 	return s
 }

@@ -1,0 +1,30 @@
+
+  nbc is a tool for installing bootc compatible containers to physical disks.                                           
+  It automates the process of preparing disks and deploying bootable container images.                                  
+         
+  USAGE  
+         
+    nbc [command] [--flags]  
+            
+  COMMANDS  
+            
+    cache [command]         Manage cached container images
+    completion [command]    Generate the autocompletion script for the specified shell
+    download [--flags]      Download a container image to local cache
+    help [command]          Help about any command
+    install [--flags]       Install a bootc container to a physical disk
+    interactive-install     Interactively install a bootc container to a physical disk
+    lint [image] [--flags]  Check a container image for common issues
+    list                    List available disks
+    status                  Show current system status
+    update [--flags]        Update system to a new container image using A/B partitions
+    validate [--flags]      Validate a disk for bootc installation
+         
+  FLAGS  
+         
+    -n --dry-run            Dry run mode (no actual changes)
+    -h --help               Help for nbc
+    --json                  Output in JSON format for machine-readable output
+    -v --verbose            Verbose output
+    --version               Version for nbc
+

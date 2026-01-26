@@ -31,10 +31,15 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Tests timeout cleanly with actionable error messages (no hanging)
   4. VM tests reset via snapshots between test cases (observable via test speed)
   5. CLI output changes are caught by golden file comparison tests
-**Plans**: TBD
+**Plans**: 6 plans in 6 waves
 
 Plans:
-- [ ] 01-01: TBD
+- [ ] 01-01-PLAN.md — Add dependencies (incus client, goldie) and timeout constants
+- [ ] 01-02-PLAN.md — Create Incus fixture and golden file helpers
+- [ ] 01-03-PLAN.md — Add cleanup utilities, snapshots, and diagnostics
+- [ ] 01-04-PLAN.md — Migrate first VM test (install) to Go
+- [ ] 01-05-PLAN.md — Complete VM tests and CLI golden file tests
+- [ ] 01-06-PLAN.md — Finalize: delete bash scripts, verify 3x pass
 
 ### Phase 2: Pre-Extraction Cleanup
 **Goal**: Codebase is clean and ready for extraction with no duplicates or hardcoded paths
@@ -115,7 +120,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Testing Reliability | 0/? | Not started | - |
+| 1. Testing Reliability | 0/6 | Planned | - |
 | 2. Pre-Extraction Cleanup | 0/? | Not started | - |
 | 3. Interface Foundation | 0/? | Not started | - |
 | 4. SDK Extraction | 0/? | Not started | - |

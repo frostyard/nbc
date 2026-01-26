@@ -86,38 +86,49 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TEST-01 | Phase 1 | Pending |
-| TEST-02 | Phase 1 | Pending |
-| TEST-03 | Phase 1 | Pending |
-| TEST-04 | Phase 1 | Pending |
-| TEST-05 | Phase 1 | Pending |
-| TEST-06 | Phase 1 | Pending |
-| TEST-07 | Phase 1 | Pending |
-| SDK-01 | Phase 4 | Pending |
-| SDK-02 | Phase 4 | Pending |
-| SDK-03 | Phase 4 | Pending |
-| SDK-04 | Phase 4 | Pending |
-| SDK-05 | Phase 4 | Pending |
-| SDK-06 | Phase 3 | Pending |
-| SDK-07 | Phase 3 | Pending |
-| SDK-08 | Phase 3 | Pending |
-| LOG-01 | Phase 5 | Pending |
-| LOG-02 | Phase 5 | Pending |
-| LOG-03 | Phase 5 | Pending |
-| LOG-04 | Phase 5 | Pending |
-| LOG-05 | Phase 5 | Pending |
-| CLI-01 | Phase 6 | Pending |
-| CLI-02 | Phase 6 | Pending |
-| CLI-03 | Phase 6 | Pending |
-| CLI-04 | Phase 6 | Pending |
-| CLI-05 | Phase 6 | Pending |
-| CLI-06 | Phase 6 | Pending |
+| TEST-01 | Phase 1: Testing Reliability | Pending |
+| TEST-02 | Phase 1: Testing Reliability | Pending |
+| TEST-03 | Phase 1: Testing Reliability | Pending |
+| TEST-04 | Phase 1: Testing Reliability | Pending |
+| TEST-05 | Phase 1: Testing Reliability | Pending |
+| TEST-06 | Phase 1: Testing Reliability | Pending |
+| TEST-07 | Phase 1: Testing Reliability | Pending |
+| SDK-01 | Phase 4: SDK Extraction | Pending |
+| SDK-02 | Phase 4: SDK Extraction | Pending |
+| SDK-03 | Phase 4: SDK Extraction | Pending |
+| SDK-04 | Phase 4: SDK Extraction | Pending |
+| SDK-05 | Phase 4: SDK Extraction | Pending |
+| SDK-06 | Phase 3: Interface Foundation | Pending |
+| SDK-07 | Phase 3: Interface Foundation | Pending |
+| SDK-08 | Phase 3: Interface Foundation | Pending |
+| LOG-01 | Phase 5: Logging Integration | Pending |
+| LOG-02 | Phase 5: Logging Integration | Pending |
+| LOG-03 | Phase 5: Logging Integration | Pending |
+| LOG-04 | Phase 5: Logging Integration | Pending |
+| LOG-05 | Phase 5: Logging Integration | Pending |
+| CLI-01 | Phase 6: CLI Adaptation | Pending |
+| CLI-02 | Phase 6: CLI Adaptation | Pending |
+| CLI-03 | Phase 6: CLI Adaptation | Pending |
+| CLI-04 | Phase 6: CLI Adaptation | Pending |
+| CLI-05 | Phase 6: CLI Adaptation | Pending |
+| CLI-06 | Phase 6: CLI Adaptation | Pending |
+
+**Phase Summary:**
+- Phase 1 (Testing Reliability): 7 requirements (TEST-01 through TEST-07)
+- Phase 2 (Pre-Extraction Cleanup): 0 requirements (prep work, no direct requirements)
+- Phase 3 (Interface Foundation): 3 requirements (SDK-06, SDK-07, SDK-08)
+- Phase 4 (SDK Extraction): 5 requirements (SDK-01 through SDK-05)
+- Phase 5 (Logging Integration): 5 requirements (LOG-01 through LOG-05)
+- Phase 6 (CLI Adaptation): 6 requirements (CLI-01 through CLI-06)
 
 **Coverage:**
 - v1 requirements: 25 total
 - Mapped to phases: 25
 - Unmapped: 0 ✓
 
+Note: Phase 2 has no direct requirements but is necessary prep work that enables
+Phases 3-6. Research identified cleanup before extraction as critical (Pitfall #7).
+
 ---
 *Requirements defined: 2026-01-26*
-*Last updated: 2026-01-26 after initial definition*
+*Last updated: 2026-01-26 — Roadmap created with 6 phases*

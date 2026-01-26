@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-01-26)
 ## Current Position
 
 Phase: 1 of 6 (Testing Reliability)
-Plan: 4 of 6 in current phase
+Plan: 5 of 6 in current phase
 Status: In progress
-Last activity: 2026-01-26 — Completed 01-04-PLAN.md
+Last activity: 2026-01-26 — Completed 01-05-PLAN.md
 
-Progress: [████░░░░░░] 67%
+Progress: [█████░░░░░] 83%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
-- Average duration: 1.5 min
-- Total execution time: 6 min
+- Total plans completed: 5
+- Average duration: 2.4 min
+- Total execution time: 12 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 1. Testing Reliability | 4/6 | 6 min | 1.5 min |
+| 1. Testing Reliability | 5/6 | 18 min | 3.6 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (1m), 01-02 (2m), 01-03 (2m), 01-04 (1m)
-- Trend: Stable
+- Last 5 plans: 01-01 (1m), 01-02 (2m), 01-03 (2m), 01-04 (1m), 01-05 (12m)
+- Trend: Stable (01-05 longer due to bug fixes)
 
 *Updated after each plan completion*
 
@@ -49,6 +49,9 @@ Recent decisions affecting current work:
 - Cleanup is silent best-effort — errors ignored to not mask test failures
 - VM names include test name and PID — uniqueness across parallel runs
 - TestIncus_ prefix for Go-based Incus tests — enables selective test runs
+- Single FullCycle test for CI efficiency — combined install/update/boot avoids VM creation overhead
+- Boot test creates separate empty VM — verifies installed disk boots correctly
+- Version normalization in golden tests — dynamic version strings made deterministic
 
 ### Pending Todos
 
@@ -56,10 +59,10 @@ None yet.
 
 ### Blockers/Concerns
 
-None yet.
+- TestImageCache_* tests fail without sudo (lock file permission issue) — pre-existing, not blocking phase 1
 
 ## Session Continuity
 
-Last session: 2026-01-26T21:19:59Z
-Stopped at: Completed 01-04-PLAN.md
+Last session: 2026-01-26T21:32:00Z
+Stopped at: Completed 01-05-PLAN.md
 Resume file: None

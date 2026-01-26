@@ -117,6 +117,18 @@ test-incus-all: ## Run all Incus tests (shortest to longest)
 	@$(MAKE) test-incus-encryption
 	@$(MAKE) test-incus
 
+test-incus-go: build ## Run Go-based Incus VM integration tests
+	@echo "Running Go-based Incus integration tests (requires root and incus)..."
+	@if [ "$$(id -u)" -ne 0 ]; then \
+		echo "Re-running with sudo..."; \
+		sudo -E env "PATH=$$PATH:/usr/sbin:/sbin" $(MAKE) _test-incus-go; \
+	else \
+		$(MAKE) _test-incus-go; \
+	fi
+
+_test-incus-go: ## Internal target for Go Incus tests
+	@go test -v ./pkg/... -run "^TestIncus_" -timeout 30m
+
 test-all: ## Run all tests (unit + integration, requires root)
 	@echo "Running all tests..."
 	@$(MAKE) test-unit

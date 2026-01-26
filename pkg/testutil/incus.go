@@ -519,14 +519,25 @@ func (f *IncusFixture) DumpDiagnostics(reason string) {
 }
 
 // sanitize converts a test name to a safe VM name.
-// Replaces slashes with dashes, removes other special characters, and lowercases.
+// Replaces slashes and underscores with dashes, removes other special characters, and lowercases.
+// Incus only allows alphanumeric and hyphen characters in instance names.
 func sanitize(name string) string {
 	// Replace / with - (common in subtests)
 	name = strings.ReplaceAll(name, "/", "-")
 
-	// Remove any characters that aren't alphanumeric, dash, or underscore
-	re := regexp.MustCompile(`[^a-zA-Z0-9_-]`)
+	// Replace _ with - (Incus doesn't allow underscores)
+	name = strings.ReplaceAll(name, "_", "-")
+
+	// Remove any characters that aren't alphanumeric or dash
+	re := regexp.MustCompile(`[^a-zA-Z0-9-]`)
 	name = re.ReplaceAllString(name, "")
+
+	// Collapse multiple dashes into one
+	re = regexp.MustCompile(`-+`)
+	name = re.ReplaceAllString(name, "-")
+
+	// Trim leading/trailing dashes
+	name = strings.Trim(name, "-")
 
 	// Lowercase for consistency
 	name = strings.ToLower(name)

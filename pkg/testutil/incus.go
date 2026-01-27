@@ -280,13 +280,22 @@ func (f *IncusFixture) PushFile(localPath, remotePath string) error {
 }
 
 // AttachDisk creates and attaches a block storage volume to the VM.
-// The volume name is automatically prefixed with the VM name to ensure uniqueness.
+// The volume name is automatically made unique per test.
 // The volume is tracked for cleanup.
 func (f *IncusFixture) AttachDisk(volumeName string, size string) error {
 	f.t.Helper()
 
-	// Make volume name unique by prefixing with VM name
-	uniqueVolumeName := fmt.Sprintf("%s-%s", f.vmName, volumeName)
+	// Make volume name unique but keep under 36 chars (Incus serial number limit)
+	// Use format: vol-{short test identifier}-{pid}
+	// Extract a short identifier from the test name
+	testName := sanitize(f.t.Name())
+	if len(testName) > 16 {
+		testName = testName[:16]
+	}
+	uniqueVolumeName := fmt.Sprintf("vol-%s-%d", testName, os.Getpid())
+	if len(uniqueVolumeName) > 36 {
+		uniqueVolumeName = uniqueVolumeName[:36]
+	}
 	f.t.Logf("Attaching disk %s (%s) to VM %s", uniqueVolumeName, size, f.vmName)
 
 	// Find default storage pool

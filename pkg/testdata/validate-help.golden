@@ -1,0 +1,15 @@
+
+  Validate that a disk is suitable for bootc installation.                                                              
+         
+  USAGE  
+         
+    nbc validate [--flags]  
+         
+  FLAGS  
+         
+    -d --device   Disk device to validate (required)
+    -n --dry-run  Dry run mode (no actual changes)
+    -h --help     Help for validate
+    --json        Output in JSON format for machine-readable output
+    -v --verbose  Verbose output
+

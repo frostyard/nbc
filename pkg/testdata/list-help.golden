@@ -1,0 +1,14 @@
+
+  List all available physical disks on the system.                                                                      
+         
+  USAGE  
+         
+    nbc list [--flags]  
+         
+  FLAGS  
+         
+    -n --dry-run  Dry run mode (no actual changes)
+    -h --help     Help for list
+    --json        Output in JSON format for machine-readable output
+    -v --verbose  Verbose output
+

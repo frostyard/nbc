@@ -280,10 +280,14 @@ func (f *IncusFixture) PushFile(localPath, remotePath string) error {
 }
 
 // AttachDisk creates and attaches a block storage volume to the VM.
+// The volume name is automatically prefixed with the VM name to ensure uniqueness.
 // The volume is tracked for cleanup.
 func (f *IncusFixture) AttachDisk(volumeName string, size string) error {
 	f.t.Helper()
-	f.t.Logf("Attaching disk %s (%s) to VM %s", volumeName, size, f.vmName)
+
+	// Make volume name unique by prefixing with VM name
+	uniqueVolumeName := fmt.Sprintf("%s-%s", f.vmName, volumeName)
+	f.t.Logf("Attaching disk %s (%s) to VM %s", uniqueVolumeName, size, f.vmName)
 
 	// Find default storage pool
 	pools, err := f.client.GetStoragePoolNames()
@@ -298,7 +302,7 @@ func (f *IncusFixture) AttachDisk(volumeName string, size string) error {
 
 	// Create storage volume
 	volReq := api.StorageVolumesPost{
-		Name:        volumeName,
+		Name:        uniqueVolumeName,
 		Type:        "custom",
 		ContentType: "block",
 		StorageVolumePut: api.StorageVolumePut{
@@ -312,7 +316,7 @@ func (f *IncusFixture) AttachDisk(volumeName string, size string) error {
 		return fmt.Errorf("create storage volume: %w", err)
 	}
 
-	f.volumeName = volumeName
+	f.volumeName = uniqueVolumeName
 
 	// Get current instance config
 	instance, etag, err := f.client.GetInstance(f.vmName)
@@ -325,9 +329,9 @@ func (f *IncusFixture) AttachDisk(volumeName string, size string) error {
 		instance.Devices = make(map[string]map[string]string)
 	}
 
-	instance.Devices[volumeName] = map[string]string{
+	instance.Devices[uniqueVolumeName] = map[string]string{
 		"type":   "disk",
-		"source": volumeName,
+		"source": uniqueVolumeName,
 		"pool":   poolName,
 	}
 

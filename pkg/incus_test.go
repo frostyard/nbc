@@ -404,15 +404,12 @@ func TestIncus_FullCycle(t *testing.T) {
 		}
 
 		// Extract file counts
-		// Note: Root2 may be empty if update doesn't write to inactive partition
-		// until the next update cycle. This depends on nbc's A/B update strategy.
 		lines := strings.Split(verifyOutput, "\n")
 		for _, line := range lines {
 			if strings.HasPrefix(line, "root2_files:") {
 				countStr := strings.TrimPrefix(line, "root2_files:")
 				if countStr == "0" {
-					// Log as warning, not error - A/B strategy may differ
-					t.Log("Note: Root2 partition is empty after update - this may be expected if update writes to active partition")
+					t.Error("Root2 partition is empty after update - A/B update may have failed")
 				}
 			}
 		}

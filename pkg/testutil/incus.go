@@ -64,6 +64,12 @@ func (f *IncusFixture) VMName() string {
 	return f.vmName
 }
 
+// VolumeName returns the storage volume name created by AttachDisk.
+// Returns empty string if no volume has been attached.
+func (f *IncusFixture) VolumeName() string {
+	return f.volumeName
+}
+
 // Client returns the underlying Incus client for advanced operations.
 func (f *IncusFixture) Client() incus.InstanceServer {
 	return f.client

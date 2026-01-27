@@ -355,13 +355,14 @@ func TestIncus_FullCycle(t *testing.T) {
 			t.Fatalf("Failed to set up for update: %v\nOutput: %s", err, setupOutput)
 		}
 
-		// Run update
+		// Run update (use --force since we just installed the same image)
 		updateOutput, err := fixture.ExecCommand("bash", "-c",
-			fmt.Sprintf("echo 'yes' | nbc update --device '%s' --verbose", testDisk))
+			fmt.Sprintf("echo 'yes' | nbc update --device '%s' --force --verbose 2>&1", testDisk))
 		if err != nil {
 			fixture.DumpDiagnostics("nbc update failed")
 			t.Fatalf("nbc update failed: %v\nOutput: %s", err, updateOutput)
 		}
+		t.Logf("Update output:\n%s", updateOutput)
 
 		// Cleanup mounts
 		_, _ = fixture.ExecCommand("bash", "-c", `
@@ -379,6 +380,9 @@ func TestIncus_FullCycle(t *testing.T) {
             ROOT1=$(lsblk -nlo NAME,PARTLABEL %s | grep 'root1' | head -1 | awk '{print "/dev/" $1}')
             ROOT2=$(lsblk -nlo NAME,PARTLABEL %s | grep 'root2' | head -1 | awk '{print "/dev/" $1}')
 
+            echo "root1_dev:$ROOT1"
+            echo "root2_dev:$ROOT2"
+
             mkdir -p /mnt/test-root1 /mnt/test-root2
             mount $ROOT1 /mnt/test-root1
             mount $ROOT2 /mnt/test-root2
@@ -389,10 +393,19 @@ func TestIncus_FullCycle(t *testing.T) {
             echo "root1_files:$ROOT1_FILES"
             echo "root2_files:$ROOT2_FILES"
 
+            # Show what's in root2 for debugging
+            echo "root2_contents:"
+            ls -la /mnt/test-root2/ 2>&1 | head -20
+
             umount /mnt/test-root1
             umount /mnt/test-root2
             rmdir /mnt/test-root1 /mnt/test-root2
         `, testDisk, testDisk))
+		if err != nil {
+			fixture.DumpDiagnostics("A/B partition verification failed")
+			t.Fatalf("A/B partition verification failed: %v", err)
+		}
+		t.Logf("Verify output:\n%s", verifyOutput)
 		if err != nil {
 			fixture.DumpDiagnostics("A/B partition verification failed")
 			t.Fatalf("A/B partition verification failed: %v", err)
@@ -427,6 +440,7 @@ func TestIncus_FullCycle(t *testing.T) {
 		// We need to access the incus client directly for this more complex operation
 		client := fixture.Client()
 		vmName := fixture.VMName()
+		volumeName := fixture.VolumeName()
 
 		// Stop VM
 		stopReq := api.InstanceStatePut{
@@ -449,7 +463,7 @@ func TestIncus_FullCycle(t *testing.T) {
 		}
 
 		// Remove the disk device
-		delete(instance.Devices, "test-disk")
+		delete(instance.Devices, volumeName)
 		op, err = client.UpdateInstance(vmName, instance.Writable(), etag)
 		if err != nil {
 			t.Fatalf("Failed to detach disk: %v", err)
@@ -496,7 +510,7 @@ func TestIncus_FullCycle(t *testing.T) {
 					"bootable": {
 						"type":          "disk",
 						"pool":          poolName,
-						"source":        "test-disk",
+						"source":        volumeName,
 						"boot.priority": "10",
 					},
 				},

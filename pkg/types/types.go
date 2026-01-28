@@ -144,20 +144,29 @@ type StagedUpdate struct {
 	Ready       bool   `json:"ready"` // true if different from installed version
 }
 
+// RebootPendingInfo contains information about a pending update awaiting reboot
+type RebootPendingInfo struct {
+	PendingImageRef    string `json:"pending_image_ref"`
+	PendingImageDigest string `json:"pending_image_digest"`
+	UpdateTime         string `json:"update_time"`
+	TargetPartition    string `json:"target_partition"`
+}
+
 // StatusOutput represents the JSON output structure for the status command
 type StatusOutput struct {
-	Image          string        `json:"image"`
-	Digest         string        `json:"digest,omitempty"`
-	Device         string        `json:"device"`
-	ActiveRoot     string        `json:"active_root,omitempty"`
-	ActiveSlot     string        `json:"active_slot,omitempty"`
-	RootMountMode  string        `json:"root_mount_mode,omitempty"`
-	BootloaderType string        `json:"bootloader_type"`
-	FilesystemType string        `json:"filesystem_type"`
-	InstallDate    string        `json:"install_date,omitempty"`
-	KernelArgs     []string      `json:"kernel_args,omitempty"`
-	UpdateCheck    *UpdateCheck  `json:"update_check,omitempty"`
-	StagedUpdate   *StagedUpdate `json:"staged_update,omitempty"`
+	Image          string             `json:"image"`
+	Digest         string             `json:"digest,omitempty"`
+	Device         string             `json:"device"`
+	ActiveRoot     string             `json:"active_root,omitempty"`
+	ActiveSlot     string             `json:"active_slot,omitempty"`
+	RootMountMode  string             `json:"root_mount_mode,omitempty"`
+	BootloaderType string             `json:"bootloader_type"`
+	FilesystemType string             `json:"filesystem_type"`
+	InstallDate    string             `json:"install_date,omitempty"`
+	KernelArgs     []string           `json:"kernel_args,omitempty"`
+	UpdateCheck    *UpdateCheck       `json:"update_check,omitempty"`
+	StagedUpdate   *StagedUpdate      `json:"staged_update,omitempty"`
+	RebootPending  *RebootPendingInfo `json:"reboot_pending,omitempty"`
 }
 
 // =============================================================================

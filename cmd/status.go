@@ -126,6 +126,16 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			}
 		}
 
+		// Check for pending reboot
+		if rebootInfo, err := pkg.ReadRebootRequiredMarker(); err == nil && rebootInfo != nil {
+			output.RebootPending = &types.RebootPendingInfo{
+				PendingImageRef:    rebootInfo.PendingImageRef,
+				PendingImageDigest: rebootInfo.PendingImageDigest,
+				UpdateTime:         rebootInfo.UpdateTime,
+				TargetPartition:    rebootInfo.TargetPartition,
+			}
+		}
+
 		return outputJSON(output)
 	}
 
@@ -171,6 +181,15 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Filesystem:  %s\n", config.FilesystemType)
 	} else {
 		fmt.Printf("Filesystem:  ext4 (default)\n")
+	}
+
+	// Check for pending reboot and show warning
+	if rebootInfo, err := pkg.ReadRebootRequiredMarker(); err == nil && rebootInfo != nil {
+		fmt.Println()
+		fmt.Println("** REBOOT REQUIRED **")
+		fmt.Println("The above image will become active after reboot.")
+		fmt.Printf("Updated:     %s\n", rebootInfo.UpdateTime)
+		fmt.Printf("Target:      %s\n", rebootInfo.TargetPartition)
 	}
 
 	if verbose {

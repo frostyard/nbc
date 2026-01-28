@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -846,6 +847,20 @@ func (u *SystemUpdater) Update() error {
 	p.Step(7, "Updating bootloader configuration")
 	if err := u.UpdateBootloader(); err != nil {
 		return fmt.Errorf("failed to update bootloader: %w", err)
+	}
+
+	// Write reboot-required marker to /run (automatically cleared on reboot)
+	if !u.Config.DryRun {
+		rebootInfo := &RebootPendingInfo{
+			PendingImageRef:    u.Config.ImageRef,
+			PendingImageDigest: u.Config.ImageDigest,
+			UpdateTime:         time.Now().UTC().Format(time.RFC3339),
+			TargetPartition:    u.Target,
+		}
+		if err := WriteRebootRequiredMarker(rebootInfo); err != nil {
+			p.Warning("failed to write reboot-required marker: %v", err)
+			// Non-fatal - update still succeeded
+		}
 	}
 
 	return nil

@@ -24,6 +24,9 @@ const (
 	NBCBootedMarker = "/run/nbc-booted"
 	// NBCTmpfilesConfig is the tmpfiles.d config that creates the marker
 	NBCTmpfilesConfig = "/usr/lib/tmpfiles.d/nbc.conf"
+	// RebootRequiredMarker indicates a system update is pending reboot
+	// Written to /run after update completes, automatically cleared on reboot (tmpfs)
+	RebootRequiredMarker = "/run/nbc-reboot-required"
 )
 
 // IsNBCBooted checks if the current system was booted via nbc.
@@ -247,4 +250,50 @@ func UpdateSystemConfigImageRef(imageRef, imageDigest string, dryRun bool, progr
 
 	// Write back using WriteSystemConfig (handles migration)
 	return WriteSystemConfig(config, false, progress)
+}
+
+// RebootPendingInfo contains information about a pending update awaiting reboot
+type RebootPendingInfo struct {
+	PendingImageRef    string `json:"pending_image_ref"`
+	PendingImageDigest string `json:"pending_image_digest"`
+	UpdateTime         string `json:"update_time"`
+	TargetPartition    string `json:"target_partition"`
+}
+
+// WriteRebootRequiredMarker creates the reboot-required marker with pending update info
+func WriteRebootRequiredMarker(info *RebootPendingInfo) error {
+	data, err := json.MarshalIndent(info, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal reboot info: %w", err)
+	}
+
+	if err := os.WriteFile(RebootRequiredMarker, data, 0644); err != nil {
+		return fmt.Errorf("failed to write reboot marker: %w", err)
+	}
+
+	return nil
+}
+
+// ReadRebootRequiredMarker reads the marker if it exists, returns nil if not present
+func ReadRebootRequiredMarker() (*RebootPendingInfo, error) {
+	data, err := os.ReadFile(RebootRequiredMarker)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to read reboot marker: %w", err)
+	}
+
+	var info RebootPendingInfo
+	if err := json.Unmarshal(data, &info); err != nil {
+		return nil, fmt.Errorf("failed to parse reboot marker: %w", err)
+	}
+
+	return &info, nil
+}
+
+// IsRebootRequired checks if a reboot is pending (marker exists)
+func IsRebootRequired() bool {
+	_, err := os.Stat(RebootRequiredMarker)
+	return err == nil
 }

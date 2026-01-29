@@ -37,12 +37,3 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
-
-      - name: Kickoff debian-bootc-core
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-        continue-on-error: true
-        uses: peter-evans/repository-dispatch@v4
-        with:
-          token: ${{ secrets.ORG_PAT }}
-          repository: frostyard/debian-bootc-core
-          event-type: build

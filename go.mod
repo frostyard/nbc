@@ -1,6 +1,6 @@
 module github.com/frostyard/nbc
 
-go 1.24.12
+go 1.26
 
 require (
 	github.com/charmbracelet/fang v0.4.4

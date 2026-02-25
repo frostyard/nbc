@@ -483,16 +483,16 @@ func (f *IncusFixture) DumpDiagnostics(reason string) {
 
 	// Header with reason
 	buf.WriteString("=== Diagnostic Dump ===\n")
-	buf.WriteString(fmt.Sprintf("Test: %s\n", f.t.Name()))
-	buf.WriteString(fmt.Sprintf("VM: %s\n", f.vmName))
-	buf.WriteString(fmt.Sprintf("Time: %s\n", time.Now().Format(time.RFC3339)))
-	buf.WriteString(fmt.Sprintf("Reason: %s\n\n", reason))
+	fmt.Fprintf(&buf, "Test: %s\n", f.t.Name())
+	fmt.Fprintf(&buf, "VM: %s\n", f.vmName)
+	fmt.Fprintf(&buf, "Time: %s\n", time.Now().Format(time.RFC3339))
+	fmt.Fprintf(&buf, "Reason: %s\n\n", reason)
 
 	// Last 50 lines of console output (via journalctl)
 	buf.WriteString("=== Last 50 lines of console (journalctl -n 50) ===\n")
 	consoleOutput, err := f.ExecCommand("journalctl", "-n", "50", "--no-pager")
 	if err != nil {
-		buf.WriteString(fmt.Sprintf("Error getting journal: %v\n", err))
+		fmt.Fprintf(&buf, "Error getting journal: %v\n", err)
 	} else {
 		buf.WriteString(consoleOutput)
 	}
@@ -502,7 +502,7 @@ func (f *IncusFixture) DumpDiagnostics(reason string) {
 	buf.WriteString("=== Mounted volumes (findmnt -l) ===\n")
 	mounts, err := f.ExecCommand("findmnt", "-l")
 	if err != nil {
-		buf.WriteString(fmt.Sprintf("Error getting mounts: %v\n", err))
+		fmt.Fprintf(&buf, "Error getting mounts: %v\n", err)
 	} else {
 		buf.WriteString(mounts)
 	}
@@ -512,7 +512,7 @@ func (f *IncusFixture) DumpDiagnostics(reason string) {
 	buf.WriteString("=== Network state (ip addr) ===\n")
 	netState, err := f.ExecCommand("ip", "addr")
 	if err != nil {
-		buf.WriteString(fmt.Sprintf("Error getting network state: %v\n", err))
+		fmt.Fprintf(&buf, "Error getting network state: %v\n", err)
 	} else {
 		buf.WriteString(netState)
 	}
@@ -529,10 +529,7 @@ func (f *IncusFixture) DumpDiagnostics(reason string) {
 	f.t.Logf("Reason: %s", reason)
 	if consoleOutput != "" {
 		lines := strings.Split(consoleOutput, "\n")
-		start := len(lines) - 10
-		if start < 0 {
-			start = 0
-		}
+		start := max(len(lines)-10, 0)
 		f.t.Logf("Last 10 lines of console:\n%s", strings.Join(lines[start:], "\n"))
 	}
 }

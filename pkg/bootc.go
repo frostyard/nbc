@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -106,101 +105,6 @@ func (b *BootcInstaller) SetLocalImage(layoutPath string, metadata *CachedImageM
 // SetRootPassword sets the root password to configure during installation
 func (b *BootcInstaller) SetRootPassword(password string) {
 	b.RootPassword = password
-}
-
-// SetRootPasswordInTarget sets the root password in the installed system using chpasswd
-// The password is passed via stdin for security (not visible in process list)
-func SetRootPasswordInTarget(targetDir, password string, dryRun bool, progress Reporter) error {
-	if password == "" {
-		return nil // No password to set
-	}
-
-	if dryRun {
-		progress.Message("[DRY RUN] Would set root password")
-		return nil
-	}
-
-	progress.Message("Setting root password...")
-
-	// Use chpasswd with -R flag to handle chroot internally
-	// Password is passed via stdin for security
-	cmd := exec.Command("chpasswd", "-R", targetDir)
-	cmd.Stdin = strings.NewReader(fmt.Sprintf("root:%s\n", password))
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to set root password: %w", err)
-	}
-
-	progress.Message("Root password set successfully")
-	return nil
-}
-
-// CheckRequiredTools checks if required tools are available
-func CheckRequiredTools() error {
-	tools := []string{
-		"sgdisk",
-		"mkfs.vfat",
-		"mkfs.ext4",
-		"mount",
-		"umount",
-		"blkid",
-		"partprobe",
-		"rsync",
-	}
-
-	for _, tool := range tools {
-		if _, err := exec.LookPath(tool); err != nil {
-			return fmt.Errorf("%s not found: %w", tool, err)
-		}
-	}
-
-	return nil
-}
-
-// PullImage validates an image reference and checks if it's accessible.
-// This is a standalone function for use by Installer.
-// The actual image pull happens during Extract() to avoid duplicate work.
-func PullImage(ctx context.Context, imageRef string, verbose bool, progress Reporter) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	// Parse and validate the image reference
-	ref, err := name.ParseReference(imageRef)
-	if err != nil {
-		return fmt.Errorf("invalid image reference: %w", err)
-	}
-
-	if verbose && progress != nil {
-		progress.Message("  Image: %s", ref.String())
-	}
-
-	// For localhost images, check if they exist locally via podman/docker
-	if strings.HasPrefix(imageRef, "localhost/") {
-		// Check podman first
-		checkCmd := exec.CommandContext(ctx, "podman", "image", "exists", imageRef)
-		if checkCmd.Run() == nil {
-			return nil // Image exists in podman
-		}
-
-		// Check docker as fallback
-		checkCmd = exec.CommandContext(ctx, "docker", "image", "inspect", imageRef)
-		if checkCmd.Run() == nil {
-			return nil // Image exists in docker
-		}
-
-		return fmt.Errorf("local image %s not found (checked podman and docker)", imageRef)
-	}
-
-	// Try to get image descriptor to verify it exists and is accessible
-	// This is a lightweight check that doesn't download layers
-	_, err = remote.Head(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain))
-	if err != nil {
-		return fmt.Errorf("failed to access image: %w (check credentials if private registry)", err)
-	}
-
-	return nil
 }
 
 // PullImage validates the image reference and checks if it's accessible

@@ -41,21 +41,26 @@ go test -v ./pkg/... -run TestInstallConfig_Validate
 - **SystemUpdater** (`pkg/update.go`) - A/B partition updates with rollback
 - **ContainerExtractor** (`pkg/container.go`) - OCI image extraction via go-containerregistry
 - **BootloaderInstaller** (`pkg/bootloader.go`) - GRUB2 or systemd-boot configuration
-- **ProgressReporter** (`pkg/progress.go`) - Dual-mode output (text or JSON Lines)
+- **Reporter** (`pkg/reporter.go`) - Interface for all user-facing output (TextReporter, JSONReporter, NoopReporter)
+- **Shared Steps** (`pkg/steps.go`) - Common install/update operations (SetupTargetSystem, ExtractAndVerifyContainer)
+- **Workflow** (`pkg/workflow.go`) - Composable step-based orchestration type
 
 ### Data Flow
-1. CLI parses flags, creates config struct
+1. CLI parses flags (grouped in typed flag structs per command), creates config struct
 2. `NewInstaller(cfg)` / `NewSystemUpdater()` validates and sets defaults
 3. `Install(ctx)` / `Update()` orchestrates: partitioning → formatting → extraction → bootloader
-4. System config stored in `/var/lib/nbc/state/config.json` (shared across A/B roots)
+4. All exported I/O functions accept `context.Context` for cancellation
+5. System config stored in `/var/lib/nbc/state/config.json` (shared across A/B roots)
 
 ## Critical: Install and Update Parity
 
 **Any change to installation flow MUST also be applied to update flow:**
 - `pkg/install.go` - `Install()` function
 - `pkg/update.go` - `Update()` function
+- `pkg/steps.go` - Shared operations used by both (SetupTargetSystem, ExtractAndVerifyContainer)
 
 Keep in sync: kernel cmdline parameters, tmpfiles.d configs, bootloader entries, directory creation.
+Changes to shared steps in `pkg/steps.go` automatically apply to both flows.
 
 ## Code Conventions
 
@@ -73,8 +78,9 @@ if err != nil {
 - Never use string concatenation for paths
 
 ### Console Output
-- Use `ProgressReporter` for all user-facing output
-- Indent sub-operations with two spaces: `fmt.Println("  Installing GRUB2...")`
+- Use the `Reporter` interface for all user-facing output — never raw `fmt.Print` in `pkg/`
+- Implementations: `TextReporter` (human), `JSONReporter` (machine), `NoopReporter` (tests)
+- Pass `Reporter` as a parameter to functions that produce output
 
 ### Dry-Run Pattern
 ```go

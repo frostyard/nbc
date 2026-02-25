@@ -89,7 +89,12 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	jsonOutput := viper.GetBool("json")
 
 	// Create progress reporter for early error output
-	progress := pkg.NewProgressReporter(jsonOutput, 7)
+	var progress pkg.Reporter
+	if jsonOutput {
+		progress = pkg.NewJSONReporter(os.Stdout)
+	} else {
+		progress = pkg.NewTextReporter(os.Stdout)
+	}
 
 	// Validate mutually exclusive flags
 	if updateDownloadOnly && updateLocalImage {

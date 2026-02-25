@@ -27,8 +27,8 @@ type BootloaderInstaller struct {
 	KernelArgs []string
 	OSName     string
 	Verbose    bool
-	Encryption *LUKSConfig       // Encryption configuration
-	Progress   *ProgressReporter // Progress reporter for output
+	Encryption *LUKSConfig // Encryption configuration
+	Progress   Reporter    // Progress reporter for output
 }
 
 // NewBootloaderInstaller creates a new BootloaderInstaller
@@ -40,7 +40,7 @@ func NewBootloaderInstaller(targetDir, device string, scheme *PartitionScheme, o
 		Scheme:     scheme,
 		KernelArgs: []string{},
 		OSName:     osName,
-		Progress:   NewProgressReporter(false, 1), // Default to non-JSON
+		Progress:   NewTextReporter(os.Stdout), // Default to text output
 	}
 }
 
@@ -60,7 +60,7 @@ func (b *BootloaderInstaller) SetVerbose(verbose bool) {
 }
 
 // SetProgress sets the progress reporter
-func (b *BootloaderInstaller) SetProgress(p *ProgressReporter) {
+func (b *BootloaderInstaller) SetProgress(p Reporter) {
 	b.Progress = p
 }
 

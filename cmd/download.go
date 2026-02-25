@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/frostyard/nbc/pkg"
 	"github.com/frostyard/nbc/pkg/types"
@@ -134,7 +135,12 @@ func runDownload(cmd *cobra.Command, args []string) error {
 		// Clear any existing staged update
 		updateCache := pkg.NewStagedUpdateCache()
 		existing, _ := updateCache.GetSingle()
-		progress := pkg.NewProgressReporter(jsonOutput, 1)
+		var progress pkg.Reporter
+		if jsonOutput {
+			progress = pkg.NewJSONReporter(os.Stdout)
+		} else {
+			progress = pkg.NewTextReporter(os.Stdout)
+		}
 		if existing != nil {
 			if verbose && !jsonOutput {
 				fmt.Printf("Removing existing staged update: %s\n", existing.ImageDigest)
@@ -178,7 +184,12 @@ func runDownload(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	progress := pkg.NewProgressReporter(jsonOutput, 1)
+	var progress pkg.Reporter
+	if jsonOutput {
+		progress = pkg.NewJSONReporter(os.Stdout)
+	} else {
+		progress = pkg.NewTextReporter(os.Stdout)
+	}
 
 	metadata, err := cache.Download(downloadImage, progress)
 	if err != nil {

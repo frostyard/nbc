@@ -77,7 +77,7 @@ func (c *ImageCache) GetLayoutPath(digest string) string {
 // Download pulls a container image and saves it to the cache in OCI layout format
 // Download pulls a container image and saves it to the cache in OCI layout format.
 // If progress is non-nil and set to JSON mode, interactive spinners are skipped.
-func (c *ImageCache) Download(imageRef string, progress *ProgressReporter) (*CachedImageMetadata, error) {
+func (c *ImageCache) Download(imageRef string, progress Reporter) (*CachedImageMetadata, error) {
 	// Acquire exclusive lock for cache write operation
 	lock, err := AcquireCacheLock()
 	if err != nil {
@@ -424,7 +424,7 @@ func (c *ImageCache) IsCached(digest string) (bool, error) {
 }
 
 // Remove removes a cached image by digest or digest prefix
-func (c *ImageCache) Remove(digestOrPrefix string, progress *ProgressReporter) error {
+func (c *ImageCache) Remove(digestOrPrefix string, progress Reporter) error {
 	// Acquire exclusive lock for cache write operation
 	lock, err := AcquireCacheLock()
 	if err != nil {
@@ -470,7 +470,7 @@ func (c *ImageCache) Remove(digestOrPrefix string, progress *ProgressReporter) e
 }
 
 // Clear removes all cached images
-func (c *ImageCache) Clear(progress *ProgressReporter) error {
+func (c *ImageCache) Clear(progress Reporter) error {
 	// Acquire exclusive lock for cache write operation
 	lock, err := AcquireCacheLock()
 	if err != nil {

@@ -443,13 +443,13 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 	}
 
 	// Create partitions
-	scheme, err := CreatePartitions(context.Background(), disk.GetDevice(), false, NewProgressReporter(false, 1))
+	scheme, err := CreatePartitions(context.Background(), disk.GetDevice(), false, NoopReporter{})
 	if err != nil {
 		t.Fatalf("Failed to create partitions: %v", err)
 	}
 
 	// Format partitions so they have UUIDs
-	if err := FormatPartitions(context.Background(), scheme, false, nil); err != nil {
+	if err := FormatPartitions(context.Background(), scheme, false, NoopReporter{}); err != nil {
 		t.Fatalf("Failed to format partitions: %v", err)
 	}
 
@@ -544,7 +544,7 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 	t.Run("encrypted includes boot mount", func(t *testing.T) {
 		// Setup LUKS encryption
 		passphrase := "test-passphrase"
-		if err := SetupLUKS(context.Background(), scheme, passphrase, false, NewProgressReporter(false, 1)); err != nil {
+		if err := SetupLUKS(context.Background(), scheme, passphrase, false, NoopReporter{}); err != nil {
 			t.Fatalf("Failed to setup LUKS: %v", err)
 		}
 		defer scheme.CloseLUKSDevices(context.Background())

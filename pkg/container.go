@@ -26,7 +26,7 @@ type ContainerExtractor struct {
 	Verbose         bool
 	JSONOutput      bool
 	LocalLayoutPath string // Path to OCI layout directory for local image
-	Progress        *ProgressReporter
+	Progress        Reporter
 }
 
 // NewContainerExtractor creates a new ContainerExtractor
@@ -34,7 +34,7 @@ func NewContainerExtractor(imageRef, targetDir string) *ContainerExtractor {
 	return &ContainerExtractor{
 		ImageRef:  imageRef,
 		TargetDir: targetDir,
-		Progress:  NewProgressReporter(false, 1),
+		Progress:  NewTextReporter(os.Stdout),
 	}
 }
 
@@ -43,7 +43,7 @@ func NewContainerExtractorFromLocal(layoutPath, targetDir string) *ContainerExtr
 	return &ContainerExtractor{
 		LocalLayoutPath: layoutPath,
 		TargetDir:       targetDir,
-		Progress:        NewProgressReporter(false, 1),
+		Progress:        NewTextReporter(os.Stdout),
 	}
 }
 
@@ -55,11 +55,15 @@ func (c *ContainerExtractor) SetVerbose(verbose bool) {
 // SetJSONOutput enables JSON output mode
 func (c *ContainerExtractor) SetJSONOutput(jsonOutput bool) {
 	c.JSONOutput = jsonOutput
-	c.Progress = NewProgressReporter(jsonOutput, 1)
+	if jsonOutput {
+		c.Progress = NewJSONReporter(os.Stdout)
+	} else {
+		c.Progress = NewTextReporter(os.Stdout)
+	}
 }
 
 // SetProgress sets the progress reporter directly
-func (c *ContainerExtractor) SetProgress(p *ProgressReporter) {
+func (c *ContainerExtractor) SetProgress(p Reporter) {
 	c.Progress = p
 }
 
@@ -400,7 +404,7 @@ func extractTar(ctx context.Context, r io.Reader, targetDir string) error {
 }
 
 // CreateFstab creates an /etc/fstab file with the proper mount points
-func CreateFstab(ctx context.Context, targetDir string, scheme *PartitionScheme, progress *ProgressReporter) error {
+func CreateFstab(ctx context.Context, targetDir string, scheme *PartitionScheme, progress Reporter) error {
 	if progress != nil {
 		progress.Message("Creating /etc/fstab...")
 	}
@@ -441,7 +445,7 @@ func CreateFstab(ctx context.Context, targetDir string, scheme *PartitionScheme,
 }
 
 // SetupSystemDirectories creates necessary system directories
-func SetupSystemDirectories(targetDir string, progress *ProgressReporter) error {
+func SetupSystemDirectories(targetDir string, progress Reporter) error {
 	progress.Message("Setting up system directories...")
 
 	directories := []string{
@@ -479,7 +483,7 @@ func SetupSystemDirectories(targetDir string, progress *ProgressReporter) error 
 // PrepareMachineID ensures /etc/machine-id contains "uninitialized" for first-boot detection.
 // This is required for read-only root filesystems where systemd cannot create the file at boot.
 // systemd will detect "uninitialized" and properly initialize the machine-id on first boot.
-func PrepareMachineID(targetDir string, progress *ProgressReporter) error {
+func PrepareMachineID(targetDir string, progress Reporter) error {
 	machineIDPath := filepath.Join(targetDir, "etc", "machine-id")
 
 	// Check current state

@@ -177,7 +177,7 @@ func GetCurrentBootDevice() (string, error) {
 }
 
 // GetCurrentBootDeviceInfo returns detailed information about the boot device
-func GetCurrentBootDeviceInfo(verbose bool, progress *ProgressReporter) (string, error) {
+func GetCurrentBootDeviceInfo(verbose bool, progress Reporter) (string, error) {
 	device, err := GetCurrentBootDevice()
 	if err != nil {
 		return "", err

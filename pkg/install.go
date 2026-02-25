@@ -186,7 +186,7 @@ type Installer struct {
 	// Internal state
 	loopback  *LoopbackDevice
 	startTime time.Time
-	progress  *ProgressReporter
+	progress  Reporter
 
 	// TODO: Remove progressAdapter when ProgressReporter is deprecated
 	progressAdapter *callbackProgressAdapter
@@ -265,9 +265,16 @@ func NewInstaller(cfg *InstallConfig) (*Installer, error) {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
+	var reporter Reporter
+	if cfg.JSONOutput {
+		reporter = NewJSONReporter(os.Stdout)
+	} else {
+		reporter = NewTextReporter(os.Stdout)
+	}
+
 	return &Installer{
 		config:   cfg,
-		progress: NewProgressReporter(cfg.JSONOutput, 6),
+		progress: reporter,
 	}, nil
 }
 
@@ -774,9 +781,9 @@ func (i *Installer) verify(ctx context.Context, device string) error {
 	return nil
 }
 
-// asLegacyProgress returns a ProgressReporter for functions that still use it.
+// asLegacyProgress returns the Reporter for functions that accept it.
 // This returns the installer's progress reporter which respects JSONOutput setting.
-func (i *Installer) asLegacyProgress() *ProgressReporter {
+func (i *Installer) asLegacyProgress() Reporter {
 	return i.progress
 }
 
@@ -868,11 +875,11 @@ func (a *callbackProgressAdapter) Progress(percent int, message string) {
 // If jsonOutput is true, emits JSON Lines format; otherwise prints to stdout.
 func CreateCLICallbacks(jsonOutput bool) *InstallCallbacks {
 	if jsonOutput {
-		// Use ProgressReporter for JSON output (maintains compatibility)
-		reporter := NewProgressReporter(true, 6)
+		// Use JSONReporter for JSON output
+		reporter := NewJSONReporter(os.Stdout)
 		return &InstallCallbacks{
 			OnStep: func(step, total int, name string) {
-				reporter.Step(step, name)
+				reporter.Step(step, total, name)
 			},
 			OnProgress: func(percent int, message string) {
 				reporter.Progress(percent, message)

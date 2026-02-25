@@ -27,7 +27,7 @@ type BootcInstaller struct {
 	KernelArgs      []string
 	MountPoint      string
 	FilesystemType  string // ext4 or btrfs
-	Progress        *ProgressReporter
+	Progress        Reporter
 	Encryption      *LUKSConfig          // Encryption configuration
 	LocalLayoutPath string               // Path to OCI layout directory for local image
 	LocalMetadata   *CachedImageMetadata // Metadata from cached image
@@ -45,7 +45,7 @@ func NewBootcInstaller(imageRef, device string) *BootcInstaller {
 		KernelArgs:     []string{},
 		MountPoint:     "/tmp/nbc-install",
 		FilesystemType: "ext4", // Default to ext4
-		Progress:       NewProgressReporter(false, 6),
+		Progress:       NewTextReporter(os.Stdout),
 	}
 }
 
@@ -77,7 +77,11 @@ func (b *BootcInstaller) SetFilesystemType(fsType string) {
 // SetJSONOutput enables JSON output mode
 func (b *BootcInstaller) SetJSONOutput(jsonOutput bool) {
 	b.JSONOutput = jsonOutput
-	b.Progress = NewProgressReporter(jsonOutput, 6)
+	if jsonOutput {
+		b.Progress = NewJSONReporter(os.Stdout)
+	} else {
+		b.Progress = NewTextReporter(os.Stdout)
+	}
 }
 
 // SetEncryption enables LUKS encryption with the given passphrase/keyfile and optional TPM2
@@ -106,7 +110,7 @@ func (b *BootcInstaller) SetRootPassword(password string) {
 
 // SetRootPasswordInTarget sets the root password in the installed system using chpasswd
 // The password is passed via stdin for security (not visible in process list)
-func SetRootPasswordInTarget(targetDir, password string, dryRun bool, progress *ProgressReporter) error {
+func SetRootPasswordInTarget(targetDir, password string, dryRun bool, progress Reporter) error {
 	if password == "" {
 		return nil // No password to set
 	}
@@ -157,7 +161,7 @@ func CheckRequiredTools() error {
 // PullImage validates an image reference and checks if it's accessible.
 // This is a standalone function for use by Installer.
 // The actual image pull happens during Extract() to avoid duplicate work.
-func PullImage(ctx context.Context, imageRef string, verbose bool, progress *ProgressReporter) error {
+func PullImage(ctx context.Context, imageRef string, verbose bool, progress Reporter) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -260,7 +264,7 @@ func (b *BootcInstaller) Install(ctx context.Context) error {
 	p.Message("Filesystem: %s", b.FilesystemType)
 
 	// Step 1: Create partitions
-	p.Step(1, "Creating partitions")
+	p.Step(1, 6, "Creating partitions")
 	scheme, err := CreatePartitions(ctx, b.Device, b.DryRun, p)
 	if err != nil {
 		return fmt.Errorf("failed to create partitions: %w", err)
@@ -282,13 +286,13 @@ func (b *BootcInstaller) Install(ctx context.Context) error {
 	}
 
 	// Step 2: Format partitions
-	p.Step(2, "Formatting partitions")
+	p.Step(2, 6, "Formatting partitions")
 	if err := FormatPartitions(ctx, scheme, b.DryRun, p); err != nil {
 		return fmt.Errorf("failed to format partitions: %w", err)
 	}
 
 	// Step 3: Mount partitions
-	p.Step(3, "Mounting partitions")
+	p.Step(3, 6, "Mounting partitions")
 	if err := MountPartitions(ctx, scheme, b.MountPoint, b.DryRun, p); err != nil {
 		return fmt.Errorf("failed to mount partitions: %w", err)
 	}
@@ -307,7 +311,7 @@ func (b *BootcInstaller) Install(ctx context.Context) error {
 	}()
 
 	// Step 4: Extract container filesystem
-	p.Step(4, "Extracting container filesystem")
+	p.Step(4, 6, "Extracting container filesystem")
 	var extractor *ContainerExtractor
 	if b.LocalLayoutPath != "" {
 		extractor = NewContainerExtractorFromLocal(b.LocalLayoutPath, b.MountPoint)
@@ -350,7 +354,7 @@ func (b *BootcInstaller) Install(ctx context.Context) error {
 	}
 
 	// Step 5: Configure system
-	p.Step(5, "Configuring system")
+	p.Step(5, 6, "Configuring system")
 
 	// Create fstab
 	if err := CreateFstab(ctx, b.MountPoint, scheme, p); err != nil {
@@ -480,7 +484,7 @@ func (b *BootcInstaller) Install(ctx context.Context) error {
 	}
 
 	// Step 6: Install bootloader
-	p.Step(6, "Installing bootloader")
+	p.Step(6, 6, "Installing bootloader")
 
 	// Parse OS information from the extracted container
 	osName := ParseOSRelease(b.MountPoint)

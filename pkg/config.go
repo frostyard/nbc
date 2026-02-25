@@ -40,7 +40,7 @@ func IsNBCBooted() bool {
 // This marker is created by systemd-tmpfiles during boot, after /run is mounted.
 // Unlike the dracut approach, this ensures the marker exists after switch_root
 // when systemd mounts a fresh tmpfs on /run.
-func InstallTmpfilesConfig(targetDir string, dryRun bool, progress *ProgressReporter) error {
+func InstallTmpfilesConfig(targetDir string, dryRun bool, progress Reporter) error {
 	if dryRun {
 		progress.MessagePlain("[DRY RUN] Would install tmpfiles.d config for nbc-booted marker")
 		return nil
@@ -101,7 +101,7 @@ type SystemConfig struct {
 // WriteSystemConfig writes system configuration to /var/lib/nbc/state/config.json
 // If legacy config exists at /etc/nbc/config.json, it will be cleaned up after
 // successful write and verification.
-func WriteSystemConfig(config *SystemConfig, dryRun bool, progress *ProgressReporter) error {
+func WriteSystemConfig(config *SystemConfig, dryRun bool, progress Reporter) error {
 	if dryRun {
 		progress.MessagePlain("[DRY RUN] Would write config to %s", SystemConfigFile)
 		return nil
@@ -195,7 +195,7 @@ func ReadSystemConfig() (*SystemConfig, error) {
 
 // WriteSystemConfigToVar writes system configuration to the mounted /var partition
 // varMountPoint is the path where the var partition is mounted (e.g., /mnt/var or /mnt/root/var)
-func WriteSystemConfigToVar(varMountPoint string, config *SystemConfig, dryRun bool, progress *ProgressReporter) error {
+func WriteSystemConfigToVar(varMountPoint string, config *SystemConfig, dryRun bool, progress Reporter) error {
 	if dryRun {
 		progress.MessagePlain("[DRY RUN] Would write config to %s/lib/nbc/state/config.json", varMountPoint)
 		return nil
@@ -232,7 +232,7 @@ func WriteSystemConfigToVar(varMountPoint string, config *SystemConfig, dryRun b
 }
 
 // UpdateSystemConfigImageRef updates the image reference and digest in the system config
-func UpdateSystemConfigImageRef(imageRef, imageDigest string, dryRun bool, progress *ProgressReporter) error {
+func UpdateSystemConfigImageRef(imageRef, imageDigest string, dryRun bool, progress Reporter) error {
 	if dryRun {
 		progress.MessagePlain("[DRY RUN] Would update config with image: %s (digest: %s)", imageRef, imageDigest)
 		return nil

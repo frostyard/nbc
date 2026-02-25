@@ -80,10 +80,10 @@ func TestBootcInstaller_Install(t *testing.T) {
 	defer testutil.CleanupMounts(t, verifyMount)
 
 	// Mount root1 partition
-	if err := MountPartitions(context.Background(), scheme, verifyMount, false, nil); err != nil {
+	if err := MountPartitions(context.Background(), scheme, verifyMount, false, NoopReporter{}); err != nil {
 		t.Fatalf("Failed to mount partitions for verification: %v", err)
 	}
-	defer func() { _ = UnmountPartitions(context.Background(), verifyMount, false, nil) }()
+	defer func() { _ = UnmountPartitions(context.Background(), verifyMount, false, NoopReporter{}) }()
 
 	// Check for expected directories
 	expectedDirs := []string{
@@ -243,10 +243,10 @@ func TestBootcInstaller_WithKernelArgs(t *testing.T) {
 	}
 	defer testutil.CleanupMounts(t, verifyMount)
 
-	if err := MountPartitions(context.Background(), scheme, verifyMount, false, nil); err != nil {
+	if err := MountPartitions(context.Background(), scheme, verifyMount, false, NoopReporter{}); err != nil {
 		t.Fatalf("Failed to mount partitions: %v", err)
 	}
-	defer func() { _ = UnmountPartitions(context.Background(), verifyMount, false, nil) }()
+	defer func() { _ = UnmountPartitions(context.Background(), verifyMount, false, NoopReporter{}) }()
 
 	configFile := filepath.Join(verifyMount, "etc", "nbc", "config.json")
 	config, err := readConfigFromFile(configFile)
@@ -299,7 +299,7 @@ func getOrEmpty(slice []string, index int) string {
 func TestSetRootPasswordInTarget_EmptyPassword(t *testing.T) {
 	// Empty password should be a no-op and return nil
 	targetDir := t.TempDir()
-	err := SetRootPasswordInTarget(targetDir, "", false, NewProgressReporter(false, 1))
+	err := SetRootPasswordInTarget(targetDir, "", false, NoopReporter{})
 	if err != nil {
 		t.Errorf("SetRootPasswordInTarget with empty password should return nil, got: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestSetRootPasswordInTarget_EmptyPassword(t *testing.T) {
 func TestSetRootPasswordInTarget_DryRun(t *testing.T) {
 	// Dry run should not execute chpasswd
 	targetDir := t.TempDir()
-	err := SetRootPasswordInTarget(targetDir, "testpassword", true, NewProgressReporter(false, 1))
+	err := SetRootPasswordInTarget(targetDir, "testpassword", true, NoopReporter{})
 	if err != nil {
 		t.Errorf("SetRootPasswordInTarget dry run should return nil, got: %v", err)
 	}
@@ -317,7 +317,7 @@ func TestSetRootPasswordInTarget_DryRun(t *testing.T) {
 func TestSetRootPasswordInTarget_InvalidTarget(t *testing.T) {
 	// Test with a non-existent target directory
 	// chpasswd -R should fail when target doesn't exist
-	err := SetRootPasswordInTarget("/nonexistent/path/for/testing", "testpassword", false, NewProgressReporter(false, 1))
+	err := SetRootPasswordInTarget("/nonexistent/path/for/testing", "testpassword", false, NoopReporter{})
 	if err == nil {
 		t.Error("SetRootPasswordInTarget should fail with non-existent target directory")
 	}
@@ -381,7 +381,7 @@ password   required     pam_unix.so sha512 shadow
 	}
 
 	// Set the root password
-	err := SetRootPasswordInTarget(targetDir, "testpassword123", false, NewProgressReporter(false, 1))
+	err := SetRootPasswordInTarget(targetDir, "testpassword123", false, NoopReporter{})
 	if err != nil {
 		// chpasswd -R may fail in test environments due to PAM configuration
 		// This is expected behavior - the real test happens during actual installation

@@ -167,11 +167,11 @@ func (r *JSONReporter) IsJSON() bool { return true }
 // where no progress reporting is needed.
 type NoopReporter struct{}
 
-func (NoopReporter) Step(int, int, string)           {}
-func (NoopReporter) Progress(int, string)             {}
-func (NoopReporter) Message(string, ...any)           {}
-func (NoopReporter) MessagePlain(string, ...any)      {}
-func (NoopReporter) Warning(string, ...any)           {}
-func (NoopReporter) Error(error, string)              {}
-func (NoopReporter) Complete(string, any)             {}
-func (NoopReporter) IsJSON() bool                     { return false }
+func (NoopReporter) Step(int, int, string)       {}
+func (NoopReporter) Progress(int, string)        {}
+func (NoopReporter) Message(string, ...any)      {}
+func (NoopReporter) MessagePlain(string, ...any) {}
+func (NoopReporter) Warning(string, ...any)      {}
+func (NoopReporter) Error(error, string)         {}
+func (NoopReporter) Complete(string, any)        {}
+func (NoopReporter) IsJSON() bool                { return false }

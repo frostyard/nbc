@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/frostyard/nbc/pkg"
 	"github.com/frostyard/nbc/pkg/types"
@@ -188,7 +189,12 @@ func runCacheRemove(cmd *cobra.Command, args []string) error {
 
 	// Try install cache first
 	installCache := pkg.NewStagedInstallCache()
-	progress := pkg.NewProgressReporter(jsonOutput, 1)
+	var progress pkg.Reporter
+	if jsonOutput {
+		progress = pkg.NewJSONReporter(os.Stdout)
+	} else {
+		progress = pkg.NewTextReporter(os.Stdout)
+	}
 	if cacheRemoveType == "" || cacheRemoveType == "install" {
 		if err := installCache.Remove(digest, progress); err == nil {
 			removed = true
@@ -252,7 +258,12 @@ func runCacheClear(cmd *cobra.Command, args []string) error {
 		cacheType = "update"
 	}
 
-	progress := pkg.NewProgressReporter(jsonOutput, 1)
+	var progress pkg.Reporter
+	if jsonOutput {
+		progress = pkg.NewJSONReporter(os.Stdout)
+	} else {
+		progress = pkg.NewTextReporter(os.Stdout)
+	}
 	if err := cache.Clear(progress); err != nil {
 		if jsonOutput {
 			return outputJSONError("failed to clear cache", err)

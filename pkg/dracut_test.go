@@ -98,7 +98,7 @@ func getKernelVersion() string {
 
 func TestVerifyDracutEtcOverlay(t *testing.T) {
 	t.Run("dry run always succeeds", func(t *testing.T) {
-		progress := NewProgressReporter(false, 1)
+		progress := NoopReporter{}
 		err := VerifyDracutEtcOverlay("/nonexistent", true, progress)
 		if err != nil {
 			t.Errorf("dry run should succeed: %v", err)
@@ -114,7 +114,7 @@ func TestVerifyDracutEtcOverlay(t *testing.T) {
 		}
 
 		// Should fail because required files are missing
-		progress := NewProgressReporter(false, 1)
+		progress := NoopReporter{}
 		err := VerifyDracutEtcOverlay(tmpDir, false, progress)
 		if err == nil {
 			t.Error("should fail when required files are missing")
@@ -136,7 +136,7 @@ func TestVerifyDracutEtcOverlay(t *testing.T) {
 			}
 		}
 
-		progress := NewProgressReporter(false, 1)
+		progress := NoopReporter{}
 		err := VerifyDracutEtcOverlay(tmpDir, false, progress)
 		if err != nil {
 			t.Errorf("should succeed when module files exist: %v", err)

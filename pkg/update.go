@@ -219,7 +219,7 @@ type SystemUpdater struct {
 	Target           string
 	TargetMapperName string // For encrypted systems: "root1" or "root2"
 	TargetMapperPath string // For encrypted systems: "/dev/mapper/root1" or "/dev/mapper/root2"
-	Progress         *ProgressReporter
+	Progress         Reporter
 	Encryption       *EncryptionConfig    // Encryption configuration (loaded from system config)
 	LocalLayoutPath  string               // Path to OCI layout directory for local image
 	LocalMetadata    *CachedImageMetadata // Metadata from cached image
@@ -234,7 +234,7 @@ func NewSystemUpdater(device, imageRef string) *SystemUpdater {
 			MountPoint:     "/tmp/nbc-update",
 			BootMountPoint: "/tmp/nbc-boot",
 		},
-		Progress: NewProgressReporter(false, 7),
+		Progress: NewTextReporter(os.Stdout),
 	}
 }
 
@@ -256,7 +256,11 @@ func (u *SystemUpdater) SetForce(force bool) {
 // SetJSONOutput enables JSON output mode
 func (u *SystemUpdater) SetJSONOutput(jsonOutput bool) {
 	u.Config.JSONOutput = jsonOutput
-	u.Progress = NewProgressReporter(jsonOutput, 7)
+	if jsonOutput {
+		u.Progress = NewJSONReporter(os.Stdout)
+	} else {
+		u.Progress = NewTextReporter(os.Stdout)
+	}
 }
 
 // AddKernelArg adds a kernel argument
@@ -564,7 +568,7 @@ func (u *SystemUpdater) Update() error {
 	}
 
 	// Step 1: Mount target partition
-	p.Step(1, "Mounting target partition")
+	p.Step(1, 7, "Mounting target partition")
 	if err := os.MkdirAll(u.Config.MountPoint, 0755); err != nil {
 		return fmt.Errorf("failed to create mount point: %w", err)
 	}
@@ -630,7 +634,7 @@ func (u *SystemUpdater) Update() error {
 	}()
 
 	// Step 2: Clear existing content
-	p.Step(2, "Clearing old content from target partition")
+	p.Step(2, 7, "Clearing old content from target partition")
 	entries, err := os.ReadDir(u.Config.MountPoint)
 	if err != nil {
 		return fmt.Errorf("failed to read target directory: %w", err)
@@ -643,7 +647,7 @@ func (u *SystemUpdater) Update() error {
 	}
 
 	// Step 3: Extract new container filesystem
-	p.Step(3, "Extracting new container filesystem")
+	p.Step(3, 7, "Extracting new container filesystem")
 	var extractor *ContainerExtractor
 	if u.LocalLayoutPath != "" {
 		extractor = NewContainerExtractorFromLocal(u.LocalLayoutPath, u.Config.MountPoint)
@@ -685,7 +689,7 @@ func (u *SystemUpdater) Update() error {
 	}
 
 	// Step 4: Merge /etc configuration from active system
-	p.Step(4, "Preserving user configuration")
+	p.Step(4, 7, "Preserving user configuration")
 	activeRoot := u.Scheme.Root1Partition
 	if !u.Active {
 		activeRoot = u.Scheme.Root2Partition
@@ -703,7 +707,7 @@ func (u *SystemUpdater) Update() error {
 	}
 
 	// Step 5: Setup system directories
-	p.Step(5, "Setting up system directories")
+	p.Step(5, 7, "Setting up system directories")
 	if err := SetupSystemDirectories(u.Config.MountPoint, p); err != nil {
 		return fmt.Errorf("failed to setup directories: %w", err)
 	}
@@ -838,13 +842,13 @@ func (u *SystemUpdater) Update() error {
 	}
 
 	// Step 6: Install new kernel and initramfs if present
-	p.Step(6, "Checking for new kernel and initramfs")
+	p.Step(6, 7, "Checking for new kernel and initramfs")
 	if err := u.InstallKernelAndInitramfs(); err != nil {
 		return fmt.Errorf("failed to install kernel/initramfs: %w", err)
 	}
 
 	// Step 7: Update bootloader configuration
-	p.Step(7, "Updating bootloader configuration")
+	p.Step(7, 7, "Updating bootloader configuration")
 	if err := u.UpdateBootloader(); err != nil {
 		return fmt.Errorf("failed to update bootloader: %w", err)
 	}

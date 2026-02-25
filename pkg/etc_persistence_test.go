@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-// testProgress creates a ProgressReporter for tests with JSON disabled
-func testProgress() *ProgressReporter {
-	return NewProgressReporter(false, 1)
+// testProgress creates a Reporter for tests that discards output
+func testProgress() Reporter {
+	return NoopReporter{}
 }
 
 func TestConstants(t *testing.T) {

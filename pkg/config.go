@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/frostyard/nbc/pkg/types"
 )
 
 const (
@@ -252,16 +254,8 @@ func UpdateSystemConfigImageRef(imageRef, imageDigest string, dryRun bool, progr
 	return WriteSystemConfig(config, false, progress)
 }
 
-// RebootPendingInfo contains information about a pending update awaiting reboot
-type RebootPendingInfo struct {
-	PendingImageRef    string `json:"pending_image_ref"`
-	PendingImageDigest string `json:"pending_image_digest"`
-	UpdateTime         string `json:"update_time"`
-	TargetPartition    string `json:"target_partition"`
-}
-
 // WriteRebootRequiredMarker creates the reboot-required marker with pending update info
-func WriteRebootRequiredMarker(info *RebootPendingInfo) error {
+func WriteRebootRequiredMarker(info *types.RebootPendingInfo) error {
 	data, err := json.MarshalIndent(info, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal reboot info: %w", err)
@@ -275,7 +269,7 @@ func WriteRebootRequiredMarker(info *RebootPendingInfo) error {
 }
 
 // ReadRebootRequiredMarker reads the marker if it exists, returns nil if not present
-func ReadRebootRequiredMarker() (*RebootPendingInfo, error) {
+func ReadRebootRequiredMarker() (*types.RebootPendingInfo, error) {
 	data, err := os.ReadFile(RebootRequiredMarker)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -284,7 +278,7 @@ func ReadRebootRequiredMarker() (*RebootPendingInfo, error) {
 		return nil, fmt.Errorf("failed to read reboot marker: %w", err)
 	}
 
-	var info RebootPendingInfo
+	var info types.RebootPendingInfo
 	if err := json.Unmarshal(data, &info); err != nil {
 		return nil, fmt.Errorf("failed to parse reboot marker: %w", err)
 	}

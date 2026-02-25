@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/frostyard/nbc/pkg/types"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
@@ -855,7 +856,7 @@ func (u *SystemUpdater) Update() error {
 
 	// Write reboot-required marker to /run (automatically cleared on reboot)
 	if !u.Config.DryRun {
-		rebootInfo := &RebootPendingInfo{
+		rebootInfo := &types.RebootPendingInfo{
 			PendingImageRef:    u.Config.ImageRef,
 			PendingImageDigest: u.Config.ImageDigest,
 			UpdateTime:         time.Now().UTC().Format(time.RFC3339),

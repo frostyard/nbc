@@ -86,6 +86,8 @@ func init() {
 	installCmd.Flags().StringVar(&installViaLoopback, "via-loopback", "", "Path to create a loopback disk image file for installation (instead of --device)")
 	installCmd.Flags().IntVar(&installImageSize, "image-size", pkg.DefaultLoopbackSizeGB, "Size of loopback image in GB (minimum 35GB, default 35GB)")
 	installCmd.Flags().BoolVar(&installForce, "force", false, "Overwrite existing loopback image file")
+	installCmd.Flags().BoolVar(&installForce, "yes", false, "Overwrite existing loopback image file (alias for --force)")
+	installCmd.Flags().Lookup("yes").Hidden = true
 
 	// Don't mark device as required - can use --via-loopback instead
 }

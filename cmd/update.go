@@ -71,6 +71,8 @@ func init() {
 	updateCmd.Flags().BoolVarP(&updateCheckOnly, "check", "c", false, "Only check if an update is available (don't install)")
 	updateCmd.Flags().StringArrayVarP(&updateKernelArgs, "karg", "k", []string{}, "Kernel argument to pass (can be specified multiple times)")
 	updateCmd.Flags().BoolP("force", "f", false, "Force reinstall even if system is up-to-date")
+	updateCmd.Flags().Bool("yes", false, "Force reinstall even if system is up-to-date (alias for --force)")
+	updateCmd.Flags().Lookup("yes").Hidden = true
 	updateCmd.Flags().BoolVar(&updateDownloadOnly, "download-only", false, "Download update to cache without applying")
 	updateCmd.Flags().BoolVar(&updateLocalImage, "local-image", false, "Apply update from staged cache (/var/cache/nbc/staged-update/)")
 	updateCmd.Flags().BoolVar(&updateAuto, "auto", false, "Automatically use staged update if available, otherwise pull from registry")
@@ -81,6 +83,9 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	verbose := viper.GetBool("verbose")
 	dryRun := viper.GetBool("dry-run")
 	force := viper.GetBool("force")
+	if yes, _ := cmd.Flags().GetBool("yes"); yes {
+		force = true
+	}
 	jsonOutput := viper.GetBool("json")
 
 	// Create progress reporter for early error output

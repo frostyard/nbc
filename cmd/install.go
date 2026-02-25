@@ -109,10 +109,6 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Set up callbacks for progress reporting
-	callbacks := pkg.CreateCLICallbacks(jsonOutput)
-	installer.SetCallbacks(callbacks)
-
 	// Run installation
 	result, err := installer.Install(cmd.Context())
 
@@ -148,12 +144,15 @@ func runInstall(cmd *cobra.Command, args []string) error {
 // buildInstallConfig constructs an InstallConfig from command-line flags.
 // It handles local image resolution and validation of flag combinations.
 func buildInstallConfig(ctx context.Context, verbose, dryRun, jsonOutput bool) (*pkg.InstallConfig, error) {
-	// Create callbacks for early error output
-	callbacks := pkg.CreateCLICallbacks(jsonOutput)
+	// Create reporter for early error output
+	var reporter pkg.Reporter
+	if jsonOutput {
+		reporter = pkg.NewJSONReporter(os.Stdout)
+	} else {
+		reporter = pkg.NewTextReporter(os.Stdout)
+	}
 	reportError := func(err error, msg string) error {
-		if callbacks.OnError != nil {
-			callbacks.OnError(err, msg)
-		}
+		reporter.Error(err, msg)
 		return err
 	}
 

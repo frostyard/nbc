@@ -274,208 +274,6 @@ func TestNewInstaller_DefaultValues(t *testing.T) {
 	})
 }
 
-func TestInstaller_SetCallbacks(t *testing.T) {
-	cfg := &InstallConfig{
-		ImageRef: "quay.io/example/image:latest",
-		Device:   "/dev/sda",
-	}
-	installer, err := NewInstaller(cfg)
-	if err != nil {
-		t.Fatalf("NewInstaller() error: %v", err)
-	}
-
-	// Initially callbacks should be nil
-	if installer.callbacks != nil {
-		t.Error("callbacks should initially be nil")
-	}
-
-	// Set callbacks
-	callbacks := &InstallCallbacks{
-		OnStep: func(step, total int, name string) {
-			// callback placeholder
-		},
-	}
-	installer.SetCallbacks(callbacks)
-
-	if installer.callbacks == nil {
-		t.Error("callbacks should not be nil after SetCallbacks")
-	}
-	if installer.progressAdapter == nil {
-		t.Error("progressAdapter should not be nil after SetCallbacks")
-	}
-}
-
-func TestInstaller_CallOnError(t *testing.T) {
-	cfg := &InstallConfig{
-		ImageRef: "quay.io/example/image:latest",
-		Device:   "/dev/sda",
-	}
-	installer, err := NewInstaller(cfg)
-	if err != nil {
-		t.Fatalf("NewInstaller() error: %v", err)
-	}
-
-	t.Run("nil callbacks does not panic", func(t *testing.T) {
-		// Should not panic with nil callbacks
-		installer.callOnError(context.Canceled, "test")
-	})
-
-	t.Run("nil OnError does not panic", func(t *testing.T) {
-		installer.SetCallbacks(&InstallCallbacks{})
-		installer.callOnError(context.Canceled, "test")
-	})
-
-	t.Run("OnError is called", func(t *testing.T) {
-		var calledWith error
-		var calledMessage string
-		installer.SetCallbacks(&InstallCallbacks{
-			OnError: func(err error, msg string) {
-				calledWith = err
-				calledMessage = msg
-			},
-		})
-
-		testErr := context.Canceled
-		installer.callOnError(testErr, "test message")
-
-		if calledWith != testErr {
-			t.Errorf("OnError called with %v, want %v", calledWith, testErr)
-		}
-		if calledMessage != "test message" {
-			t.Errorf("OnError called with message %q, want %q", calledMessage, "test message")
-		}
-	})
-}
-
-func TestCreateCLICallbacks(t *testing.T) {
-	t.Run("text output callbacks", func(t *testing.T) {
-		callbacks := CreateCLICallbacks(false)
-		if callbacks == nil {
-			t.Fatal("CreateCLICallbacks(false) returned nil")
-			return
-		}
-		if callbacks.OnStep == nil {
-			t.Error("OnStep should not be nil")
-		}
-		if callbacks.OnMessage == nil {
-			t.Error("OnMessage should not be nil")
-		}
-		if callbacks.OnWarning == nil {
-			t.Error("OnWarning should not be nil")
-		}
-		if callbacks.OnError == nil {
-			t.Error("OnError should not be nil")
-		}
-	})
-
-	t.Run("json output callbacks", func(t *testing.T) {
-		callbacks := CreateCLICallbacks(true)
-		if callbacks == nil {
-			t.Fatal("CreateCLICallbacks(true) returned nil")
-			return
-		}
-		if callbacks.OnStep == nil {
-			t.Error("OnStep should not be nil")
-		}
-		if callbacks.OnMessage == nil {
-			t.Error("OnMessage should not be nil")
-		}
-		if callbacks.OnWarning == nil {
-			t.Error("OnWarning should not be nil")
-		}
-		if callbacks.OnError == nil {
-			t.Error("OnError should not be nil")
-		}
-	})
-}
-
-func TestCallbackProgressAdapter(t *testing.T) {
-	t.Run("Step calls OnStep", func(t *testing.T) {
-		var stepNum, totalSteps int
-		var stepName string
-
-		adapter := newCallbackProgressAdapter(&InstallCallbacks{
-			OnStep: func(step, total int, name string) {
-				stepNum = step
-				totalSteps = total
-				stepName = name
-			},
-		}, 6)
-
-		adapter.Step(3, "Testing")
-
-		if stepNum != 3 {
-			t.Errorf("step = %d, want 3", stepNum)
-		}
-		if totalSteps != 6 {
-			t.Errorf("totalSteps = %d, want 6", totalSteps)
-		}
-		if stepName != "Testing" {
-			t.Errorf("stepName = %q, want %q", stepName, "Testing")
-		}
-	})
-
-	t.Run("Message calls OnMessage", func(t *testing.T) {
-		var message string
-		adapter := newCallbackProgressAdapter(&InstallCallbacks{
-			OnMessage: func(msg string) {
-				message = msg
-			},
-		}, 6)
-
-		adapter.Message("Hello %s", "World")
-
-		if message != "Hello World" {
-			t.Errorf("message = %q, want %q", message, "Hello World")
-		}
-	})
-
-	t.Run("Warning calls OnWarning", func(t *testing.T) {
-		var warning string
-		adapter := newCallbackProgressAdapter(&InstallCallbacks{
-			OnWarning: func(msg string) {
-				warning = msg
-			},
-		}, 6)
-
-		adapter.Warning("Warning: %d issues", 5)
-
-		if warning != "Warning: 5 issues" {
-			t.Errorf("warning = %q, want %q", warning, "Warning: 5 issues")
-		}
-	})
-
-	t.Run("Progress calls OnProgress", func(t *testing.T) {
-		var percent int
-		var message string
-		adapter := newCallbackProgressAdapter(&InstallCallbacks{
-			OnProgress: func(p int, msg string) {
-				percent = p
-				message = msg
-			},
-		}, 6)
-
-		adapter.Progress(75, "Processing...")
-
-		if percent != 75 {
-			t.Errorf("percent = %d, want 75", percent)
-		}
-		if message != "Processing..." {
-			t.Errorf("message = %q, want %q", message, "Processing...")
-		}
-	})
-
-	t.Run("nil callbacks do not panic", func(t *testing.T) {
-		adapter := newCallbackProgressAdapter(nil, 6)
-		// These should not panic
-		adapter.Step(1, "Test")
-		adapter.Message("Test")
-		adapter.Warning("Test")
-		adapter.Progress(50, "Test")
-		adapter.Error(context.Canceled, "Test")
-	})
-}
-
 // TestIntegration_Installer_Install tests the full installation flow using a loopback device
 func TestIntegration_Installer_Install(t *testing.T) {
 	testutil.RequireRoot(t)
@@ -508,25 +306,6 @@ func TestIntegration_Installer_Install(t *testing.T) {
 		t.Fatalf("NewInstaller() error: %v", err)
 	}
 
-	// Track callback invocations
-	var steps []string
-	var messages []string
-	installer.SetCallbacks(&InstallCallbacks{
-		OnStep: func(step, total int, name string) {
-			steps = append(steps, name)
-			t.Logf("Step %d/%d: %s", step, total, name)
-		},
-		OnMessage: func(msg string) {
-			messages = append(messages, msg)
-		},
-		OnWarning: func(msg string) {
-			t.Logf("Warning: %s", msg)
-		},
-		OnError: func(err error, msg string) {
-			t.Logf("Error: %s: %v", msg, err)
-		},
-	})
-
 	// Perform installation
 	t.Log("Starting Installer.Install() test")
 	result, err := installer.Install(context.Background())
@@ -547,13 +326,6 @@ func TestIntegration_Installer_Install(t *testing.T) {
 		t.Error("result.ImageRef is empty")
 	}
 	t.Logf("Device: %s, ImageRef: %s", result.Device, result.ImageRef)
-
-	// Verify callbacks were invoked
-	if len(steps) == 0 {
-		t.Error("OnStep callback was never invoked")
-	} else {
-		t.Logf("Steps executed: %v", steps)
-	}
 
 	// Verify partitions were created
 	_ = testutil.WaitForDevice(disk.GetDevice())
@@ -660,18 +432,6 @@ func TestIntegration_Installer_DryRun(t *testing.T) {
 		t.Fatalf("NewInstaller() error: %v", err)
 	}
 
-	// Track callback invocations
-	var messages []string
-	installer.SetCallbacks(&InstallCallbacks{
-		OnStep: func(step, total int, name string) {
-			t.Logf("[DRY RUN] Step %d/%d: %s", step, total, name)
-		},
-		OnMessage: func(msg string) {
-			messages = append(messages, msg)
-			t.Logf("[DRY RUN] %s", msg)
-		},
-	})
-
 	// Perform dry-run installation
 	t.Log("Testing Installer.Install() in dry-run mode")
 	result, err := installer.Install(context.Background())
@@ -682,14 +442,6 @@ func TestIntegration_Installer_DryRun(t *testing.T) {
 	// Cleanup should still be provided (even if no-op)
 	if result.Cleanup != nil {
 		_ = result.Cleanup()
-	}
-
-	// In dry-run mode, OnStep is not called (no actual steps are performed)
-	// but OnMessage should be called
-	if len(messages) == 0 {
-		t.Error("OnMessage callback was never invoked during dry-run")
-	} else {
-		t.Logf("Dry-run messages: %d messages logged", len(messages))
 	}
 
 	// Verify that nothing was actually created
@@ -749,21 +501,6 @@ func TestIntegration_Installer_WithEncryption(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewInstaller() error: %v", err)
 	}
-
-	// Track steps
-	var steps []string
-	installer.SetCallbacks(&InstallCallbacks{
-		OnStep: func(step, total int, name string) {
-			steps = append(steps, name)
-			t.Logf("Step %d/%d: %s", step, total, name)
-		},
-		OnMessage: func(msg string) {
-			t.Logf("  %s", msg)
-		},
-		OnWarning: func(msg string) {
-			t.Logf("Warning: %s", msg)
-		},
-	})
 
 	// Perform installation
 	t.Log("Starting encrypted installation test")

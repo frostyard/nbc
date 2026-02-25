@@ -12,8 +12,12 @@ import (
 	"github.com/spf13/viper"
 )
 
-var lintLocal bool
-var lintFix bool
+type lintFlags struct {
+	local bool
+	fix   bool
+}
+
+var lntFlags lintFlags
 
 var lintCmd = &cobra.Command{
 	Use:   "lint [image]",
@@ -52,8 +56,8 @@ Examples:
 
 func init() {
 	rootCmd.AddCommand(lintCmd)
-	lintCmd.Flags().BoolVar(&lintLocal, "local", false, "Lint the current filesystem instead of a container image (for use inside container builds)")
-	lintCmd.Flags().BoolVar(&lintFix, "fix", false, "Automatically fix issues (only valid with --local)")
+	lintCmd.Flags().BoolVar(&lntFlags.local, "local", false, "Lint the current filesystem instead of a container image (for use inside container builds)")
+	lintCmd.Flags().BoolVar(&lntFlags.fix, "fix", false, "Automatically fix issues (only valid with --local)")
 }
 
 func runLint(cmd *cobra.Command, args []string) error {
@@ -61,34 +65,34 @@ func runLint(cmd *cobra.Command, args []string) error {
 	jsonOutput := viper.GetBool("json")
 
 	// Validate arguments
-	if lintLocal && len(args) > 0 {
+	if lntFlags.local && len(args) > 0 {
 		return fmt.Errorf("cannot specify both --local and an image reference")
 	}
-	if !lintLocal && len(args) == 0 {
+	if !lntFlags.local && len(args) == 0 {
 		return fmt.Errorf("image reference required (or use --local to lint current filesystem)")
 	}
-	if lintFix && !lintLocal {
+	if lntFlags.fix && !lntFlags.local {
 		return fmt.Errorf("--fix can only be used with --local")
 	}
 
 	// Safety check: when using --fix, ensure we're inside a container
-	if lintFix && !pkg.IsRunningInContainer() {
+	if lntFlags.fix && !pkg.IsRunningInContainer() {
 		return fmt.Errorf("--fix requires running inside a container (no /.dockerenv or /run/.containerenv found)\n\nThis safety check prevents accidentally modifying a host system.\nIf you're sure you want to proceed, run the fix commands manually")
 	}
 
 	linter := pkg.NewLinter()
 	linter.SetVerbose(verbose)
 	linter.SetQuiet(jsonOutput) // Suppress stdout for clean JSON output
-	linter.SetFix(lintFix)
+	linter.SetFix(lntFlags.fix)
 
 	var result *pkg.LintResult
 	var err error
 	var imageRef string
 
-	if lintLocal {
+	if lntFlags.local {
 		// Lint the current filesystem (for use inside container builds)
 		if !jsonOutput {
-			if lintFix {
+			if lntFlags.fix {
 				fmt.Println("Linting and fixing current filesystem...")
 			} else {
 				fmt.Println("Linting current filesystem...")
@@ -130,7 +134,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 			FixedCount: result.FixedCount,
 			Success:    result.ErrorCount == 0,
 		}
-		if lintLocal {
+		if lntFlags.local {
 			output.Local = true
 		} else {
 			output.Image = imageRef
@@ -186,7 +190,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 	}
 
 	if result.ErrorCount > 0 {
-		if !lintFix {
+		if !lntFlags.fix {
 			fmt.Println("\nTo automatically fix issues, run:")
 			fmt.Println("  nbc lint --local --fix")
 		}

@@ -10,9 +10,24 @@ import (
 	"github.com/spf13/viper"
 )
 
+type cacheListFlags struct {
+	installImages bool
+	updateImages  bool
+}
+
+type cacheClearFlags struct {
+	install bool
+	update  bool
+}
+
+type cacheRemoveFlags struct {
+	cacheType string
+}
+
 var (
-	cacheListInstallImages bool
-	cacheListUpdateImages  bool
+	cacheListF   cacheListFlags
+	cacheClearF  cacheClearFlags
+	cacheRemoveF cacheRemoveFlags
 )
 
 var cacheCmd = &cobra.Command{
@@ -78,12 +93,6 @@ Examples:
 	RunE: runCacheClear,
 }
 
-var (
-	cacheClearInstall bool
-	cacheClearUpdate  bool
-	cacheRemoveType   string
-)
-
 func init() {
 	rootCmd.AddCommand(cacheCmd)
 	cacheCmd.AddCommand(cacheListCmd)
@@ -91,32 +100,32 @@ func init() {
 	cacheCmd.AddCommand(cacheClearCmd)
 
 	// List flags
-	cacheListCmd.Flags().BoolVar(&cacheListInstallImages, "install-images", false, "List staged installation images")
-	cacheListCmd.Flags().BoolVar(&cacheListUpdateImages, "update-images", false, "List staged update images")
+	cacheListCmd.Flags().BoolVar(&cacheListF.installImages, "install-images", false, "List staged installation images")
+	cacheListCmd.Flags().BoolVar(&cacheListF.updateImages, "update-images", false, "List staged update images")
 
 	// Remove flags
-	cacheRemoveCmd.Flags().StringVar(&cacheRemoveType, "type", "", "Cache type: 'install' or 'update' (auto-detected if not specified)")
+	cacheRemoveCmd.Flags().StringVar(&cacheRemoveF.cacheType, "type", "", "Cache type: 'install' or 'update' (auto-detected if not specified)")
 
 	// Clear flags
-	cacheClearCmd.Flags().BoolVar(&cacheClearInstall, "install", false, "Clear staged installation images")
-	cacheClearCmd.Flags().BoolVar(&cacheClearUpdate, "update", false, "Clear staged update images")
+	cacheClearCmd.Flags().BoolVar(&cacheClearF.install, "install", false, "Clear staged installation images")
+	cacheClearCmd.Flags().BoolVar(&cacheClearF.update, "update", false, "Clear staged update images")
 }
 
 func runCacheList(cmd *cobra.Command, args []string) error {
 	jsonOutput := viper.GetBool("json")
 
 	// Validate flags
-	if !cacheListInstallImages && !cacheListUpdateImages {
+	if !cacheListF.installImages && !cacheListF.updateImages {
 		return fmt.Errorf("must specify either --install-images or --update-images")
 	}
-	if cacheListInstallImages && cacheListUpdateImages {
+	if cacheListF.installImages && cacheListF.updateImages {
 		return fmt.Errorf("--install-images and --update-images are mutually exclusive")
 	}
 
 	var cache *pkg.ImageCache
 	var cacheType, cacheDir string
 
-	if cacheListInstallImages {
+	if cacheListF.installImages {
 		cache = pkg.NewStagedInstallCache()
 		cacheType = "install"
 		cacheDir = pkg.StagedInstallDir
@@ -148,7 +157,7 @@ func runCacheList(cmd *cobra.Command, args []string) error {
 
 	// Human-readable output
 	if len(images) == 0 {
-		if cacheListInstallImages {
+		if cacheListF.installImages {
 			fmt.Println("No staged installation images found.")
 			fmt.Printf("Use 'nbc download --image <ref> --for-install' to stage an image.\n")
 		} else {
@@ -158,7 +167,7 @@ func runCacheList(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if cacheListInstallImages {
+	if cacheListF.installImages {
 		fmt.Printf("Staged Installation Images (%s):\n\n", cacheDir)
 	} else {
 		fmt.Printf("Staged Update Images (%s):\n\n", cacheDir)
@@ -195,20 +204,20 @@ func runCacheRemove(cmd *cobra.Command, args []string) error {
 	} else {
 		progress = pkg.NewTextReporter(os.Stdout)
 	}
-	if cacheRemoveType == "" || cacheRemoveType == "install" {
+	if cacheRemoveF.cacheType == "" || cacheRemoveF.cacheType == "install" {
 		if err := installCache.Remove(cmd.Context(), digest, progress); err == nil {
 			removed = true
-		} else if cacheRemoveType == "install" {
+		} else if cacheRemoveF.cacheType == "install" {
 			removeErr = err
 		}
 	}
 
 	// Try update cache
-	if !removed && (cacheRemoveType == "" || cacheRemoveType == "update") {
+	if !removed && (cacheRemoveF.cacheType == "" || cacheRemoveF.cacheType == "update") {
 		updateCache := pkg.NewStagedUpdateCache()
 		if err := updateCache.Remove(cmd.Context(), digest, progress); err == nil {
 			removed = true
-		} else if cacheRemoveType == "update" {
+		} else if cacheRemoveF.cacheType == "update" {
 			removeErr = err
 		}
 	}
@@ -240,17 +249,17 @@ func runCacheRemove(cmd *cobra.Command, args []string) error {
 func runCacheClear(cmd *cobra.Command, args []string) error {
 	jsonOutput := viper.GetBool("json")
 
-	if !cacheClearInstall && !cacheClearUpdate {
+	if !cacheClearF.install && !cacheClearF.update {
 		return fmt.Errorf("must specify either --install or --update")
 	}
-	if cacheClearInstall && cacheClearUpdate {
+	if cacheClearF.install && cacheClearF.update {
 		return fmt.Errorf("--install and --update are mutually exclusive")
 	}
 
 	var cache *pkg.ImageCache
 	var cacheType string
 
-	if cacheClearInstall {
+	if cacheClearF.install {
 		cache = pkg.NewStagedInstallCache()
 		cacheType = "install"
 	} else {

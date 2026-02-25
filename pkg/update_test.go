@@ -2,6 +2,7 @@ package pkg
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -264,14 +265,20 @@ func installTestSystem(t *testing.T, version string) (*testutil.TestDisk, *Parti
 
 	// Install
 	mountPoint := filepath.Join(t.TempDir(), "install")
-	installer := NewBootcInstaller(imageName, disk.GetDevice())
-	installer.SetMountPoint(mountPoint)
-	installer.SetVerbose(true)
-	installer.SetDryRun(false)
+	installer, err := NewInstaller(&InstallConfig{
+		ImageRef:       imageName,
+		Device:         disk.GetDevice(),
+		MountPoint:     mountPoint,
+		FilesystemType: "ext4",
+		Verbose:        true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create installer: %v", err)
+	}
 
 	defer testutil.CleanupMounts(t, mountPoint)
 
-	if err := installer.Install(context.Background()); err != nil {
+	if _, err := installer.Install(context.Background()); err != nil {
 		t.Fatalf("Install failed: %v", err)
 	}
 
@@ -443,13 +450,13 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 	}
 
 	// Create partitions
-	scheme, err := CreatePartitions(context.Background(), disk.GetDevice(), false, NewProgressReporter(false, 1))
+	scheme, err := CreatePartitions(context.Background(), disk.GetDevice(), false, NoopReporter{})
 	if err != nil {
 		t.Fatalf("Failed to create partitions: %v", err)
 	}
 
 	// Format partitions so they have UUIDs
-	if err := FormatPartitions(context.Background(), scheme, false, nil); err != nil {
+	if err := FormatPartitions(context.Background(), scheme, false, NoopReporter{}); err != nil {
 		t.Fatalf("Failed to format partitions: %v", err)
 	}
 
@@ -544,7 +551,7 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 	t.Run("encrypted includes boot mount", func(t *testing.T) {
 		// Setup LUKS encryption
 		passphrase := "test-passphrase"
-		if err := SetupLUKS(context.Background(), scheme, passphrase, false, NewProgressReporter(false, 1)); err != nil {
+		if err := SetupLUKS(context.Background(), scheme, passphrase, false, NoopReporter{}); err != nil {
 			t.Fatalf("Failed to setup LUKS: %v", err)
 		}
 		defer scheme.CloseLUKSDevices(context.Background())
@@ -936,4 +943,18 @@ ID=test
 			}
 		}
 	})
+}
+
+func readConfigFromFile(path string) (*SystemConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var config SystemConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, err
+	}
+
+	return &config, nil
 }

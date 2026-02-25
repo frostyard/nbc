@@ -27,8 +27,8 @@ type BootloaderInstaller struct {
 	KernelArgs []string
 	OSName     string
 	Verbose    bool
-	Encryption *LUKSConfig       // Encryption configuration
-	Progress   *ProgressReporter // Progress reporter for output
+	Encryption *LUKSConfig // Encryption configuration
+	Progress   Reporter    // Progress reporter for output
 }
 
 // NewBootloaderInstaller creates a new BootloaderInstaller
@@ -40,7 +40,7 @@ func NewBootloaderInstaller(targetDir, device string, scheme *PartitionScheme, o
 		Scheme:     scheme,
 		KernelArgs: []string{},
 		OSName:     osName,
-		Progress:   NewProgressReporter(false, 1), // Default to non-JSON
+		Progress:   NewTextReporter(os.Stdout), // Default to text output
 	}
 }
 
@@ -60,7 +60,7 @@ func (b *BootloaderInstaller) SetVerbose(verbose bool) {
 }
 
 // SetProgress sets the progress reporter
-func (b *BootloaderInstaller) SetProgress(p *ProgressReporter) {
+func (b *BootloaderInstaller) SetProgress(p Reporter) {
 	b.Progress = p
 }
 
@@ -171,7 +171,7 @@ func (b *BootloaderInstaller) buildKernelCmdline(ctx context.Context) ([]string,
 // image was extracted with a lowercase "efi" directory, we need to rename it to "EFI".
 // On FAT32, we must use a two-step rename (efi → efi_tmp → EFI) to actually change the
 // stored case, since direct rename is a no-op on case-insensitive filesystems.
-func ensureUppercaseEFIDirectory(espPath string) error {
+func ensureUppercaseEFIDirectory(espPath string, progress Reporter) error {
 	// Check for lowercase "efi" directory by listing the parent directory
 	// and looking for the actual case used
 	entries, err := os.ReadDir(espPath)
@@ -194,7 +194,7 @@ func ensureUppercaseEFIDirectory(espPath string) error {
 	// If it's already uppercase, we're done
 	if efiDirName == "EFI" {
 		// But still check for lowercase "boot" inside
-		return ensureUppercaseBOOTDirectory(filepath.Join(espPath, "EFI"))
+		return ensureUppercaseBOOTDirectory(filepath.Join(espPath, "EFI"), progress)
 	}
 
 	// Need to rename to uppercase using two-step rename for FAT32
@@ -214,14 +214,14 @@ func ensureUppercaseEFIDirectory(espPath string) error {
 		return fmt.Errorf("failed to rename temp to EFI: %w", err)
 	}
 
-	fmt.Printf("  Renamed %s/ to EFI/ for UEFI compatibility\n", efiDirName)
+	progress.Message("Renamed %s/ to EFI/ for UEFI compatibility", efiDirName)
 
 	// Also fix BOOT subdirectory
-	return ensureUppercaseBOOTDirectory(uppercaseEFI)
+	return ensureUppercaseBOOTDirectory(uppercaseEFI, progress)
 }
 
 // ensureUppercaseBOOTDirectory ensures the BOOT subdirectory inside EFI uses uppercase
-func ensureUppercaseBOOTDirectory(efiPath string) error {
+func ensureUppercaseBOOTDirectory(efiPath string, progress Reporter) error {
 	entries, err := os.ReadDir(efiPath)
 	if err != nil {
 		return nil
@@ -253,7 +253,7 @@ func ensureUppercaseBOOTDirectory(efiPath string) error {
 		return fmt.Errorf("failed to rename temp to BOOT: %w", err)
 	}
 
-	fmt.Printf("  Renamed EFI/%s/ to EFI/BOOT/ for UEFI compatibility\n", bootDirName)
+	progress.Message("Renamed EFI/%s/ to EFI/BOOT/ for UEFI compatibility", bootDirName)
 	return nil
 }
 
@@ -353,7 +353,7 @@ func (b *BootloaderInstaller) Install(ctx context.Context) error {
 
 	// Ensure EFI directory structure uses proper uppercase naming (UEFI spec requirement)
 	espPath := filepath.Join(b.TargetDir, "boot")
-	if err := ensureUppercaseEFIDirectory(espPath); err != nil {
+	if err := ensureUppercaseEFIDirectory(espPath, b.Progress); err != nil {
 		b.Progress.Warning("%v", err)
 	}
 

@@ -491,10 +491,6 @@ func runInteractiveInstall(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create installer: %w", err)
 	}
 
-	// Set up callbacks for progress reporting
-	callbacks := pkg.CreateCLICallbacks(false)
-	installer.SetCallbacks(callbacks)
-
 	// Run installation
 	result, err := installer.Install(cmd.Context())
 

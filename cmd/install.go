@@ -11,22 +11,24 @@ import (
 	"github.com/spf13/viper"
 )
 
-var (
-	installImage            string
-	installDevice           string
-	installSkipPull         bool
-	installKernelArgs       []string
-	installFilesystem       string
-	installEncrypt          bool
-	installPassphrase       string
-	installKeyfile          string
-	installTPM2             bool
-	installLocalImage       string
-	installRootPasswordFile string
-	installViaLoopback      string
-	installImageSize        int
-	installForce            bool
-)
+type installFlags struct {
+	image            string
+	device           string
+	skipPull         bool
+	kernelArgs       []string
+	filesystem       string
+	encrypt          bool
+	passphrase       string
+	keyfile          string
+	tpm2             bool
+	localImage       string
+	rootPasswordFile string
+	viaLoopback      string
+	imageSize        int
+	force            bool
+}
+
+var instFlags installFlags
 
 var installCmd = &cobra.Command{
 	Use:     "install",
@@ -72,21 +74,21 @@ Example:
 func init() {
 	rootCmd.AddCommand(installCmd)
 
-	installCmd.Flags().StringVarP(&installImage, "image", "i", "", "Container image reference (required unless --local-image or staged image exists)")
-	installCmd.Flags().StringVarP(&installDevice, "device", "d", "", "Target disk device (required)")
-	installCmd.Flags().BoolVar(&installSkipPull, "skip-pull", false, "Skip pulling the image (use already pulled image)")
-	installCmd.Flags().StringArrayVarP(&installKernelArgs, "karg", "k", []string{}, "Kernel argument to pass (can be specified multiple times)")
-	installCmd.Flags().StringVarP(&installFilesystem, "filesystem", "f", "btrfs", "Filesystem type for root and var partitions (ext4, btrfs)")
-	installCmd.Flags().BoolVar(&installEncrypt, "encrypt", false, "Enable LUKS full disk encryption for root and var partitions")
-	installCmd.Flags().StringVar(&installPassphrase, "passphrase", "", "LUKS passphrase (required when --encrypt is set, unless --keyfile is provided)")
-	installCmd.Flags().StringVar(&installKeyfile, "keyfile", "", "Path to file containing LUKS passphrase (alternative to --passphrase)")
-	installCmd.Flags().BoolVar(&installTPM2, "tpm2", false, "Enroll TPM2 for automatic LUKS unlock (no PCR binding)")
-	installCmd.Flags().StringVar(&installLocalImage, "local-image", "", "Use staged local image by digest (auto-detects from /var/cache/nbc/staged-install/ if not specified)")
-	installCmd.Flags().StringVar(&installRootPasswordFile, "root-password-file", "", "Path to file containing root password to set during installation")
-	installCmd.Flags().StringVar(&installViaLoopback, "via-loopback", "", "Path to create a loopback disk image file for installation (instead of --device)")
-	installCmd.Flags().IntVar(&installImageSize, "image-size", pkg.DefaultLoopbackSizeGB, "Size of loopback image in GB (minimum 35GB, default 35GB)")
-	installCmd.Flags().BoolVar(&installForce, "force", false, "Overwrite existing loopback image file")
-	installCmd.Flags().BoolVar(&installForce, "yes", false, "Overwrite existing loopback image file (alias for --force)")
+	installCmd.Flags().StringVarP(&instFlags.image, "image", "i", "", "Container image reference (required unless --local-image or staged image exists)")
+	installCmd.Flags().StringVarP(&instFlags.device, "device", "d", "", "Target disk device (required)")
+	installCmd.Flags().BoolVar(&instFlags.skipPull, "skip-pull", false, "Skip pulling the image (use already pulled image)")
+	installCmd.Flags().StringArrayVarP(&instFlags.kernelArgs, "karg", "k", []string{}, "Kernel argument to pass (can be specified multiple times)")
+	installCmd.Flags().StringVarP(&instFlags.filesystem, "filesystem", "f", "btrfs", "Filesystem type for root and var partitions (ext4, btrfs)")
+	installCmd.Flags().BoolVar(&instFlags.encrypt, "encrypt", false, "Enable LUKS full disk encryption for root and var partitions")
+	installCmd.Flags().StringVar(&instFlags.passphrase, "passphrase", "", "LUKS passphrase (required when --encrypt is set, unless --keyfile is provided)")
+	installCmd.Flags().StringVar(&instFlags.keyfile, "keyfile", "", "Path to file containing LUKS passphrase (alternative to --passphrase)")
+	installCmd.Flags().BoolVar(&instFlags.tpm2, "tpm2", false, "Enroll TPM2 for automatic LUKS unlock (no PCR binding)")
+	installCmd.Flags().StringVar(&instFlags.localImage, "local-image", "", "Use staged local image by digest (auto-detects from /var/cache/nbc/staged-install/ if not specified)")
+	installCmd.Flags().StringVar(&instFlags.rootPasswordFile, "root-password-file", "", "Path to file containing root password to set during installation")
+	installCmd.Flags().StringVar(&instFlags.viaLoopback, "via-loopback", "", "Path to create a loopback disk image file for installation (instead of --device)")
+	installCmd.Flags().IntVar(&instFlags.imageSize, "image-size", pkg.DefaultLoopbackSizeGB, "Size of loopback image in GB (minimum 35GB, default 35GB)")
+	installCmd.Flags().BoolVar(&instFlags.force, "force", false, "Overwrite existing loopback image file")
+	installCmd.Flags().BoolVar(&instFlags.force, "yes", false, "Overwrite existing loopback image file (alias for --force)")
 	installCmd.Flags().Lookup("yes").Hidden = true
 
 	// Don't mark device as required - can use --via-loopback instead
@@ -108,10 +110,6 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-
-	// Set up callbacks for progress reporting
-	callbacks := pkg.CreateCLICallbacks(jsonOutput)
-	installer.SetCallbacks(callbacks)
 
 	// Run installation
 	result, err := installer.Install(cmd.Context())
@@ -148,37 +146,40 @@ func runInstall(cmd *cobra.Command, args []string) error {
 // buildInstallConfig constructs an InstallConfig from command-line flags.
 // It handles local image resolution and validation of flag combinations.
 func buildInstallConfig(ctx context.Context, verbose, dryRun, jsonOutput bool) (*pkg.InstallConfig, error) {
-	// Create callbacks for early error output
-	callbacks := pkg.CreateCLICallbacks(jsonOutput)
+	// Create reporter for early error output
+	var reporter pkg.Reporter
+	if jsonOutput {
+		reporter = pkg.NewJSONReporter(os.Stdout)
+	} else {
+		reporter = pkg.NewTextReporter(os.Stdout)
+	}
 	reportError := func(err error, msg string) error {
-		if callbacks.OnError != nil {
-			callbacks.OnError(err, msg)
-		}
+		reporter.Error(err, msg)
 		return err
 	}
 
 	cfg := &pkg.InstallConfig{
-		ImageRef:       installImage,
-		Device:         installDevice,
-		FilesystemType: installFilesystem,
-		KernelArgs:     installKernelArgs,
+		ImageRef:       instFlags.image,
+		Device:         instFlags.device,
+		FilesystemType: instFlags.filesystem,
+		KernelArgs:     instFlags.kernelArgs,
 		RootPassword:   "",
 		Verbose:        verbose,
 		DryRun:         dryRun,
 		JSONOutput:     jsonOutput,
-		SkipPull:       installSkipPull,
+		SkipPull:       instFlags.skipPull,
 	}
 
 	// Resolve image source: --image, --local-image, or auto-detect from staged-install
-	if installImage != "" && installLocalImage != "" {
+	if instFlags.image != "" && instFlags.localImage != "" {
 		err := fmt.Errorf("--image and --local-image are mutually exclusive")
 		return nil, reportError(err, "Invalid options")
 	}
 
-	if installLocalImage != "" {
+	if instFlags.localImage != "" {
 		// User specified a local image digest
 		cache := pkg.NewStagedInstallCache()
-		_, metadata, err := cache.GetImage(installLocalImage)
+		_, metadata, err := cache.GetImage(instFlags.localImage)
 		if err != nil {
 			return nil, reportError(fmt.Errorf("failed to load local image: %w", err), "Failed to load local image")
 		}
@@ -192,7 +193,7 @@ func buildInstallConfig(ctx context.Context, verbose, dryRun, jsonOutput bool) (
 			fmt.Printf("Using staged image: %s\n", metadata.ImageRef)
 			fmt.Printf("  Digest: %s\n", metadata.ImageDigest)
 		}
-	} else if installImage == "" {
+	} else if instFlags.image == "" {
 		// Try to auto-detect from staged-install cache
 		cache := pkg.NewStagedInstallCache()
 		images, err := cache.List()
@@ -230,24 +231,24 @@ func buildInstallConfig(ctx context.Context, verbose, dryRun, jsonOutput bool) (
 	}
 
 	// Handle encryption options
-	if installEncrypt {
-		if installPassphrase == "" && installKeyfile == "" {
+	if instFlags.encrypt {
+		if instFlags.passphrase == "" && instFlags.keyfile == "" {
 			err := fmt.Errorf("--passphrase or --keyfile is required when --encrypt is set")
 			return nil, reportError(err, "Missing passphrase")
 		}
-		if installPassphrase != "" && installKeyfile != "" {
+		if instFlags.passphrase != "" && instFlags.keyfile != "" {
 			err := fmt.Errorf("--passphrase and --keyfile are mutually exclusive")
 			return nil, reportError(err, "Invalid encryption options")
 		}
 
-		passphrase := installPassphrase
+		passphrase := instFlags.passphrase
 		// Read passphrase from keyfile if provided
-		if installKeyfile != "" {
+		if instFlags.keyfile != "" {
 			// Check for cancellation before file I/O
 			if err := ctx.Err(); err != nil {
 				return nil, reportError(err, "Operation cancelled")
 			}
-			keyData, err := os.ReadFile(installKeyfile)
+			keyData, err := os.ReadFile(instFlags.keyfile)
 			if err != nil {
 				return nil, reportError(fmt.Errorf("failed to read keyfile: %w", err), "Failed to read keyfile")
 			}
@@ -256,42 +257,42 @@ func buildInstallConfig(ctx context.Context, verbose, dryRun, jsonOutput bool) (
 
 		cfg.Encryption = &pkg.EncryptionOptions{
 			Passphrase: passphrase,
-			TPM2:       installTPM2,
+			TPM2:       instFlags.tpm2,
 		}
 	}
 
-	if installTPM2 && !installEncrypt {
+	if instFlags.tpm2 && !instFlags.encrypt {
 		err := fmt.Errorf("--tpm2 requires --encrypt to be set")
 		return nil, reportError(err, "Invalid encryption options")
 	}
 
 	// Handle device/loopback options
-	if installDevice != "" && installViaLoopback != "" {
+	if instFlags.device != "" && instFlags.viaLoopback != "" {
 		err := fmt.Errorf("--device and --via-loopback are mutually exclusive")
 		return nil, reportError(err, "Invalid options")
 	}
 
-	if installDevice == "" && installViaLoopback == "" {
+	if instFlags.device == "" && instFlags.viaLoopback == "" {
 		err := fmt.Errorf("either --device or --via-loopback is required")
 		return nil, reportError(err, "Missing target")
 	}
 
-	if installViaLoopback != "" {
+	if instFlags.viaLoopback != "" {
 		cfg.Loopback = &pkg.LoopbackOptions{
-			ImagePath: installViaLoopback,
-			SizeGB:    installImageSize,
-			Force:     installForce,
+			ImagePath: instFlags.viaLoopback,
+			SizeGB:    instFlags.imageSize,
+			Force:     instFlags.force,
 		}
 		cfg.Device = "" // Clear device since we're using loopback
 	}
 
 	// Read root password if provided
-	if installRootPasswordFile != "" {
+	if instFlags.rootPasswordFile != "" {
 		// Check for cancellation before file I/O
 		if err := ctx.Err(); err != nil {
 			return nil, reportError(err, "Operation cancelled")
 		}
-		passwordData, err := os.ReadFile(installRootPasswordFile)
+		passwordData, err := os.ReadFile(instFlags.rootPasswordFile)
 		if err != nil {
 			return nil, reportError(fmt.Errorf("failed to read root password file: %w", err), "Failed to read root password file")
 		}

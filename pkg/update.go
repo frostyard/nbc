@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/frostyard/nbc/pkg/types"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
@@ -119,12 +120,12 @@ func findPartitionByLUKSUUID(luksUUID string) (string, error) {
 }
 
 // GetInactiveRootPartition returns the inactive root partition given a partition scheme
-func GetInactiveRootPartition(scheme *PartitionScheme) (string, bool, error) {
+func GetInactiveRootPartition(scheme *PartitionScheme, progress Reporter) (string, bool, error) {
 	active, err := GetActiveRootPartition()
 	if err != nil {
 		// If we can't determine active, default to root1 as active
-		fmt.Fprintf(os.Stderr, "Warning: could not determine active partition: %v\n", err)
-		fmt.Fprintf(os.Stderr, "Defaulting to root2 as target\n")
+		progress.Warning("could not determine active partition: %v", err)
+		progress.Warning("Defaulting to root2 as target")
 		return scheme.Root2Partition, true, nil
 	}
 
@@ -154,9 +155,9 @@ func GetInactiveRootPartition(scheme *PartitionScheme) (string, bool, error) {
 	// Active partition doesn't match either root partition
 	// This can happen in test scenarios where we're not booted from the target disk
 	// Default to root1 as active, root2 as target
-	fmt.Fprintf(os.Stderr, "Warning: active partition %s does not match either root partition (%s or %s)\n",
+	progress.Warning("active partition %s does not match either root partition (%s or %s)",
 		active, scheme.Root1Partition, scheme.Root2Partition)
-	fmt.Fprintf(os.Stderr, "Defaulting to root2 as target\n")
+	progress.Warning("Defaulting to root2 as target")
 	return scheme.Root2Partition, true, nil
 }
 
@@ -219,7 +220,7 @@ type SystemUpdater struct {
 	Target           string
 	TargetMapperName string // For encrypted systems: "root1" or "root2"
 	TargetMapperPath string // For encrypted systems: "/dev/mapper/root1" or "/dev/mapper/root2"
-	Progress         *ProgressReporter
+	Progress         Reporter
 	Encryption       *EncryptionConfig    // Encryption configuration (loaded from system config)
 	LocalLayoutPath  string               // Path to OCI layout directory for local image
 	LocalMetadata    *CachedImageMetadata // Metadata from cached image
@@ -234,7 +235,7 @@ func NewSystemUpdater(device, imageRef string) *SystemUpdater {
 			MountPoint:     "/tmp/nbc-update",
 			BootMountPoint: "/tmp/nbc-boot",
 		},
-		Progress: NewProgressReporter(false, 7),
+		Progress: NewTextReporter(os.Stdout),
 	}
 }
 
@@ -256,7 +257,11 @@ func (u *SystemUpdater) SetForce(force bool) {
 // SetJSONOutput enables JSON output mode
 func (u *SystemUpdater) SetJSONOutput(jsonOutput bool) {
 	u.Config.JSONOutput = jsonOutput
-	u.Progress = NewProgressReporter(jsonOutput, 7)
+	if jsonOutput {
+		u.Progress = NewJSONReporter(os.Stdout)
+	} else {
+		u.Progress = NewTextReporter(os.Stdout)
+	}
 }
 
 // AddKernelArg adds a kernel argument
@@ -410,7 +415,7 @@ func (u *SystemUpdater) PrepareUpdate() error {
 	u.Scheme = scheme
 
 	// Determine inactive partition
-	target, active, err := GetInactiveRootPartition(scheme)
+	target, active, err := GetInactiveRootPartition(scheme, p)
 	if err != nil {
 		return fmt.Errorf("failed to determine target partition: %w", err)
 	}
@@ -558,13 +563,13 @@ func (u *SystemUpdater) Update() error {
 	// Ensure critical files (SSH host keys, machine-id) are in overlay upper layer
 	// This must happen before we extract the new container image, so that these
 	// files persist even if the new container image has different versions
-	if err := EnsureCriticalFilesInOverlay(u.Config.DryRun, p); err != nil {
+	if err := EnsureCriticalFilesInOverlay(context.Background(), u.Config.DryRun, p); err != nil {
 		p.Warning("Failed to preserve critical files in overlay: %v", err)
 		// Continue anyway - this is a best-effort operation
 	}
 
 	// Step 1: Mount target partition
-	p.Step(1, "Mounting target partition")
+	p.Step(1, 7, "Mounting target partition")
 	if err := os.MkdirAll(u.Config.MountPoint, 0755); err != nil {
 		return fmt.Errorf("failed to create mount point: %w", err)
 	}
@@ -630,7 +635,7 @@ func (u *SystemUpdater) Update() error {
 	}()
 
 	// Step 2: Clear existing content
-	p.Step(2, "Clearing old content from target partition")
+	p.Step(2, 7, "Clearing old content from target partition")
 	entries, err := os.ReadDir(u.Config.MountPoint)
 	if err != nil {
 		return fmt.Errorf("failed to read target directory: %w", err)
@@ -643,49 +648,13 @@ func (u *SystemUpdater) Update() error {
 	}
 
 	// Step 3: Extract new container filesystem
-	p.Step(3, "Extracting new container filesystem")
-	var extractor *ContainerExtractor
-	if u.LocalLayoutPath != "" {
-		extractor = NewContainerExtractorFromLocal(u.LocalLayoutPath, u.Config.MountPoint)
-	} else {
-		extractor = NewContainerExtractor(u.Config.ImageRef, u.Config.MountPoint)
-	}
-	extractor.SetVerbose(u.Config.Verbose)
-	extractor.SetJSONOutput(u.Config.JSONOutput)
-	if err := extractor.Extract(context.Background()); err != nil {
-		return fmt.Errorf("failed to extract container: %w", err)
-	}
-
-	// Verify extraction succeeded - this catches silent failures that could
-	// leave the partition empty or with incomplete content
-	p.Message("Verifying extraction...")
-	if err := VerifyExtraction(u.Config.MountPoint); err != nil {
-		return fmt.Errorf("container extraction verification failed: %w\n\nThe target partition may be in an inconsistent state.\nThe previous installation is still bootable - do NOT reboot.\nRe-run the update to try again", err)
-	}
-
-	// Check if container already has the etc-overlay dracut module installed
-	// If it does, we can skip both installing our embedded module and regenerating initramfs
-	dracutModuleDir := filepath.Join(u.Config.MountPoint, "usr", "lib", "dracut", "modules.d", "95etc-overlay")
-	moduleSetupSh := filepath.Join(dracutModuleDir, "module-setup.sh")
-
-	if _, err := os.Stat(moduleSetupSh); err == nil {
-		p.Message("Container already has etc-overlay dracut module, skipping regeneration")
-	} else {
-		p.Message("Installing etc-overlay dracut module and regenerating initramfs")
-		// Install the embedded dracut module for /etc overlay persistence
-		if err := InstallDracutEtcOverlay(u.Config.MountPoint, u.Config.DryRun, p); err != nil {
-			return fmt.Errorf("failed to install dracut etc-overlay module: %w", err)
-		}
-
-		// Regenerate initramfs to include the etc-overlay module
-		if err := RegenerateInitramfs(context.Background(), u.Config.MountPoint, u.Config.DryRun, u.Config.Verbose, p); err != nil {
-			p.Warning("initramfs regeneration failed: %v", err)
-			p.Warning("Boot may fail if container's initramfs lacks etc-overlay support")
-		}
+	p.Step(3, 7, "Extracting new container filesystem")
+	if err := ExtractAndVerifyContainer(context.Background(), u.Config.ImageRef, u.LocalLayoutPath, u.Config.MountPoint, u.Config.Verbose, p); err != nil {
+		return fmt.Errorf("%w\n\nThe target partition may be in an inconsistent state.\nThe previous installation is still bootable - do NOT reboot.\nRe-run the update to try again", err)
 	}
 
 	// Step 4: Merge /etc configuration from active system
-	p.Step(4, "Preserving user configuration")
+	p.Step(4, 7, "Preserving user configuration")
 	activeRoot := u.Scheme.Root1Partition
 	if !u.Active {
 		activeRoot = u.Scheme.Root2Partition
@@ -698,14 +667,8 @@ func (u *SystemUpdater) Update() error {
 			activeRoot = "/dev/mapper/root2"
 		}
 	}
-	if err := MergeEtcFromActive(u.Config.MountPoint, activeRoot, u.Config.DryRun, p); err != nil {
+	if err := MergeEtcFromActive(context.Background(), u.Config.MountPoint, activeRoot, u.Config.DryRun, p); err != nil {
 		return fmt.Errorf("failed to merge /etc: %w", err)
-	}
-
-	// Step 5: Setup system directories
-	p.Step(5, "Setting up system directories")
-	if err := SetupSystemDirectories(u.Config.MountPoint, p); err != nil {
-		return fmt.Errorf("failed to setup directories: %w", err)
 	}
 
 	// Mount the /var partition at {MountPoint}/var
@@ -777,20 +740,13 @@ func (u *SystemUpdater) Update() error {
 		}
 	}()
 
-	// Prepare /etc/machine-id for first boot on read-only root
-	// IMPORTANT: Must be done BEFORE PopulateEtcLower so the lower layer
-	// contains the "uninitialized" machine-id for systemd first-boot
-	if err := PrepareMachineID(u.Config.MountPoint, p); err != nil {
-		return fmt.Errorf("failed to prepare machine-id: %w", err)
-	}
-
-	// Populate /.etc.lower with new container's /etc for overlay lower layer
-	if err := PopulateEtcLower(u.Config.MountPoint, u.Config.DryRun, p); err != nil {
-		return fmt.Errorf("failed to populate .etc.lower: %w", err)
+	// Step 5: Setup target system (dracut, directories, machine-id, etc.lower, tmpfiles)
+	p.Step(5, 7, "Setting up target system")
+	if err := SetupTargetSystem(context.Background(), u.Config.MountPoint, u.Config.DryRun, u.Config.Verbose, p); err != nil {
+		return err
 	}
 
 	// Write updated system config to /var (which persists across updates)
-	// This is done AFTER PopulateEtcLower since config is no longer in /etc
 	if !u.Config.DryRun {
 		// Read current config (from new or legacy location)
 		existingConfig, err := ReadSystemConfig()
@@ -818,12 +774,12 @@ func (u *SystemUpdater) Update() error {
 
 			// Write to target's /var partition (already mounted at varMountPoint)
 			// This also handles migration from legacy /etc/nbc location
-			if err := WriteSystemConfigToVar(varMountPoint, existingConfig, false, p); err != nil {
+			if err := WriteSystemConfigToVar(context.Background(), varMountPoint, existingConfig, false, p); err != nil {
 				p.Warning("failed to write config to target var: %v", err)
 			}
 
 			// Update running system's config (migrates from /etc/nbc if needed)
-			if err := WriteSystemConfig(existingConfig, false, p); err != nil {
+			if err := WriteSystemConfig(context.Background(), existingConfig, false, p); err != nil {
 				p.Warning("failed to update running system config: %v", err)
 			} else {
 				p.Message("Updated running system config")
@@ -831,27 +787,21 @@ func (u *SystemUpdater) Update() error {
 		}
 	}
 
-	// Install tmpfiles.d config for /run/nbc-booted marker
-	// This ensures the marker exists after boot on the new root
-	if err := InstallTmpfilesConfig(u.Config.MountPoint, u.Config.DryRun, p); err != nil {
-		return fmt.Errorf("failed to install tmpfiles config: %w", err)
-	}
-
 	// Step 6: Install new kernel and initramfs if present
-	p.Step(6, "Checking for new kernel and initramfs")
+	p.Step(6, 7, "Checking for new kernel and initramfs")
 	if err := u.InstallKernelAndInitramfs(); err != nil {
 		return fmt.Errorf("failed to install kernel/initramfs: %w", err)
 	}
 
 	// Step 7: Update bootloader configuration
-	p.Step(7, "Updating bootloader configuration")
+	p.Step(7, 7, "Updating bootloader configuration")
 	if err := u.UpdateBootloader(); err != nil {
 		return fmt.Errorf("failed to update bootloader: %w", err)
 	}
 
 	// Write reboot-required marker to /run (automatically cleared on reboot)
 	if !u.Config.DryRun {
-		rebootInfo := &RebootPendingInfo{
+		rebootInfo := &types.RebootPendingInfo{
 			PendingImageRef:    u.Config.ImageRef,
 			PendingImageDigest: u.Config.ImageDigest,
 			UpdateTime:         time.Now().UTC().Format(time.RFC3339),

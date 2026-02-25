@@ -22,7 +22,7 @@ var dracutModuleFS embed.FS
 // InstallDracutEtcOverlay installs the embedded etc-overlay dracut module to the target filesystem.
 // This overwrites any existing module from the container image to ensure the nbc binary's
 // version is used (which may have fixes not yet in the published container image).
-func InstallDracutEtcOverlay(targetDir string, dryRun bool, progress *ProgressReporter) error {
+func InstallDracutEtcOverlay(ctx context.Context, targetDir string, dryRun bool, progress Reporter) error {
 	if dryRun {
 		progress.Message("[DRY RUN] Would install etc-overlay dracut module")
 		return nil
@@ -108,8 +108,8 @@ func InitramfsHasEtcOverlay(initramfsPath string) (bool, error) {
 	// Wait for the command to finish after fully reading its output
 	if err := listCmd.Wait(); err != nil {
 		if found {
-			// We already found the hook; log a warning but still return success.
-			fmt.Printf("warning: listing initramfs contents failed after finding etc-overlay hook: %v\n", err)
+			// We already found the hook; ignore the list error since we have our answer.
+			_ = err
 		} else {
 			// Listing failed before we found the hook; propagate error so callers can regenerate.
 			return false, fmt.Errorf("failed to list initramfs contents: %w", err)
@@ -122,7 +122,7 @@ func InitramfsHasEtcOverlay(initramfsPath string) (bool, error) {
 // VerifyDracutEtcOverlay verifies that the etc-overlay dracut module exists in the target filesystem.
 // The module is installed via the nbc deb/rpm package to /usr/lib/dracut/modules.d/95etc-overlay/.
 // This function checks that the container/host has nbc installed with the dracut module.
-func VerifyDracutEtcOverlay(targetDir string, dryRun bool, progress *ProgressReporter) error {
+func VerifyDracutEtcOverlay(ctx context.Context, targetDir string, dryRun bool, progress Reporter) error {
 	if dryRun {
 		progress.Message("[DRY RUN] Would verify etc-overlay dracut module exists")
 		return nil
@@ -152,7 +152,7 @@ func VerifyDracutEtcOverlay(targetDir string, dryRun bool, progress *ProgressRep
 // RegenerateInitramfs regenerates the initramfs using dracut in a chroot environment.
 // This is necessary to include the etc-overlay module in the initramfs.
 // If the initramfs already contains the etc-overlay module, regeneration is skipped.
-func RegenerateInitramfs(ctx context.Context, targetDir string, dryRun bool, verbose bool, progress *ProgressReporter) error {
+func RegenerateInitramfs(ctx context.Context, targetDir string, dryRun bool, verbose bool, progress Reporter) error {
 	if dryRun {
 		progress.Message("[DRY RUN] Would check/regenerate initramfs with dracut if needed")
 		return nil
@@ -299,19 +299,15 @@ func RegenerateInitramfs(ctx context.Context, targetDir string, dryRun bool, ver
 			// Include captured output in error reporting
 			combinedOutput := strings.TrimSpace(stderr.String() + stdout.String())
 			if combinedOutput != "" {
-				if progress.IsJSON() {
-					progress.Error(fmt.Errorf("dracut failed: %s", combinedOutput), "initramfs regeneration")
-				} else {
-					fmt.Printf("    dracut output:\n%s\n", combinedOutput)
-				}
+				progress.Warning("dracut output:\n%s", combinedOutput)
 			}
 			return fmt.Errorf("failed to regenerate initramfs for kernel %s: %w", kernelVersion, err)
 		}
 
-		// In verbose non-JSON mode, show the output
-		if verbose && !progress.IsJSON() {
+		// In verbose mode, show the output
+		if verbose {
 			if out := strings.TrimSpace(stdout.String()); out != "" {
-				fmt.Printf("%s\n", out)
+				progress.MessagePlain("%s", out)
 			}
 		}
 

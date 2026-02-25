@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/frostyard/nbc/pkg"
 	"github.com/frostyard/nbc/pkg/types"
@@ -9,11 +10,13 @@ import (
 	"github.com/spf13/viper"
 )
 
-var (
-	downloadImage      string
-	downloadForInstall bool
-	downloadForUpdate  bool
-)
+type downloadFlags struct {
+	image      string
+	forInstall bool
+	forUpdate  bool
+}
+
+var dlFlags downloadFlags
 
 var downloadCmd = &cobra.Command{
 	Use:     "download",
@@ -51,9 +54,9 @@ Examples:
 func init() {
 	rootCmd.AddCommand(downloadCmd)
 
-	downloadCmd.Flags().StringVarP(&downloadImage, "image", "i", "", "Container image reference (required for --for-install, uses system config for --for-update)")
-	downloadCmd.Flags().BoolVar(&downloadForInstall, "for-install", false, "Save to staged-install cache (for ISO embedding)")
-	downloadCmd.Flags().BoolVar(&downloadForUpdate, "for-update", false, "Save to staged-update cache (for offline updates)")
+	downloadCmd.Flags().StringVarP(&dlFlags.image, "image", "i", "", "Container image reference (required for --for-install, uses system config for --for-update)")
+	downloadCmd.Flags().BoolVar(&dlFlags.forInstall, "for-install", false, "Save to staged-install cache (for ISO embedding)")
+	downloadCmd.Flags().BoolVar(&dlFlags.forUpdate, "for-update", false, "Save to staged-update cache (for offline updates)")
 }
 
 func runDownload(cmd *cobra.Command, args []string) error {
@@ -62,20 +65,20 @@ func runDownload(cmd *cobra.Command, args []string) error {
 	dryRun := viper.GetBool("dry-run")
 
 	// Validate mutually exclusive flags
-	if !downloadForInstall && !downloadForUpdate {
+	if !dlFlags.forInstall && !dlFlags.forUpdate {
 		return fmt.Errorf("must specify either --for-install or --for-update")
 	}
-	if downloadForInstall && downloadForUpdate {
+	if dlFlags.forInstall && dlFlags.forUpdate {
 		return fmt.Errorf("--for-install and --for-update are mutually exclusive")
 	}
 
 	// Validate --image is provided for --for-install
-	if downloadForInstall && downloadImage == "" {
+	if dlFlags.forInstall && dlFlags.image == "" {
 		return fmt.Errorf("--image is required when using --for-install")
 	}
 
 	// For --for-update, use system config if --image not specified
-	if downloadForUpdate && downloadImage == "" {
+	if dlFlags.forUpdate && dlFlags.image == "" {
 		config, err := pkg.ReadSystemConfig()
 		if err != nil {
 			if jsonOutput {
@@ -83,22 +86,22 @@ func runDownload(cmd *cobra.Command, args []string) error {
 			}
 			return fmt.Errorf("no --image specified and failed to read system config: %w", err)
 		}
-		downloadImage = config.ImageRef
+		dlFlags.image = config.ImageRef
 		if !jsonOutput {
-			fmt.Printf("Using image from system config: %s\n", downloadImage)
+			fmt.Printf("Using image from system config: %s\n", dlFlags.image)
 		}
 	}
 
 	// Determine cache directory
 	var cacheDir string
-	if downloadForInstall {
+	if dlFlags.forInstall {
 		cacheDir = pkg.StagedInstallDir
 	} else {
 		cacheDir = pkg.StagedUpdateDir
 	}
 
 	// For staged updates, check that we're on an nbc-managed system and validate the update
-	if downloadForUpdate {
+	if dlFlags.forUpdate {
 		// Read current system config
 		config, err := pkg.ReadSystemConfig()
 		if err != nil {
@@ -109,7 +112,7 @@ func runDownload(cmd *cobra.Command, args []string) error {
 		}
 
 		// Get remote digest of new image
-		remoteDigest, err := pkg.GetRemoteImageDigest(downloadImage)
+		remoteDigest, err := pkg.GetRemoteImageDigest(dlFlags.image)
 		if err != nil {
 			if jsonOutput {
 				return outputJSONError("failed to get remote image digest", err)
@@ -134,13 +137,18 @@ func runDownload(cmd *cobra.Command, args []string) error {
 		// Clear any existing staged update
 		updateCache := pkg.NewStagedUpdateCache()
 		existing, _ := updateCache.GetSingle()
-		progress := pkg.NewProgressReporter(jsonOutput, 1)
+		var progress pkg.Reporter
+		if jsonOutput {
+			progress = pkg.NewJSONReporter(os.Stdout)
+		} else {
+			progress = pkg.NewTextReporter(os.Stdout)
+		}
 		if existing != nil {
 			if verbose && !jsonOutput {
 				fmt.Printf("Removing existing staged update: %s\n", existing.ImageDigest)
 			}
 			if !dryRun {
-				_ = updateCache.Clear(progress)
+				_ = updateCache.Clear(cmd.Context(), progress)
 			} else {
 				if verbose && !jsonOutput {
 					fmt.Printf("Dry run: skipping removal of existing staged update\n")
@@ -154,7 +162,7 @@ func runDownload(cmd *cobra.Command, args []string) error {
 	cache.SetVerbose(verbose)
 
 	if !jsonOutput {
-		if downloadForInstall {
+		if dlFlags.forInstall {
 			fmt.Printf("Downloading image for staged installation...\n")
 		} else {
 			fmt.Printf("Downloading image for staged update...\n")
@@ -167,20 +175,25 @@ func runDownload(cmd *cobra.Command, args []string) error {
 			// In dry-run mode, only report the requested image reference and cache directory.
 			// Do not fabricate digest, size, architecture, or OS metadata.
 			output := types.DownloadOutput{
-				ImageRef: downloadImage,
+				ImageRef: dlFlags.image,
 				CacheDir: cacheDir,
 			}
 			return outputJSON(output)
 		}
 
 		// Human-readable dry-run output: just state that the download is skipped.
-		fmt.Printf("Dry run: skipping actual download of image %s\n", downloadImage)
+		fmt.Printf("Dry run: skipping actual download of image %s\n", dlFlags.image)
 		return nil
 	}
 
-	progress := pkg.NewProgressReporter(jsonOutput, 1)
+	var progress pkg.Reporter
+	if jsonOutput {
+		progress = pkg.NewJSONReporter(os.Stdout)
+	} else {
+		progress = pkg.NewTextReporter(os.Stdout)
+	}
 
-	metadata, err := cache.Download(downloadImage, progress)
+	metadata, err := cache.Download(cmd.Context(), dlFlags.image, progress)
 	if err != nil {
 		if jsonOutput {
 			return outputJSONError("failed to download image", err)
@@ -211,7 +224,7 @@ func runDownload(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Size:         %.2f MB\n", float64(metadata.SizeBytes)/(1024*1024))
 	fmt.Printf("  Cached at:    %s\n", cacheDir)
 
-	if downloadForInstall {
+	if dlFlags.forInstall {
 		fmt.Println()
 		fmt.Println("Image is ready for embedding in an ISO.")
 		fmt.Println("Use 'nbc cache list --install-images' to see all staged images.")

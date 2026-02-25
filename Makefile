@@ -51,7 +51,7 @@ test-install: ## Run installation tests (requires root)
 	fi
 
 _test-install: ## Internal target for install tests
-	@go test -v ./pkg/... -run "^(TestBootcInstaller)" -timeout 20m
+	@go test -v ./pkg/... -run "^(TestInstaller)" -timeout 20m
 
 test-update: ## Run update tests (requires root)
 	@echo "Running update tests (requires root)..."

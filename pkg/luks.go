@@ -26,7 +26,7 @@ type LUKSDevice struct {
 }
 
 // CreateLUKSContainer creates a LUKS2 container on the given partition
-func CreateLUKSContainer(ctx context.Context, partition, passphrase string, progress *ProgressReporter) error {
+func CreateLUKSContainer(ctx context.Context, partition, passphrase string, progress Reporter) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -52,7 +52,7 @@ func CreateLUKSContainer(ctx context.Context, partition, passphrase string, prog
 }
 
 // OpenLUKS opens a LUKS container and returns the device info
-func OpenLUKS(ctx context.Context, partition, mapperName, passphrase string, progress *ProgressReporter) (*LUKSDevice, error) {
+func OpenLUKS(ctx context.Context, partition, mapperName, passphrase string, progress Reporter) (*LUKSDevice, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func OpenLUKS(ctx context.Context, partition, mapperName, passphrase string, pro
 
 // TryTPM2Unlock attempts to open a LUKS container using TPM2 token
 // Returns the LUKSDevice on success, or an error if TPM2 unlock failed
-func TryTPM2Unlock(ctx context.Context, partition, mapperName string, progress *ProgressReporter) (*LUKSDevice, error) {
+func TryTPM2Unlock(ctx context.Context, partition, mapperName string, progress Reporter) (*LUKSDevice, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func TryTPM2Unlock(ctx context.Context, partition, mapperName string, progress *
 }
 
 // CloseLUKS closes a LUKS container
-func CloseLUKS(ctx context.Context, mapperName string, progress *ProgressReporter) error {
+func CloseLUKS(ctx context.Context, mapperName string, progress Reporter) error {
 	if progress != nil {
 		progress.Message("Closing LUKS container %s...", mapperName)
 	}
@@ -171,12 +171,12 @@ func GetLUKSUUID(ctx context.Context, partition string) (string, error) {
 }
 
 // EnrollTPM2 enrolls a TPM2 key for automatic unlock with no PCRs
-func EnrollTPM2(ctx context.Context, partition string, config *LUKSConfig) error {
+func EnrollTPM2(ctx context.Context, partition string, config *LUKSConfig, progress Reporter) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
-	fmt.Printf("  Enrolling TPM2 key on %s (no PCRs)...\n", partition)
+	progress.Message("Enrolling TPM2 key on %s (no PCRs)", partition)
 
 	var keyFilePath string
 	var cleanup func()

@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -34,12 +35,14 @@ type CachedImageMetadata = types.CachedImageMetadata
 type ImageCache struct {
 	CacheDir string
 	Verbose  bool
+	Progress Reporter
 }
 
 // NewImageCache creates a new ImageCache for the specified directory
 func NewImageCache(cacheDir string) *ImageCache {
 	return &ImageCache{
 		CacheDir: cacheDir,
+		Progress: NewTextReporter(os.Stdout),
 	}
 }
 
@@ -77,7 +80,7 @@ func (c *ImageCache) GetLayoutPath(digest string) string {
 // Download pulls a container image and saves it to the cache in OCI layout format
 // Download pulls a container image and saves it to the cache in OCI layout format.
 // If progress is non-nil and set to JSON mode, interactive spinners are skipped.
-func (c *ImageCache) Download(imageRef string, progress *ProgressReporter) (*CachedImageMetadata, error) {
+func (c *ImageCache) Download(ctx context.Context, imageRef string, progress Reporter) (*CachedImageMetadata, error) {
 	// Acquire exclusive lock for cache write operation
 	lock, err := AcquireCacheLock()
 	if err != nil {
@@ -116,10 +119,8 @@ func (c *ImageCache) Download(imageRef string, progress *ProgressReporter) (*Cac
 				}
 			}
 		}()
-	} else if progress != nil {
-		progress.Message("Downloading image...")
 	} else {
-		fmt.Println("Downloading image...")
+		progress.Message("Downloading image...")
 	}
 
 	// Pull image from registry
@@ -148,28 +149,19 @@ func (c *ImageCache) Download(imageRef string, progress *ProgressReporter) (*Cac
 	digestStr := digest.String()
 	imageDir := filepath.Join(c.CacheDir, digestToDir(digestStr))
 
-	// Helper to emit messages
-	emitMessage := func(format string, args ...interface{}) {
-		if progress != nil {
-			progress.Message(format, args...)
-		} else {
-			fmt.Printf(format+"\n", args...)
-		}
-	}
-
 	// Check if already cached (with valid metadata)
 	if _, err := os.Stat(imageDir); err == nil {
 		metadata, err := c.readMetadata(imageDir)
 		if err == nil {
-			emitMessage("Image already cached: %s", digestStr)
+			progress.Message("Image already cached: %s", digestStr)
 			return metadata, nil
 		}
 		// Directory exists but metadata is missing/invalid - cleanup and re-download
-		emitMessage("Cleaning up incomplete cache entry: %s", digestStr)
+		progress.Message("Cleaning up incomplete cache entry: %s", digestStr)
 		_ = os.RemoveAll(imageDir)
 	}
 
-	emitMessage("Saving image to cache: %s", digestStr)
+	progress.Message("Saving image to cache: %s", digestStr)
 
 	// Create cache directory
 	if err := os.MkdirAll(imageDir, 0755); err != nil {
@@ -202,7 +194,7 @@ func (c *ImageCache) Download(imageRef string, progress *ProgressReporter) (*Cac
 		return nil, fmt.Errorf("failed to write metadata: %w", err)
 	}
 
-	emitMessage("Image cached successfully: %s", digestStr)
+	progress.Message("Image cached successfully: %s", digestStr)
 	return metadata, nil
 }
 
@@ -381,7 +373,7 @@ func (c *ImageCache) listUnlocked() ([]CachedImageMetadata, error) {
 		metadata, err := c.readMetadata(filepath.Join(c.CacheDir, entry.Name()))
 		if err != nil {
 			if c.Verbose {
-				fmt.Printf("Warning: skipping %s: %v\n", entry.Name(), err)
+				c.Progress.Warning("skipping %s: %v", entry.Name(), err)
 			}
 			continue
 		}
@@ -424,7 +416,7 @@ func (c *ImageCache) IsCached(digest string) (bool, error) {
 }
 
 // Remove removes a cached image by digest or digest prefix
-func (c *ImageCache) Remove(digestOrPrefix string, progress *ProgressReporter) error {
+func (c *ImageCache) Remove(ctx context.Context, digestOrPrefix string, progress Reporter) error {
 	// Acquire exclusive lock for cache write operation
 	lock, err := AcquireCacheLock()
 	if err != nil {
@@ -461,16 +453,12 @@ func (c *ImageCache) Remove(digestOrPrefix string, progress *ProgressReporter) e
 		return fmt.Errorf("failed to remove cached image: %w", err)
 	}
 
-	if progress != nil {
-		progress.Message("Removed cached image: %s", dirToDigest(matches[0]))
-	} else {
-		fmt.Printf("Removed cached image: %s\n", dirToDigest(matches[0]))
-	}
+	progress.Message("Removed cached image: %s", dirToDigest(matches[0]))
 	return nil
 }
 
 // Clear removes all cached images
-func (c *ImageCache) Clear(progress *ProgressReporter) error {
+func (c *ImageCache) Clear(ctx context.Context, progress Reporter) error {
 	// Acquire exclusive lock for cache write operation
 	lock, err := AcquireCacheLock()
 	if err != nil {
@@ -496,11 +484,7 @@ func (c *ImageCache) Clear(progress *ProgressReporter) error {
 		}
 	}
 
-	if progress != nil {
-		progress.Message("Cleared cache: %s", c.CacheDir)
-	} else {
-		fmt.Printf("Cleared cache: %s\n", c.CacheDir)
-	}
+	progress.Message("Cleared cache: %s", c.CacheDir)
 	return nil
 }
 

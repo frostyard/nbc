@@ -9,7 +9,11 @@ import (
 	"github.com/spf13/viper"
 )
 
-var validateDevice string
+type validateFlags struct {
+	device string
+}
+
+var valFlags validateFlags
 
 var validateCmd = &cobra.Command{
 	Use:   "validate",
@@ -21,7 +25,7 @@ var validateCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(validateCmd)
 
-	validateCmd.Flags().StringVarP(&validateDevice, "device", "d", "", "Disk device to validate (required)")
+	validateCmd.Flags().StringVarP(&valFlags.device, "device", "d", "", "Disk device to validate (required)")
 	_ = validateCmd.MarkFlagRequired("device")
 }
 
@@ -30,11 +34,11 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	jsonOutput := viper.GetBool("json")
 
 	// Resolve device path
-	device, err := pkg.GetDiskByPath(validateDevice)
+	device, err := pkg.GetDiskByPath(valFlags.device)
 	if err != nil {
 		if jsonOutput {
 			output := types.ValidateOutput{
-				Device: validateDevice,
+				Device: valFlags.device,
 				Valid:  false,
 				Error:  fmt.Sprintf("invalid device: %v", err),
 			}

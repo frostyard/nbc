@@ -1,10 +1,13 @@
 package pkg
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/frostyard/nbc/pkg/types"
 )
 
 const (
@@ -40,7 +43,7 @@ func IsNBCBooted() bool {
 // This marker is created by systemd-tmpfiles during boot, after /run is mounted.
 // Unlike the dracut approach, this ensures the marker exists after switch_root
 // when systemd mounts a fresh tmpfs on /run.
-func InstallTmpfilesConfig(targetDir string, dryRun bool, progress *ProgressReporter) error {
+func InstallTmpfilesConfig(ctx context.Context, targetDir string, dryRun bool, progress Reporter) error {
 	if dryRun {
 		progress.MessagePlain("[DRY RUN] Would install tmpfiles.d config for nbc-booted marker")
 		return nil
@@ -101,7 +104,7 @@ type SystemConfig struct {
 // WriteSystemConfig writes system configuration to /var/lib/nbc/state/config.json
 // If legacy config exists at /etc/nbc/config.json, it will be cleaned up after
 // successful write and verification.
-func WriteSystemConfig(config *SystemConfig, dryRun bool, progress *ProgressReporter) error {
+func WriteSystemConfig(ctx context.Context, config *SystemConfig, dryRun bool, progress Reporter) error {
 	if dryRun {
 		progress.MessagePlain("[DRY RUN] Would write config to %s", SystemConfigFile)
 		return nil
@@ -195,7 +198,7 @@ func ReadSystemConfig() (*SystemConfig, error) {
 
 // WriteSystemConfigToVar writes system configuration to the mounted /var partition
 // varMountPoint is the path where the var partition is mounted (e.g., /mnt/var or /mnt/root/var)
-func WriteSystemConfigToVar(varMountPoint string, config *SystemConfig, dryRun bool, progress *ProgressReporter) error {
+func WriteSystemConfigToVar(ctx context.Context, varMountPoint string, config *SystemConfig, dryRun bool, progress Reporter) error {
 	if dryRun {
 		progress.MessagePlain("[DRY RUN] Would write config to %s/lib/nbc/state/config.json", varMountPoint)
 		return nil
@@ -232,7 +235,7 @@ func WriteSystemConfigToVar(varMountPoint string, config *SystemConfig, dryRun b
 }
 
 // UpdateSystemConfigImageRef updates the image reference and digest in the system config
-func UpdateSystemConfigImageRef(imageRef, imageDigest string, dryRun bool, progress *ProgressReporter) error {
+func UpdateSystemConfigImageRef(ctx context.Context, imageRef, imageDigest string, dryRun bool, progress Reporter) error {
 	if dryRun {
 		progress.MessagePlain("[DRY RUN] Would update config with image: %s (digest: %s)", imageRef, imageDigest)
 		return nil
@@ -249,19 +252,11 @@ func UpdateSystemConfigImageRef(imageRef, imageDigest string, dryRun bool, progr
 	config.ImageDigest = imageDigest
 
 	// Write back using WriteSystemConfig (handles migration)
-	return WriteSystemConfig(config, false, progress)
-}
-
-// RebootPendingInfo contains information about a pending update awaiting reboot
-type RebootPendingInfo struct {
-	PendingImageRef    string `json:"pending_image_ref"`
-	PendingImageDigest string `json:"pending_image_digest"`
-	UpdateTime         string `json:"update_time"`
-	TargetPartition    string `json:"target_partition"`
+	return WriteSystemConfig(ctx, config, false, progress)
 }
 
 // WriteRebootRequiredMarker creates the reboot-required marker with pending update info
-func WriteRebootRequiredMarker(info *RebootPendingInfo) error {
+func WriteRebootRequiredMarker(info *types.RebootPendingInfo) error {
 	data, err := json.MarshalIndent(info, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal reboot info: %w", err)
@@ -275,7 +270,7 @@ func WriteRebootRequiredMarker(info *RebootPendingInfo) error {
 }
 
 // ReadRebootRequiredMarker reads the marker if it exists, returns nil if not present
-func ReadRebootRequiredMarker() (*RebootPendingInfo, error) {
+func ReadRebootRequiredMarker() (*types.RebootPendingInfo, error) {
 	data, err := os.ReadFile(RebootRequiredMarker)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -284,7 +279,7 @@ func ReadRebootRequiredMarker() (*RebootPendingInfo, error) {
 		return nil, fmt.Errorf("failed to read reboot marker: %w", err)
 	}
 
-	var info RebootPendingInfo
+	var info types.RebootPendingInfo
 	if err := json.Unmarshal(data, &info); err != nil {
 		return nil, fmt.Errorf("failed to parse reboot marker: %w", err)
 	}

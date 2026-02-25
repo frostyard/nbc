@@ -157,13 +157,13 @@ func TestBuildKernelCmdline_BootloaderWithBootMount(t *testing.T) {
 	}
 
 	// Create partitions
-	scheme, err := CreatePartitions(context.Background(), disk.GetDevice(), false, NewProgressReporter(false, 1))
+	scheme, err := CreatePartitions(context.Background(), disk.GetDevice(), false, NoopReporter{})
 	if err != nil {
 		t.Fatalf("Failed to create partitions: %v", err)
 	}
 
 	// Format boot and var partitions so they have UUIDs
-	if err := FormatPartitions(context.Background(), scheme, false, nil); err != nil {
+	if err := FormatPartitions(context.Background(), scheme, false, NoopReporter{}); err != nil {
 		t.Fatalf("Failed to format partitions: %v", err)
 	}
 
@@ -226,7 +226,7 @@ func TestBuildKernelCmdline_BootloaderWithBootMount(t *testing.T) {
 	t.Run("encrypted includes boot mount", func(t *testing.T) {
 		// Setup LUKS encryption for testing
 		passphrase := "test-passphrase"
-		if err := SetupLUKS(context.Background(), scheme, passphrase, false, NewProgressReporter(false, 1)); err != nil {
+		if err := SetupLUKS(context.Background(), scheme, passphrase, false, NoopReporter{}); err != nil {
 			t.Fatalf("Failed to setup LUKS: %v", err)
 		}
 		defer scheme.CloseLUKSDevices(context.Background())
@@ -273,7 +273,7 @@ func TestBuildKernelCmdline_BootloaderWithBootMount(t *testing.T) {
 func TestEnsureUppercaseEFIDirectory(t *testing.T) {
 	t.Run("handles non-existent ESP", func(t *testing.T) {
 		// Should return nil for non-existent directory
-		err := ensureUppercaseEFIDirectory("/nonexistent/path")
+		err := ensureUppercaseEFIDirectory("/nonexistent/path", NoopReporter{})
 		if err != nil {
 			t.Errorf("should return nil for non-existent path: %v", err)
 		}
@@ -281,7 +281,7 @@ func TestEnsureUppercaseEFIDirectory(t *testing.T) {
 
 	t.Run("handles empty ESP", func(t *testing.T) {
 		espPath := t.TempDir()
-		err := ensureUppercaseEFIDirectory(espPath)
+		err := ensureUppercaseEFIDirectory(espPath, NoopReporter{})
 		if err != nil {
 			t.Errorf("should return nil for empty ESP: %v", err)
 		}
@@ -294,7 +294,7 @@ func TestEnsureUppercaseEFIDirectory(t *testing.T) {
 			t.Fatalf("failed to create EFI dir: %v", err)
 		}
 
-		err := ensureUppercaseEFIDirectory(espPath)
+		err := ensureUppercaseEFIDirectory(espPath, NoopReporter{})
 		if err != nil {
 			t.Errorf("should succeed with uppercase EFI: %v", err)
 		}
@@ -318,7 +318,7 @@ func TestEnsureUppercaseEFIDirectory(t *testing.T) {
 			t.Fatalf("failed to create test file: %v", err)
 		}
 
-		err := ensureUppercaseEFIDirectory(espPath)
+		err := ensureUppercaseEFIDirectory(espPath, NoopReporter{})
 		if err != nil {
 			t.Errorf("rename should succeed: %v", err)
 		}
@@ -354,7 +354,7 @@ func TestEnsureUppercaseEFIDirectory(t *testing.T) {
 
 func TestEnsureUppercaseBOOTDirectory(t *testing.T) {
 	t.Run("handles non-existent EFI", func(t *testing.T) {
-		err := ensureUppercaseBOOTDirectory("/nonexistent/EFI")
+		err := ensureUppercaseBOOTDirectory("/nonexistent/EFI", NoopReporter{})
 		if err != nil {
 			t.Errorf("should return nil for non-existent path: %v", err)
 		}
@@ -362,7 +362,7 @@ func TestEnsureUppercaseBOOTDirectory(t *testing.T) {
 
 	t.Run("handles empty EFI", func(t *testing.T) {
 		efiPath := t.TempDir()
-		err := ensureUppercaseBOOTDirectory(efiPath)
+		err := ensureUppercaseBOOTDirectory(efiPath, NoopReporter{})
 		if err != nil {
 			t.Errorf("should return nil for empty EFI: %v", err)
 		}
@@ -375,7 +375,7 @@ func TestEnsureUppercaseBOOTDirectory(t *testing.T) {
 			t.Fatalf("failed to create BOOT dir: %v", err)
 		}
 
-		err := ensureUppercaseBOOTDirectory(efiPath)
+		err := ensureUppercaseBOOTDirectory(efiPath, NoopReporter{})
 		if err != nil {
 			t.Errorf("should succeed with uppercase BOOT: %v", err)
 		}
@@ -388,7 +388,7 @@ func TestEnsureUppercaseBOOTDirectory(t *testing.T) {
 			t.Fatalf("failed to create boot dir: %v", err)
 		}
 
-		err := ensureUppercaseBOOTDirectory(efiPath)
+		err := ensureUppercaseBOOTDirectory(efiPath, NoopReporter{})
 		if err != nil {
 			t.Errorf("rename should succeed: %v", err)
 		}

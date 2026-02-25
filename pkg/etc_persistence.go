@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -30,7 +31,7 @@ const (
 //
 // This allows user changes to /etc to persist across A/B updates while
 // keeping the base /etc from the container image.
-func SetupEtcOverlay(targetDir string, dryRun bool, progress *ProgressReporter) error {
+func SetupEtcOverlay(ctx context.Context, targetDir string, dryRun bool, progress Reporter) error {
 	if dryRun {
 		progress.MessagePlain("[DRY RUN] Would setup /etc overlay directories")
 		return nil
@@ -92,14 +93,14 @@ func SetupEtcOverlay(targetDir string, dryRun bool, progress *ProgressReporter) 
 //
 // This approach solves the timing issues that plagued bind-mount approaches,
 // because the dracut hook runs before pivot_root when /etc is not yet in use.
-func SetupEtcPersistence(targetDir string, dryRun bool, progress *ProgressReporter) error {
-	return SetupEtcOverlay(targetDir, dryRun, progress)
+func SetupEtcPersistence(ctx context.Context, targetDir string, dryRun bool, progress Reporter) error {
+	return SetupEtcOverlay(ctx, targetDir, dryRun, progress)
 }
 
 // InstallEtcMountUnit is DEPRECATED - use SetupEtcPersistence instead.
 // This function now just calls SetupEtcPersistence for backwards compatibility.
-func InstallEtcMountUnit(targetDir string, dryRun bool, progress *ProgressReporter) error {
-	return SetupEtcPersistence(targetDir, dryRun, progress)
+func InstallEtcMountUnit(ctx context.Context, targetDir string, dryRun bool, progress Reporter) error {
+	return SetupEtcPersistence(ctx, targetDir, dryRun, progress)
 }
 
 // PopulateEtcLower copies the container's /etc to /.etc.lower for use as the overlay lower layer.
@@ -112,7 +113,7 @@ func InstallEtcMountUnit(targetDir string, dryRun bool, progress *ProgressReport
 //
 // By populating /.etc.lower during install/update, we ensure consistent behavior
 // and the container's /etc is preserved as the read-only base layer.
-func PopulateEtcLower(targetDir string, dryRun bool, progress *ProgressReporter) error {
+func PopulateEtcLower(ctx context.Context, targetDir string, dryRun bool, progress Reporter) error {
 	if dryRun {
 		progress.MessagePlain("[DRY RUN] Would populate /.etc.lower with container /etc")
 		return nil
@@ -142,7 +143,7 @@ func PopulateEtcLower(targetDir string, dryRun bool, progress *ProgressReporter)
 	}
 
 	// Use rsync to copy /etc to /.etc.lower
-	cmd := exec.Command("rsync", "-a", "--delete", etcSource+"/", etcLowerDest+"/")
+	cmd := exec.CommandContext(ctx, "rsync", "-a", "--delete", etcSource+"/", etcLowerDest+"/")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to populate .etc.lower: %w\nOutput: %s", err, string(output))
 	}
@@ -162,7 +163,7 @@ func PopulateEtcLower(targetDir string, dryRun bool, progress *ProgressReporter)
 
 // SavePristineEtc saves a copy of the pristine /etc after installation
 // This is used to detect user modifications during updates
-func SavePristineEtc(targetDir string, dryRun bool, progress *ProgressReporter) error {
+func SavePristineEtc(ctx context.Context, targetDir string, dryRun bool, progress Reporter) error {
 	if dryRun {
 		progress.MessagePlain("[DRY RUN] Would save pristine /etc to %s", PristineEtcPath)
 		return nil
@@ -179,7 +180,7 @@ func SavePristineEtc(targetDir string, dryRun bool, progress *ProgressReporter) 
 	}
 
 	// Use rsync to copy /etc
-	cmd := exec.Command("rsync", "-a", "--delete", etcSource+"/", pristineDest+"/")
+	cmd := exec.CommandContext(ctx, "rsync", "-a", "--delete", etcSource+"/", pristineDest+"/")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to save pristine /etc: %w\nOutput: %s", err, string(output))
 	}
@@ -203,7 +204,7 @@ func SavePristineEtc(targetDir string, dryRun bool, progress *ProgressReporter) 
 //   - activeRootPartition: the CURRENT root partition device (not used with overlay)
 //   - dryRun: if true, don't make changes
 //   - progress: progress reporter for output
-func MergeEtcFromActive(targetDir string, activeRootPartition string, dryRun bool, progress *ProgressReporter) error {
+func MergeEtcFromActive(ctx context.Context, targetDir string, activeRootPartition string, dryRun bool, progress Reporter) error {
 	if dryRun {
 		progress.MessagePlain("[DRY RUN] Would setup /etc overlay for updated root")
 		return nil
@@ -318,7 +319,7 @@ func hashFile(path string) (string, error) {
 //
 // This function copies critical files from the running system's /etc to the overlay
 // upper layer if they don't already exist there.
-func EnsureCriticalFilesInOverlay(dryRun bool, progress *ProgressReporter) error {
+func EnsureCriticalFilesInOverlay(ctx context.Context, dryRun bool, progress Reporter) error {
 	if dryRun {
 		progress.MessagePlain("[DRY RUN] Would ensure critical files are in overlay upper layer")
 		return nil

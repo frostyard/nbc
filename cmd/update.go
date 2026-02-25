@@ -11,16 +11,18 @@ import (
 	"github.com/spf13/viper"
 )
 
-var (
-	updateImage        string
-	updateDevice       string
-	updateSkipPull     bool
-	updateCheckOnly    bool
-	updateKernelArgs   []string
-	updateDownloadOnly bool
-	updateLocalImage   bool
-	updateAuto         bool
-)
+type updateFlags struct {
+	image        string
+	device       string
+	skipPull     bool
+	checkOnly    bool
+	kernelArgs   []string
+	downloadOnly bool
+	localImage   bool
+	auto         bool
+}
+
+var updFlags updateFlags
 
 var updateCmd = &cobra.Command{
 	Use:     "update",
@@ -65,17 +67,17 @@ Example:
 func init() {
 	rootCmd.AddCommand(updateCmd)
 
-	updateCmd.Flags().StringVarP(&updateImage, "image", "i", "", "Container image reference (uses saved config if not specified)")
-	updateCmd.Flags().StringVarP(&updateDevice, "device", "d", "", "Target disk device (auto-detected if not specified)")
-	updateCmd.Flags().BoolVar(&updateSkipPull, "skip-pull", false, "Skip pulling the image (use already pulled image)")
-	updateCmd.Flags().BoolVarP(&updateCheckOnly, "check", "c", false, "Only check if an update is available (don't install)")
-	updateCmd.Flags().StringArrayVarP(&updateKernelArgs, "karg", "k", []string{}, "Kernel argument to pass (can be specified multiple times)")
+	updateCmd.Flags().StringVarP(&updFlags.image, "image", "i", "", "Container image reference (uses saved config if not specified)")
+	updateCmd.Flags().StringVarP(&updFlags.device, "device", "d", "", "Target disk device (auto-detected if not specified)")
+	updateCmd.Flags().BoolVar(&updFlags.skipPull, "skip-pull", false, "Skip pulling the image (use already pulled image)")
+	updateCmd.Flags().BoolVarP(&updFlags.checkOnly, "check", "c", false, "Only check if an update is available (don't install)")
+	updateCmd.Flags().StringArrayVarP(&updFlags.kernelArgs, "karg", "k", []string{}, "Kernel argument to pass (can be specified multiple times)")
 	updateCmd.Flags().BoolP("force", "f", false, "Force reinstall even if system is up-to-date")
 	updateCmd.Flags().Bool("yes", false, "Force reinstall even if system is up-to-date (alias for --force)")
 	updateCmd.Flags().Lookup("yes").Hidden = true
-	updateCmd.Flags().BoolVar(&updateDownloadOnly, "download-only", false, "Download update to cache without applying")
-	updateCmd.Flags().BoolVar(&updateLocalImage, "local-image", false, "Apply update from staged cache (/var/cache/nbc/staged-update/)")
-	updateCmd.Flags().BoolVar(&updateAuto, "auto", false, "Automatically use staged update if available, otherwise pull from registry")
+	updateCmd.Flags().BoolVar(&updFlags.downloadOnly, "download-only", false, "Download update to cache without applying")
+	updateCmd.Flags().BoolVar(&updFlags.localImage, "local-image", false, "Apply update from staged cache (/var/cache/nbc/staged-update/)")
+	updateCmd.Flags().BoolVar(&updFlags.auto, "auto", false, "Automatically use staged update if available, otherwise pull from registry")
 	_ = viper.BindPFlag("force", updateCmd.Flags().Lookup("force"))
 }
 
@@ -89,10 +91,15 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	jsonOutput := viper.GetBool("json")
 
 	// Create progress reporter for early error output
-	progress := pkg.NewProgressReporter(jsonOutput, 7)
+	var progress pkg.Reporter
+	if jsonOutput {
+		progress = pkg.NewJSONReporter(os.Stdout)
+	} else {
+		progress = pkg.NewTextReporter(os.Stdout)
+	}
 
 	// Validate mutually exclusive flags
-	if updateDownloadOnly && updateLocalImage {
+	if updFlags.downloadOnly && updFlags.localImage {
 		err := fmt.Errorf("--download-only and --local-image are mutually exclusive")
 		if jsonOutput {
 			progress.Error(err, "Invalid options")
@@ -100,7 +107,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if updateDownloadOnly && updateAuto {
+	if updFlags.downloadOnly && updFlags.auto {
 		err := fmt.Errorf("--download-only and --auto are mutually exclusive")
 		if jsonOutput {
 			progress.Error(err, "Invalid options")
@@ -108,7 +115,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if updateLocalImage && updateAuto {
+	if updFlags.localImage && updFlags.auto {
 		err := fmt.Errorf("--local-image and --auto are mutually exclusive")
 		if jsonOutput {
 			progress.Error(err, "Invalid options")
@@ -116,7 +123,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if updateDownloadOnly && updateCheckOnly {
+	if updFlags.downloadOnly && updFlags.checkOnly {
 		err := fmt.Errorf("--download-only and --check are mutually exclusive")
 		if jsonOutput {
 			progress.Error(err, "Invalid options")
@@ -128,8 +135,8 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	var err error
 
 	// Resolve device path - auto-detect if not specified
-	if updateDevice != "" {
-		device, err = pkg.GetDiskByPath(updateDevice)
+	if updFlags.device != "" {
+		device, err = pkg.GetDiskByPath(updFlags.device)
 		if err != nil {
 			if jsonOutput {
 				progress.Error(err, "Invalid device")
@@ -141,7 +148,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		}
 	} else {
 		// Auto-detect boot device
-		device, err = pkg.GetCurrentBootDeviceInfo(verbose, progress)
+		device, err = pkg.GetCurrentBootDeviceInfo(cmd.Context(), verbose, progress)
 		if err != nil {
 			if jsonOutput {
 				progress.Error(err, "Failed to auto-detect boot device")
@@ -154,8 +161,8 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// If image not specified, try to load from system config
-	imageRef := updateImage
-	if imageRef == "" && !updateLocalImage {
+	imageRef := updFlags.image
+	if imageRef == "" && !updFlags.localImage {
 		config, err := pkg.ReadSystemConfig()
 		if err != nil {
 			if jsonOutput {
@@ -170,7 +177,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Handle --download-only: download image to staged-update cache
-	if updateDownloadOnly {
+	if updFlags.downloadOnly {
 		// Read current system config to compare digests
 		config, err := pkg.ReadSystemConfig()
 		if err != nil {
@@ -222,12 +229,12 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 			if verbose && !jsonOutput {
 				fmt.Printf("Removing existing staged update: %s\n", existing.ImageDigest)
 			}
-			_ = updateCache.Clear(progress)
+			_ = updateCache.Clear(cmd.Context(), progress)
 		}
 
 		// Download to staged-update cache
 		updateCache.SetVerbose(verbose)
-		metadata, err := updateCache.Download(imageRef, progress)
+		metadata, err := updateCache.Download(cmd.Context(), imageRef, progress)
 		if err != nil {
 			if jsonOutput {
 				progress.Error(err, "Failed to download update")
@@ -262,7 +269,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	// Handle --local-image: apply update from staged cache
 	var localLayoutPath string
 	var localMetadata *pkg.CachedImageMetadata
-	if updateLocalImage {
+	if updFlags.localImage {
 		updateCache := pkg.NewStagedUpdateCache()
 		metadata, err := updateCache.GetSingle()
 		if err != nil {
@@ -290,7 +297,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Handle --auto: use staged update if available, otherwise pull from registry
-	if updateAuto {
+	if updFlags.auto {
 		updateCache := pkg.NewStagedUpdateCache()
 		metadata, err := updateCache.GetSingle()
 		if err == nil && metadata != nil {
@@ -324,7 +331,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// If --check flag, only check if update is needed
-	if updateCheckOnly {
+	if updFlags.checkOnly {
 		needed, digest, err := updater.IsUpdateNeeded(true)
 		if err != nil {
 			if jsonOutput {
@@ -368,12 +375,12 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Add kernel arguments
-	for _, arg := range updateKernelArgs {
+	for _, arg := range updFlags.kernelArgs {
 		updater.AddKernelArg(arg)
 	}
 
 	// Run update (skip pull if using local image)
-	skipPull := updateSkipPull || localLayoutPath != ""
+	skipPull := updFlags.skipPull || localLayoutPath != ""
 	if err := updater.PerformUpdate(skipPull); err != nil {
 		if jsonOutput {
 			progress.Error(err, "Update failed")
@@ -384,7 +391,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	// Clean up staged update cache on success
 	if localLayoutPath != "" {
 		updateCache := pkg.NewStagedUpdateCache()
-		if err := updateCache.Clear(progress); err != nil {
+		if err := updateCache.Clear(cmd.Context(), progress); err != nil {
 			// Non-fatal, just warn
 			if verbose && !jsonOutput {
 				fmt.Printf("Warning: failed to clean up staged update cache: %v\n", err)

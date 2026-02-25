@@ -26,7 +26,7 @@ type ContainerExtractor struct {
 	Verbose         bool
 	JSONOutput      bool
 	LocalLayoutPath string // Path to OCI layout directory for local image
-	Progress        *ProgressReporter
+	Progress        Reporter
 }
 
 // NewContainerExtractor creates a new ContainerExtractor
@@ -34,7 +34,7 @@ func NewContainerExtractor(imageRef, targetDir string) *ContainerExtractor {
 	return &ContainerExtractor{
 		ImageRef:  imageRef,
 		TargetDir: targetDir,
-		Progress:  NewProgressReporter(false, 1),
+		Progress:  NewTextReporter(os.Stdout),
 	}
 }
 
@@ -43,7 +43,7 @@ func NewContainerExtractorFromLocal(layoutPath, targetDir string) *ContainerExtr
 	return &ContainerExtractor{
 		LocalLayoutPath: layoutPath,
 		TargetDir:       targetDir,
-		Progress:        NewProgressReporter(false, 1),
+		Progress:        NewTextReporter(os.Stdout),
 	}
 }
 
@@ -55,11 +55,15 @@ func (c *ContainerExtractor) SetVerbose(verbose bool) {
 // SetJSONOutput enables JSON output mode
 func (c *ContainerExtractor) SetJSONOutput(jsonOutput bool) {
 	c.JSONOutput = jsonOutput
-	c.Progress = NewProgressReporter(jsonOutput, 1)
+	if jsonOutput {
+		c.Progress = NewJSONReporter(os.Stdout)
+	} else {
+		c.Progress = NewTextReporter(os.Stdout)
+	}
 }
 
 // SetProgress sets the progress reporter directly
-func (c *ContainerExtractor) SetProgress(p *ProgressReporter) {
+func (c *ContainerExtractor) SetProgress(p Reporter) {
 	c.Progress = p
 }
 
@@ -400,7 +404,7 @@ func extractTar(ctx context.Context, r io.Reader, targetDir string) error {
 }
 
 // CreateFstab creates an /etc/fstab file with the proper mount points
-func CreateFstab(ctx context.Context, targetDir string, scheme *PartitionScheme, progress *ProgressReporter) error {
+func CreateFstab(ctx context.Context, targetDir string, scheme *PartitionScheme, progress Reporter) error {
 	if progress != nil {
 		progress.Message("Creating /etc/fstab...")
 	}
@@ -441,7 +445,7 @@ func CreateFstab(ctx context.Context, targetDir string, scheme *PartitionScheme,
 }
 
 // SetupSystemDirectories creates necessary system directories
-func SetupSystemDirectories(targetDir string, progress *ProgressReporter) error {
+func SetupSystemDirectories(ctx context.Context, targetDir string, progress Reporter) error {
 	progress.Message("Setting up system directories...")
 
 	directories := []string{
@@ -479,7 +483,7 @@ func SetupSystemDirectories(targetDir string, progress *ProgressReporter) error 
 // PrepareMachineID ensures /etc/machine-id contains "uninitialized" for first-boot detection.
 // This is required for read-only root filesystems where systemd cannot create the file at boot.
 // systemd will detect "uninitialized" and properly initialize the machine-id on first boot.
-func PrepareMachineID(targetDir string, progress *ProgressReporter) error {
+func PrepareMachineID(ctx context.Context, targetDir string, progress Reporter) error {
 	machineIDPath := filepath.Join(targetDir, "etc", "machine-id")
 
 	// Check current state
@@ -671,6 +675,51 @@ func VerifyExtraction(targetDir string) error {
 	minSize := int64(100 * 1024 * 1024) // 100MB minimum
 	if totalSize < minSize {
 		return fmt.Errorf("extraction verification failed: filesystem too small (%d bytes, expected at least %d bytes) - extraction may have failed", totalSize, minSize)
+	}
+
+	return nil
+}
+
+// PullImage validates an image reference and checks if it's accessible.
+// This is a standalone function for use by Installer.
+// The actual image pull happens during Extract() to avoid duplicate work.
+func PullImage(ctx context.Context, imageRef string, verbose bool, progress Reporter) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	// Parse and validate the image reference
+	ref, err := name.ParseReference(imageRef)
+	if err != nil {
+		return fmt.Errorf("invalid image reference: %w", err)
+	}
+
+	if verbose && progress != nil {
+		progress.Message("  Image: %s", ref.String())
+	}
+
+	// For localhost images, check if they exist locally via podman/docker
+	if strings.HasPrefix(imageRef, "localhost/") {
+		// Check podman first
+		checkCmd := exec.CommandContext(ctx, "podman", "image", "exists", imageRef)
+		if checkCmd.Run() == nil {
+			return nil // Image exists in podman
+		}
+
+		// Check docker as fallback
+		checkCmd = exec.CommandContext(ctx, "docker", "image", "inspect", imageRef)
+		if checkCmd.Run() == nil {
+			return nil // Image exists in docker
+		}
+
+		return fmt.Errorf("local image %s not found (checked podman and docker)", imageRef)
+	}
+
+	// Try to get image descriptor to verify it exists and is accessible
+	// This is a lightweight check that doesn't download layers
+	_, err = remote.Head(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+	if err != nil {
+		return fmt.Errorf("failed to access image: %w (check credentials if private registry)", err)
 	}
 
 	return nil

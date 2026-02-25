@@ -102,15 +102,18 @@ type LintCheck func(rootDir string, fix bool) []LintIssue
 
 // Linter performs lint checks on container images
 type Linter struct {
-	checks  []LintCheck
-	verbose bool
-	quiet   bool // Suppress all output (for JSON mode)
-	fix     bool // Attempt to fix issues (only valid with local mode)
+	checks   []LintCheck
+	verbose  bool
+	quiet    bool // Suppress all output (for JSON mode)
+	fix      bool // Attempt to fix issues (only valid with local mode)
+	progress Reporter
 }
 
 // NewLinter creates a new Linter with default checks
 func NewLinter() *Linter {
-	l := &Linter{}
+	l := &Linter{
+		progress: NewTextReporter(os.Stdout),
+	}
 	l.RegisterDefaultChecks()
 	return l
 }
@@ -123,6 +126,9 @@ func (l *Linter) SetVerbose(verbose bool) {
 // SetQuiet suppresses all stdout output (for JSON mode)
 func (l *Linter) SetQuiet(quiet bool) {
 	l.quiet = quiet
+	if quiet {
+		l.progress = NoopReporter{}
+	}
 }
 
 // SetFix enables automatic fixing of issues
@@ -198,36 +204,20 @@ func (l *Linter) LintContainerImage(imageRef string) (*LintResult, error) {
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	// In quiet mode, redirect stdout to discard extraction messages
-	var oldStdout *os.File
-	if l.quiet {
-		oldStdout = os.Stdout
-		os.Stdout, _ = os.Open(os.DevNull)
-	}
-
-	if l.verbose && !l.quiet {
-		fmt.Printf("Extracting image to %s...\n", tmpDir)
+	if l.verbose {
+		l.progress.Message("Extracting image to %s...", tmpDir)
 	}
 
 	// Extract the container image
 	extractor := NewContainerExtractor(imageRef, tmpDir)
 	extractor.SetVerbose(l.verbose && !l.quiet)
-	// In quiet mode, use JSON output to suppress text messages
-	// (the JSON events won't be seen since we're not processing them)
-	extractor.SetJSONOutput(l.quiet)
-	err = extractor.Extract(context.Background())
-
-	// Restore stdout
-	if l.quiet && oldStdout != nil {
-		os.Stdout = oldStdout
-	}
-
-	if err != nil {
+	extractor.SetProgress(l.progress)
+	if err := extractor.Extract(context.Background()); err != nil {
 		return nil, fmt.Errorf("failed to extract container image: %w", err)
 	}
 
-	if l.verbose && !l.quiet {
-		fmt.Println("Running lint checks...")
+	if l.verbose {
+		l.progress.Message("Running lint checks...")
 	}
 
 	return l.Lint(tmpDir), nil

@@ -115,7 +115,7 @@ func getLUKSBackingDevice(mapperDevice string) (string, error) {
 }
 
 // GetCurrentBootDevice determines the disk device that the system booted from
-func GetCurrentBootDevice() (string, error) {
+func GetCurrentBootDevice(progress Reporter) (string, error) {
 	// Get the active root partition from kernel command line
 	rootPartition, err := GetActiveRootPartition()
 	if err != nil {
@@ -134,7 +134,7 @@ func GetCurrentBootDevice() (string, error) {
 			config, configErr := ReadSystemConfig()
 			if configErr == nil && config.Device != "" {
 				if _, statErr := os.Stat(config.Device); statErr == nil {
-					fmt.Fprintf(os.Stderr, "Warning: could not auto-detect device from LUKS (%v), using config: %s\n", err, config.Device)
+					progress.Warning("could not auto-detect device from LUKS (%v), using config: %s", err, config.Device)
 					return config.Device, nil
 				}
 			}
@@ -162,15 +162,15 @@ func GetCurrentBootDevice() (string, error) {
 	if err == nil && config.DiskID != "" {
 		match, verifyErr := VerifyDiskID(device, config.DiskID)
 		if verifyErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to verify disk ID: %v\n", verifyErr)
+			progress.Warning("failed to verify disk ID: %v", verifyErr)
 		} else if !match {
 			actualID, _ := GetDiskID(device)
-			fmt.Fprintf(os.Stderr, "Warning: disk ID mismatch!\n")
-			fmt.Fprintf(os.Stderr, "  Auto-detected device: %s\n", device)
-			fmt.Fprintf(os.Stderr, "  Expected disk ID: %s\n", config.DiskID)
-			fmt.Fprintf(os.Stderr, "  Actual disk ID:   %s\n", actualID)
-			fmt.Fprintf(os.Stderr, "  This may indicate the wrong disk or disk replacement.\n")
-			fmt.Fprintf(os.Stderr, "  Proceeding with caution - verify before updating!\n")
+			progress.Warning("disk ID mismatch!")
+			progress.Warning("  Auto-detected device: %s", device)
+			progress.Warning("  Expected disk ID: %s", config.DiskID)
+			progress.Warning("  Actual disk ID:   %s", actualID)
+			progress.Warning("  This may indicate the wrong disk or disk replacement")
+			progress.Warning("  Proceeding with caution - verify before updating!")
 		}
 	}
 
@@ -179,7 +179,7 @@ func GetCurrentBootDevice() (string, error) {
 
 // GetCurrentBootDeviceInfo returns detailed information about the boot device
 func GetCurrentBootDeviceInfo(ctx context.Context, verbose bool, progress Reporter) (string, error) {
-	device, err := GetCurrentBootDevice()
+	device, err := GetCurrentBootDevice(progress)
 	if err != nil {
 		return "", err
 	}

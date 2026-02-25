@@ -84,16 +84,16 @@ func CreatePartitions(ctx context.Context, device string, dryRun bool, progress 
 		// For loop devices, use partx -u to update partition table
 		// Note: losetup --partscan only works during initial setup, not on existing devices
 		if err := exec.CommandContext(ctx, "partx", "-u", device).Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: partx -u failed: %v\n", err)
+			progress.Warning("partx -u failed: %v", err)
 		}
 	}
 	if err := exec.CommandContext(ctx, "partprobe", device).Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: partprobe failed: %v\n", err)
+		progress.Warning("partprobe failed: %v", err)
 	}
 
 	// Wait for device nodes to appear
 	if err := exec.CommandContext(ctx, "udevadm", "settle").Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: udevadm settle failed: %v\n", err)
+		progress.Warning("udevadm settle failed: %v", err)
 	}
 
 	// Determine partition device names

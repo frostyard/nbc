@@ -171,12 +171,12 @@ func GetLUKSUUID(ctx context.Context, partition string) (string, error) {
 }
 
 // EnrollTPM2 enrolls a TPM2 key for automatic unlock with no PCRs
-func EnrollTPM2(ctx context.Context, partition string, config *LUKSConfig) error {
+func EnrollTPM2(ctx context.Context, partition string, config *LUKSConfig, progress Reporter) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
-	fmt.Printf("  Enrolling TPM2 key on %s (no PCRs)...\n", partition)
+	progress.Message("Enrolling TPM2 key on %s (no PCRs)", partition)
 
 	var keyFilePath string
 	var cleanup func()

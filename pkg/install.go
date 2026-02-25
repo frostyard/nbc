@@ -593,7 +593,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 		i.progress.Message("Enrolling TPM2 for automatic unlock (%d LUKS devices)...", len(scheme.LUKSDevices))
 		for idx, luksDevice := range scheme.LUKSDevices {
 			i.progress.MessagePlain("  [%d/%d] Enrolling TPM2 for %s (%s)...", idx+1, len(scheme.LUKSDevices), luksDevice.MapperName, luksDevice.Partition)
-			if err := EnrollTPM2(ctx, luksDevice.Partition, luksConfig); err != nil {
+			if err := EnrollTPM2(ctx, luksDevice.Partition, luksConfig, i.progress); err != nil {
 				err = fmt.Errorf("failed to enroll TPM2 for %s: %w", luksDevice.Partition, err)
 				i.progress.Error(err, "TPM2 enrollment failed")
 				return result, err

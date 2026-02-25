@@ -108,8 +108,8 @@ func InitramfsHasEtcOverlay(initramfsPath string) (bool, error) {
 	// Wait for the command to finish after fully reading its output
 	if err := listCmd.Wait(); err != nil {
 		if found {
-			// We already found the hook; log a warning but still return success.
-			fmt.Printf("warning: listing initramfs contents failed after finding etc-overlay hook: %v\n", err)
+			// We already found the hook; ignore the list error since we have our answer.
+			_ = err
 		} else {
 			// Listing failed before we found the hook; propagate error so callers can regenerate.
 			return false, fmt.Errorf("failed to list initramfs contents: %w", err)
@@ -299,19 +299,15 @@ func RegenerateInitramfs(ctx context.Context, targetDir string, dryRun bool, ver
 			// Include captured output in error reporting
 			combinedOutput := strings.TrimSpace(stderr.String() + stdout.String())
 			if combinedOutput != "" {
-				if progress.IsJSON() {
-					progress.Error(fmt.Errorf("dracut failed: %s", combinedOutput), "initramfs regeneration")
-				} else {
-					fmt.Printf("    dracut output:\n%s\n", combinedOutput)
-				}
+				progress.Warning("dracut output:\n%s", combinedOutput)
 			}
 			return fmt.Errorf("failed to regenerate initramfs for kernel %s: %w", kernelVersion, err)
 		}
 
-		// In verbose non-JSON mode, show the output
-		if verbose && !progress.IsJSON() {
+		// In verbose mode, show the output
+		if verbose {
 			if out := strings.TrimSpace(stdout.String()); out != "" {
-				fmt.Printf("%s\n", out)
+				progress.MessagePlain("%s", out)
 			}
 		}
 

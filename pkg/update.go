@@ -120,12 +120,12 @@ func findPartitionByLUKSUUID(luksUUID string) (string, error) {
 }
 
 // GetInactiveRootPartition returns the inactive root partition given a partition scheme
-func GetInactiveRootPartition(scheme *PartitionScheme) (string, bool, error) {
+func GetInactiveRootPartition(scheme *PartitionScheme, progress Reporter) (string, bool, error) {
 	active, err := GetActiveRootPartition()
 	if err != nil {
 		// If we can't determine active, default to root1 as active
-		fmt.Fprintf(os.Stderr, "Warning: could not determine active partition: %v\n", err)
-		fmt.Fprintf(os.Stderr, "Defaulting to root2 as target\n")
+		progress.Warning("could not determine active partition: %v", err)
+		progress.Warning("Defaulting to root2 as target")
 		return scheme.Root2Partition, true, nil
 	}
 
@@ -155,9 +155,9 @@ func GetInactiveRootPartition(scheme *PartitionScheme) (string, bool, error) {
 	// Active partition doesn't match either root partition
 	// This can happen in test scenarios where we're not booted from the target disk
 	// Default to root1 as active, root2 as target
-	fmt.Fprintf(os.Stderr, "Warning: active partition %s does not match either root partition (%s or %s)\n",
+	progress.Warning("active partition %s does not match either root partition (%s or %s)",
 		active, scheme.Root1Partition, scheme.Root2Partition)
-	fmt.Fprintf(os.Stderr, "Defaulting to root2 as target\n")
+	progress.Warning("Defaulting to root2 as target")
 	return scheme.Root2Partition, true, nil
 }
 
@@ -415,7 +415,7 @@ func (u *SystemUpdater) PrepareUpdate() error {
 	u.Scheme = scheme
 
 	// Determine inactive partition
-	target, active, err := GetInactiveRootPartition(scheme)
+	target, active, err := GetInactiveRootPartition(scheme, p)
 	if err != nil {
 		return fmt.Errorf("failed to determine target partition: %w", err)
 	}

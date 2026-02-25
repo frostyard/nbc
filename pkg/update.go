@@ -649,44 +649,8 @@ func (u *SystemUpdater) Update() error {
 
 	// Step 3: Extract new container filesystem
 	p.Step(3, 7, "Extracting new container filesystem")
-	var extractor *ContainerExtractor
-	if u.LocalLayoutPath != "" {
-		extractor = NewContainerExtractorFromLocal(u.LocalLayoutPath, u.Config.MountPoint)
-	} else {
-		extractor = NewContainerExtractor(u.Config.ImageRef, u.Config.MountPoint)
-	}
-	extractor.SetVerbose(u.Config.Verbose)
-	extractor.SetJSONOutput(u.Config.JSONOutput)
-	if err := extractor.Extract(context.Background()); err != nil {
-		return fmt.Errorf("failed to extract container: %w", err)
-	}
-
-	// Verify extraction succeeded - this catches silent failures that could
-	// leave the partition empty or with incomplete content
-	p.Message("Verifying extraction...")
-	if err := VerifyExtraction(u.Config.MountPoint); err != nil {
-		return fmt.Errorf("container extraction verification failed: %w\n\nThe target partition may be in an inconsistent state.\nThe previous installation is still bootable - do NOT reboot.\nRe-run the update to try again", err)
-	}
-
-	// Check if container already has the etc-overlay dracut module installed
-	// If it does, we can skip both installing our embedded module and regenerating initramfs
-	dracutModuleDir := filepath.Join(u.Config.MountPoint, "usr", "lib", "dracut", "modules.d", "95etc-overlay")
-	moduleSetupSh := filepath.Join(dracutModuleDir, "module-setup.sh")
-
-	if _, err := os.Stat(moduleSetupSh); err == nil {
-		p.Message("Container already has etc-overlay dracut module, skipping regeneration")
-	} else {
-		p.Message("Installing etc-overlay dracut module and regenerating initramfs")
-		// Install the embedded dracut module for /etc overlay persistence
-		if err := InstallDracutEtcOverlay(context.Background(), u.Config.MountPoint, u.Config.DryRun, p); err != nil {
-			return fmt.Errorf("failed to install dracut etc-overlay module: %w", err)
-		}
-
-		// Regenerate initramfs to include the etc-overlay module
-		if err := RegenerateInitramfs(context.Background(), u.Config.MountPoint, u.Config.DryRun, u.Config.Verbose, p); err != nil {
-			p.Warning("initramfs regeneration failed: %v", err)
-			p.Warning("Boot may fail if container's initramfs lacks etc-overlay support")
-		}
+	if err := ExtractAndVerifyContainer(context.Background(), u.Config.ImageRef, u.LocalLayoutPath, u.Config.MountPoint, u.Config.Verbose, p); err != nil {
+		return fmt.Errorf("%w\n\nThe target partition may be in an inconsistent state.\nThe previous installation is still bootable - do NOT reboot.\nRe-run the update to try again", err)
 	}
 
 	// Step 4: Merge /etc configuration from active system
@@ -705,12 +669,6 @@ func (u *SystemUpdater) Update() error {
 	}
 	if err := MergeEtcFromActive(context.Background(), u.Config.MountPoint, activeRoot, u.Config.DryRun, p); err != nil {
 		return fmt.Errorf("failed to merge /etc: %w", err)
-	}
-
-	// Step 5: Setup system directories
-	p.Step(5, 7, "Setting up system directories")
-	if err := SetupSystemDirectories(context.Background(), u.Config.MountPoint, p); err != nil {
-		return fmt.Errorf("failed to setup directories: %w", err)
 	}
 
 	// Mount the /var partition at {MountPoint}/var
@@ -782,20 +740,13 @@ func (u *SystemUpdater) Update() error {
 		}
 	}()
 
-	// Prepare /etc/machine-id for first boot on read-only root
-	// IMPORTANT: Must be done BEFORE PopulateEtcLower so the lower layer
-	// contains the "uninitialized" machine-id for systemd first-boot
-	if err := PrepareMachineID(context.Background(), u.Config.MountPoint, p); err != nil {
-		return fmt.Errorf("failed to prepare machine-id: %w", err)
-	}
-
-	// Populate /.etc.lower with new container's /etc for overlay lower layer
-	if err := PopulateEtcLower(context.Background(), u.Config.MountPoint, u.Config.DryRun, p); err != nil {
-		return fmt.Errorf("failed to populate .etc.lower: %w", err)
+	// Step 5: Setup target system (dracut, directories, machine-id, etc.lower, tmpfiles)
+	p.Step(5, 7, "Setting up target system")
+	if err := SetupTargetSystem(context.Background(), u.Config.MountPoint, u.Config.DryRun, u.Config.Verbose, p); err != nil {
+		return err
 	}
 
 	// Write updated system config to /var (which persists across updates)
-	// This is done AFTER PopulateEtcLower since config is no longer in /etc
 	if !u.Config.DryRun {
 		// Read current config (from new or legacy location)
 		existingConfig, err := ReadSystemConfig()
@@ -834,12 +785,6 @@ func (u *SystemUpdater) Update() error {
 				p.Message("Updated running system config")
 			}
 		}
-	}
-
-	// Install tmpfiles.d config for /run/nbc-booted marker
-	// This ensures the marker exists after boot on the new root
-	if err := InstallTmpfilesConfig(context.Background(), u.Config.MountPoint, u.Config.DryRun, p); err != nil {
-		return fmt.Errorf("failed to install tmpfiles config: %w", err)
 	}
 
 	// Step 6: Install new kernel and initramfs if present

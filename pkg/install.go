@@ -409,25 +409,12 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 
 	// Step 4: Extract container filesystem
 	i.progress.Step(4, 6, "Extracting container filesystem")
-	var extractor *ContainerExtractor
+	localLayoutPath := ""
 	if i.config.LocalImage != nil {
-		extractor = NewContainerExtractorFromLocal(i.config.LocalImage.LayoutPath, i.config.MountPoint)
-	} else {
-		extractor = NewContainerExtractor(i.config.ImageRef, i.config.MountPoint)
+		localLayoutPath = i.config.LocalImage.LayoutPath
 	}
-	extractor.SetVerbose(i.config.Verbose)
-	extractor.SetProgress(i.progress)
-	if err := extractor.Extract(ctx); err != nil {
-		err = fmt.Errorf("failed to extract container: %w", err)
+	if err := ExtractAndVerifyContainer(ctx, i.config.ImageRef, localLayoutPath, i.config.MountPoint, i.config.Verbose, i.progress); err != nil {
 		i.progress.Error(err, "Container extraction failed")
-		return result, err
-	}
-
-	// Verify extraction succeeded
-	i.progress.Message("Verifying extraction...")
-	if err := VerifyExtraction(i.config.MountPoint); err != nil {
-		err = fmt.Errorf("container extraction verification failed: %w", err)
-		i.progress.Error(err, "Extraction verification failed")
 		return result, err
 	}
 
@@ -437,19 +424,6 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 		for _, warning := range warnings {
 			i.progress.Warning("%s", warning)
 		}
-	}
-
-	// Install the embedded dracut module for /etc overlay persistence
-	if err := InstallDracutEtcOverlay(ctx, i.config.MountPoint, i.config.DryRun, i.progress); err != nil {
-		err = fmt.Errorf("failed to install dracut etc-overlay module: %w", err)
-		i.progress.Error(err, "Dracut module installation failed")
-		return result, err
-	}
-
-	// Regenerate initramfs to include the etc-overlay module
-	if err := RegenerateInitramfs(ctx, i.config.MountPoint, i.config.DryRun, i.config.Verbose, i.progress); err != nil {
-		i.progress.Warning("initramfs regeneration failed: %v", err)
-		i.progress.Warning("Boot may fail if container's initramfs lacks etc-overlay support")
 	}
 
 	// Step 5: Configure system
@@ -479,31 +453,10 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 		}
 	}
 
-	// Setup system directories
-	if err := SetupSystemDirectories(ctx, i.config.MountPoint, i.progress); err != nil {
-		err = fmt.Errorf("failed to setup directories: %w", err)
-		i.progress.Error(err, "Directory setup failed")
-		return result, err
-	}
-
-	// Prepare /etc/machine-id for first boot
-	if err := PrepareMachineID(ctx, i.config.MountPoint, i.progress); err != nil {
-		err = fmt.Errorf("failed to prepare machine-id: %w", err)
-		i.progress.Error(err, "Machine-id preparation failed")
-		return result, err
-	}
-
-	// Populate /.etc.lower with container's /etc
-	if err := PopulateEtcLower(ctx, i.config.MountPoint, i.config.DryRun, i.progress); err != nil {
-		err = fmt.Errorf("failed to populate .etc.lower: %w", err)
-		i.progress.Error(err, "Etc lower population failed")
-		return result, err
-	}
-
-	// Install tmpfiles.d config for /run/nbc-booted marker
-	if err := InstallTmpfilesConfig(ctx, i.config.MountPoint, i.config.DryRun, i.progress); err != nil {
-		err = fmt.Errorf("failed to install tmpfiles config: %w", err)
-		i.progress.Error(err, "Tmpfiles config installation failed")
+	// Common target system setup: dracut module, system directories,
+	// machine-id, etc.lower overlay, tmpfiles.d config
+	if err := SetupTargetSystem(ctx, i.config.MountPoint, i.config.DryRun, i.config.Verbose, i.progress); err != nil {
+		i.progress.Error(err, "Target system setup failed")
 		return result, err
 	}
 

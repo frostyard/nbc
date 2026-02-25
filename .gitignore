@@ -46,3 +46,4 @@ dist/
 completions/
 manpages/
 nbc_test
+.claude/settings.local.json

@@ -85,6 +85,15 @@ test-incus-go: ## Run Go-based Incus VM integration tests
 _test-incus-go: ## Internal target for Go Incus tests
 	@go test -v ./pkg/... -run "^TestIncus_" -timeout 30m
 
+test-qemu: build ## Run QEMU integration tests (requires root, KVM, OVMF)
+	@echo "Running QEMU integration tests (requires root)..."
+	@if [ "$$(id -u)" -ne 0 ]; then \
+		echo "Re-running with sudo..."; \
+		sudo -E env "PATH=$$PATH:/usr/sbin:/sbin" ./tests/nbc-qemu-test.sh $(IMAGE); \
+	else \
+		./tests/nbc-qemu-test.sh $(IMAGE); \
+	fi
+
 test-all: ## Run all tests (unit + integration, requires root)
 	@echo "Running all tests..."
 	@$(MAKE) test-unit

@@ -352,6 +352,7 @@ func TestCreateCLICallbacks(t *testing.T) {
 		callbacks := CreateCLICallbacks(false)
 		if callbacks == nil {
 			t.Fatal("CreateCLICallbacks(false) returned nil")
+			return
 		}
 		if callbacks.OnStep == nil {
 			t.Error("OnStep should not be nil")
@@ -371,6 +372,7 @@ func TestCreateCLICallbacks(t *testing.T) {
 		callbacks := CreateCLICallbacks(true)
 		if callbacks == nil {
 			t.Fatal("CreateCLICallbacks(true) returned nil")
+			return
 		}
 		if callbacks.OnStep == nil {
 			t.Error("OnStep should not be nil")

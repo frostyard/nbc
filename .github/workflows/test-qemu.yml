@@ -1,0 +1,54 @@
+name: QEMU integration tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_ref:
+        description: 'Container image to test'
+        required: false
+        default: 'ghcr.io/frostyard/snow:latest'
+
+jobs:
+  test-qemu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift \
+            /usr/local/.ghcup /usr/local/lib/android /opt/microsoft \
+            /opt/google /opt/az /opt/hostedtoolcache
+          docker system prune -af || true
+          df -h
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | \
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils ovmf podman skopeo
+
+      - name: Login to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Run QEMU integration tests
+        run: |
+          sudo -E env "PATH=$PATH:/usr/sbin:/sbin" \
+            ./tests/nbc-qemu-test.sh ${{ inputs.image_ref || 'ghcr.io/frostyard/snow:latest' }}

@@ -25,6 +25,7 @@ func TestNewLinter(t *testing.T) {
 		linter := NewLinter()
 		if linter == nil {
 			t.Fatal("NewLinter returned nil")
+			return
 		}
 		// Should have 3 default checks registered
 		if len(linter.checks) != 3 {

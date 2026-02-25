@@ -34,6 +34,7 @@ func TestCreatePartitions(t *testing.T) {
 	// Verify partition scheme
 	if scheme == nil {
 		t.Fatal("Partition scheme is nil")
+		return
 	}
 
 	if scheme.BootPartition == "" {

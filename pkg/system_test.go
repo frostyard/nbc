@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,7 +14,7 @@ import (
 func TestSetRootPasswordInTarget_EmptyPassword(t *testing.T) {
 	// Empty password should be a no-op and return nil
 	targetDir := t.TempDir()
-	err := SetRootPasswordInTarget(targetDir, "", false, NoopReporter{})
+	err := SetRootPasswordInTarget(context.Background(), targetDir, "", false, NoopReporter{})
 	if err != nil {
 		t.Errorf("SetRootPasswordInTarget with empty password should return nil, got: %v", err)
 	}
@@ -22,7 +23,7 @@ func TestSetRootPasswordInTarget_EmptyPassword(t *testing.T) {
 func TestSetRootPasswordInTarget_DryRun(t *testing.T) {
 	// Dry run should not execute chpasswd
 	targetDir := t.TempDir()
-	err := SetRootPasswordInTarget(targetDir, "testpassword", true, NoopReporter{})
+	err := SetRootPasswordInTarget(context.Background(), targetDir, "testpassword", true, NoopReporter{})
 	if err != nil {
 		t.Errorf("SetRootPasswordInTarget dry run should return nil, got: %v", err)
 	}
@@ -31,7 +32,7 @@ func TestSetRootPasswordInTarget_DryRun(t *testing.T) {
 func TestSetRootPasswordInTarget_InvalidTarget(t *testing.T) {
 	// Test with a non-existent target directory
 	// chpasswd -R should fail when target doesn't exist
-	err := SetRootPasswordInTarget("/nonexistent/path/for/testing", "testpassword", false, NoopReporter{})
+	err := SetRootPasswordInTarget(context.Background(), "/nonexistent/path/for/testing", "testpassword", false, NoopReporter{})
 	if err == nil {
 		t.Error("SetRootPasswordInTarget should fail with non-existent target directory")
 	}
@@ -81,7 +82,7 @@ password   required     pam_unix.so sha512 shadow
 	}
 
 	// Set the root password
-	err := SetRootPasswordInTarget(targetDir, "testpassword123", false, NoopReporter{})
+	err := SetRootPasswordInTarget(context.Background(), targetDir, "testpassword123", false, NoopReporter{})
 	if err != nil {
 		// chpasswd -R may fail in test environments due to PAM configuration
 		// This is expected behavior - the real test happens during actual installation

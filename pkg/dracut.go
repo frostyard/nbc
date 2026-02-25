@@ -22,7 +22,7 @@ var dracutModuleFS embed.FS
 // InstallDracutEtcOverlay installs the embedded etc-overlay dracut module to the target filesystem.
 // This overwrites any existing module from the container image to ensure the nbc binary's
 // version is used (which may have fixes not yet in the published container image).
-func InstallDracutEtcOverlay(targetDir string, dryRun bool, progress Reporter) error {
+func InstallDracutEtcOverlay(ctx context.Context, targetDir string, dryRun bool, progress Reporter) error {
 	if dryRun {
 		progress.Message("[DRY RUN] Would install etc-overlay dracut module")
 		return nil
@@ -122,7 +122,7 @@ func InitramfsHasEtcOverlay(initramfsPath string) (bool, error) {
 // VerifyDracutEtcOverlay verifies that the etc-overlay dracut module exists in the target filesystem.
 // The module is installed via the nbc deb/rpm package to /usr/lib/dracut/modules.d/95etc-overlay/.
 // This function checks that the container/host has nbc installed with the dracut module.
-func VerifyDracutEtcOverlay(targetDir string, dryRun bool, progress Reporter) error {
+func VerifyDracutEtcOverlay(ctx context.Context, targetDir string, dryRun bool, progress Reporter) error {
 	if dryRun {
 		progress.Message("[DRY RUN] Would verify etc-overlay dracut module exists")
 		return nil

@@ -269,7 +269,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 		if i.loopback != nil {
 			result.LoopbackPath = i.loopback.ImagePath
 			result.Cleanup = func() error {
-				return i.loopback.Cleanup(i.progress)
+				return i.loopback.Cleanup(context.Background(), i.progress)
 			}
 		} else {
 			result.Cleanup = func() error { return nil }
@@ -279,7 +279,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 
 	// Check for cancellation
 	if err := ctx.Err(); err != nil {
-		i.progress.Error(err,"Installation cancelled")
+		i.progress.Error(err, "Installation cancelled")
 		return result, err
 	}
 
@@ -293,7 +293,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 	// Acquire exclusive lock for system operation
 	lock, err := AcquireSystemLock()
 	if err != nil {
-		i.progress.Error(err,"Failed to acquire system lock")
+		i.progress.Error(err, "Failed to acquire system lock")
 		return result, err
 	}
 	defer func() { _ = lock.Release() }()
@@ -303,7 +303,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 		i.progress.Message("Checking prerequisites...")
 		if err := CheckRequiredTools(); err != nil {
 			err = fmt.Errorf("missing required tools: %w", err)
-			i.progress.Error(err,"Prerequisites check failed")
+			i.progress.Error(err, "Prerequisites check failed")
 			return result, err
 		}
 	}
@@ -312,13 +312,13 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 	i.progress.Message("Validating disk %s...", device)
 	minSize := uint64(10 * 1024 * 1024 * 1024) // 10 GB minimum
 	if err := ValidateDisk(device, minSize); err != nil {
-		i.progress.Error(err,"Disk validation failed")
+		i.progress.Error(err, "Disk validation failed")
 		return result, err
 	}
 
 	// Check for cancellation
 	if err := ctx.Err(); err != nil {
-		i.progress.Error(err,"Installation cancelled")
+		i.progress.Error(err, "Installation cancelled")
 		return result, err
 	}
 
@@ -331,14 +331,14 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 
 	// Check for cancellation before wiping
 	if err := ctx.Err(); err != nil {
-		i.progress.Error(err,"Installation cancelled")
+		i.progress.Error(err, "Installation cancelled")
 		return result, err
 	}
 
 	// Wipe disk (in non-dry-run mode, confirmation should be handled by CLI)
 	i.progress.Message("Wiping disk %s...", device)
 	if err := WipeDisk(ctx, device, i.config.DryRun, i.progress); err != nil {
-		i.progress.Error(err,"Failed to wipe disk")
+		i.progress.Error(err, "Failed to wipe disk")
 		return result, err
 	}
 
@@ -362,7 +362,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 	scheme, err = CreatePartitions(ctx, device, i.config.DryRun, i.progress)
 	if err != nil {
 		err = fmt.Errorf("failed to create partitions: %w", err)
-		i.progress.Error(err,"Partitioning failed")
+		i.progress.Error(err, "Partitioning failed")
 		return result, err
 	}
 
@@ -374,7 +374,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 		i.progress.Message("Setting up LUKS encryption...")
 		if err := SetupLUKS(ctx, scheme, i.config.Encryption.Passphrase, i.config.DryRun, i.progress); err != nil {
 			err = fmt.Errorf("failed to setup LUKS encryption: %w", err)
-			i.progress.Error(err,"Encryption setup failed")
+			i.progress.Error(err, "Encryption setup failed")
 			return result, err
 		}
 		// Ensure LUKS devices are always cleaned up
@@ -385,7 +385,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 	i.progress.Step(2, 6, "Formatting partitions")
 	if err := FormatPartitions(ctx, scheme, i.config.DryRun, i.progress); err != nil {
 		err = fmt.Errorf("failed to format partitions: %w", err)
-		i.progress.Error(err,"Formatting failed")
+		i.progress.Error(err, "Formatting failed")
 		return result, err
 	}
 
@@ -393,7 +393,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 	i.progress.Step(3, 6, "Mounting partitions")
 	if err := MountPartitions(ctx, scheme, i.config.MountPoint, i.config.DryRun, i.progress); err != nil {
 		err = fmt.Errorf("failed to mount partitions: %w", err)
-		i.progress.Error(err,"Mounting failed")
+		i.progress.Error(err, "Mounting failed")
 		return result, err
 	}
 
@@ -419,7 +419,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 	extractor.SetProgress(i.progress)
 	if err := extractor.Extract(ctx); err != nil {
 		err = fmt.Errorf("failed to extract container: %w", err)
-		i.progress.Error(err,"Container extraction failed")
+		i.progress.Error(err, "Container extraction failed")
 		return result, err
 	}
 
@@ -427,7 +427,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 	i.progress.Message("Verifying extraction...")
 	if err := VerifyExtraction(i.config.MountPoint); err != nil {
 		err = fmt.Errorf("container extraction verification failed: %w", err)
-		i.progress.Error(err,"Extraction verification failed")
+		i.progress.Error(err, "Extraction verification failed")
 		return result, err
 	}
 
@@ -440,9 +440,9 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 	}
 
 	// Install the embedded dracut module for /etc overlay persistence
-	if err := InstallDracutEtcOverlay(i.config.MountPoint, i.config.DryRun, i.progress); err != nil {
+	if err := InstallDracutEtcOverlay(ctx, i.config.MountPoint, i.config.DryRun, i.progress); err != nil {
 		err = fmt.Errorf("failed to install dracut etc-overlay module: %w", err)
-		i.progress.Error(err,"Dracut module installation failed")
+		i.progress.Error(err, "Dracut module installation failed")
 		return result, err
 	}
 
@@ -458,7 +458,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 	// Create fstab
 	if err := CreateFstab(ctx, i.config.MountPoint, scheme, i.progress); err != nil {
 		err = fmt.Errorf("failed to create fstab: %w", err)
-		i.progress.Error(err,"Fstab creation failed")
+		i.progress.Error(err, "Fstab creation failed")
 		return result, err
 	}
 
@@ -471,7 +471,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 		crypttabPath := filepath.Join(i.config.MountPoint, "etc", "crypttab")
 		if err := os.WriteFile(crypttabPath, []byte(crypttabContent), 0600); err != nil {
 			err = fmt.Errorf("failed to write /etc/crypttab: %w", err)
-			i.progress.Error(err,"Crypttab creation failed")
+			i.progress.Error(err, "Crypttab creation failed")
 			return result, err
 		}
 		if i.config.Verbose {
@@ -480,52 +480,52 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 	}
 
 	// Setup system directories
-	if err := SetupSystemDirectories(i.config.MountPoint, i.progress); err != nil {
+	if err := SetupSystemDirectories(ctx, i.config.MountPoint, i.progress); err != nil {
 		err = fmt.Errorf("failed to setup directories: %w", err)
-		i.progress.Error(err,"Directory setup failed")
+		i.progress.Error(err, "Directory setup failed")
 		return result, err
 	}
 
 	// Prepare /etc/machine-id for first boot
-	if err := PrepareMachineID(i.config.MountPoint, i.progress); err != nil {
+	if err := PrepareMachineID(ctx, i.config.MountPoint, i.progress); err != nil {
 		err = fmt.Errorf("failed to prepare machine-id: %w", err)
-		i.progress.Error(err,"Machine-id preparation failed")
+		i.progress.Error(err, "Machine-id preparation failed")
 		return result, err
 	}
 
 	// Populate /.etc.lower with container's /etc
-	if err := PopulateEtcLower(i.config.MountPoint, i.config.DryRun, i.progress); err != nil {
+	if err := PopulateEtcLower(ctx, i.config.MountPoint, i.config.DryRun, i.progress); err != nil {
 		err = fmt.Errorf("failed to populate .etc.lower: %w", err)
-		i.progress.Error(err,"Etc lower population failed")
+		i.progress.Error(err, "Etc lower population failed")
 		return result, err
 	}
 
 	// Install tmpfiles.d config for /run/nbc-booted marker
-	if err := InstallTmpfilesConfig(i.config.MountPoint, i.config.DryRun, i.progress); err != nil {
+	if err := InstallTmpfilesConfig(ctx, i.config.MountPoint, i.config.DryRun, i.progress); err != nil {
 		err = fmt.Errorf("failed to install tmpfiles config: %w", err)
-		i.progress.Error(err,"Tmpfiles config installation failed")
+		i.progress.Error(err, "Tmpfiles config installation failed")
 		return result, err
 	}
 
 	// Setup /etc persistence
-	if err := InstallEtcMountUnit(i.config.MountPoint, i.config.DryRun, i.progress); err != nil {
+	if err := InstallEtcMountUnit(ctx, i.config.MountPoint, i.config.DryRun, i.progress); err != nil {
 		err = fmt.Errorf("failed to setup /etc persistence: %w", err)
-		i.progress.Error(err,"Etc persistence setup failed")
+		i.progress.Error(err, "Etc persistence setup failed")
 		return result, err
 	}
 
 	// Save pristine /etc for future updates
-	if err := SavePristineEtc(i.config.MountPoint, i.config.DryRun, i.progress); err != nil {
+	if err := SavePristineEtc(ctx, i.config.MountPoint, i.config.DryRun, i.progress); err != nil {
 		err = fmt.Errorf("failed to save pristine /etc: %w", err)
-		i.progress.Error(err,"Pristine etc save failed")
+		i.progress.Error(err, "Pristine etc save failed")
 		return result, err
 	}
 
 	// Set root password if provided
 	if i.config.RootPassword != "" {
-		if err := SetRootPasswordInTarget(i.config.MountPoint, i.config.RootPassword, i.config.DryRun, i.progress); err != nil {
+		if err := SetRootPasswordInTarget(ctx, i.config.MountPoint, i.config.RootPassword, i.config.DryRun, i.progress); err != nil {
 			err = fmt.Errorf("failed to set root password: %w", err)
-			i.progress.Error(err,"Root password setup failed")
+			i.progress.Error(err, "Root password setup failed")
 			return result, err
 		}
 	}
@@ -585,9 +585,9 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 
 	// Write config to /var partition
 	varMountPoint := filepath.Join(i.config.MountPoint, "var")
-	if err := WriteSystemConfigToVar(varMountPoint, sysConfig, i.config.DryRun, i.progress); err != nil {
+	if err := WriteSystemConfigToVar(ctx, varMountPoint, sysConfig, i.config.DryRun, i.progress); err != nil {
 		err = fmt.Errorf("failed to write system config: %w", err)
-		i.progress.Error(err,"System config write failed")
+		i.progress.Error(err, "System config write failed")
 		return result, err
 	}
 
@@ -626,7 +626,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 
 	if err := bootloader.Install(ctx); err != nil {
 		err = fmt.Errorf("failed to install bootloader: %w", err)
-		i.progress.Error(err,"Bootloader installation failed")
+		i.progress.Error(err, "Bootloader installation failed")
 		return result, err
 	}
 
@@ -642,7 +642,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 			i.progress.MessagePlain("  [%d/%d] Enrolling TPM2 for %s (%s)...", idx+1, len(scheme.LUKSDevices), luksDevice.MapperName, luksDevice.Partition)
 			if err := EnrollTPM2(ctx, luksDevice.Partition, luksConfig); err != nil {
 				err = fmt.Errorf("failed to enroll TPM2 for %s: %w", luksDevice.Partition, err)
-				i.progress.Error(err,"TPM2 enrollment failed")
+				i.progress.Error(err, "TPM2 enrollment failed")
 				return result, err
 			}
 			i.progress.MessagePlain("  [%d/%d] Enrolled TPM2 for %s", idx+1, len(scheme.LUKSDevices), luksDevice.MapperName)
@@ -666,6 +666,7 @@ func (i *Installer) setupDevice(ctx context.Context) (string, error) {
 		i.progress.Message("Setting up loopback device...")
 
 		loopback, err := SetupLoopbackInstall(
+			ctx,
 			i.config.Loopback.ImagePath,
 			i.config.Loopback.SizeGB,
 			i.config.Loopback.Force,
@@ -673,7 +674,7 @@ func (i *Installer) setupDevice(ctx context.Context) (string, error) {
 		)
 		if err != nil {
 			err = fmt.Errorf("failed to setup loopback: %w", err)
-			i.progress.Error(err,"Loopback setup failed")
+			i.progress.Error(err, "Loopback setup failed")
 			return "", err
 		}
 		i.loopback = loopback
@@ -684,7 +685,7 @@ func (i *Installer) setupDevice(ctx context.Context) (string, error) {
 	device, err := GetDiskByPath(i.config.Device)
 	if err != nil {
 		err = fmt.Errorf("invalid device: %w", err)
-		i.progress.Error(err,"Device resolution failed")
+		i.progress.Error(err, "Device resolution failed")
 		return "", err
 	}
 	return device, nil
@@ -701,7 +702,7 @@ func (i *Installer) pullImage(ctx context.Context) error {
 
 	// Validate and check image accessibility using PullImage helper
 	if err := PullImage(ctx, i.config.ImageRef, i.config.Verbose, i.progress); err != nil {
-		i.progress.Error(err,"Failed to access image")
+		i.progress.Error(err, "Failed to access image")
 		return err
 	}
 
@@ -740,4 +741,3 @@ func (i *Installer) verify(ctx context.Context, device string) error {
 
 	return nil
 }
-

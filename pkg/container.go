@@ -445,7 +445,7 @@ func CreateFstab(ctx context.Context, targetDir string, scheme *PartitionScheme,
 }
 
 // SetupSystemDirectories creates necessary system directories
-func SetupSystemDirectories(targetDir string, progress Reporter) error {
+func SetupSystemDirectories(ctx context.Context, targetDir string, progress Reporter) error {
 	progress.Message("Setting up system directories...")
 
 	directories := []string{
@@ -483,7 +483,7 @@ func SetupSystemDirectories(targetDir string, progress Reporter) error {
 // PrepareMachineID ensures /etc/machine-id contains "uninitialized" for first-boot detection.
 // This is required for read-only root filesystems where systemd cannot create the file at boot.
 // systemd will detect "uninitialized" and properly initialize the machine-id on first boot.
-func PrepareMachineID(targetDir string, progress Reporter) error {
+func PrepareMachineID(ctx context.Context, targetDir string, progress Reporter) error {
 	machineIDPath := filepath.Join(targetDir, "etc", "machine-id")
 
 	// Check current state

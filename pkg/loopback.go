@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -148,7 +149,7 @@ func ParseSizeGB(sizeStr string) (int, error) {
 
 // SetupLoopbackInstall creates a loopback image file and attaches it.
 // Returns the LoopbackDevice for cleanup and the device path for installation.
-func SetupLoopbackInstall(imagePath string, sizeGB int, force bool, progress Reporter) (*LoopbackDevice, error) {
+func SetupLoopbackInstall(ctx context.Context, imagePath string, sizeGB int, force bool, progress Reporter) (*LoopbackDevice, error) {
 	// Create the image file
 	progress.MessagePlain("Creating loopback image: %s (%dGB)", imagePath, sizeGB)
 	if err := CreateLoopbackFile(imagePath, sizeGB, force); err != nil {
@@ -174,7 +175,7 @@ func SetupLoopbackInstall(imagePath string, sizeGB int, force bool, progress Rep
 }
 
 // Cleanup detaches the loopback device.
-func (l *LoopbackDevice) Cleanup(progress Reporter) error {
+func (l *LoopbackDevice) Cleanup(ctx context.Context, progress Reporter) error {
 	if l == nil || l.Device == "" {
 		return nil
 	}

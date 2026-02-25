@@ -146,7 +146,7 @@ func runDownload(cmd *cobra.Command, args []string) error {
 				fmt.Printf("Removing existing staged update: %s\n", existing.ImageDigest)
 			}
 			if !dryRun {
-				_ = updateCache.Clear(progress)
+				_ = updateCache.Clear(cmd.Context(), progress)
 			} else {
 				if verbose && !jsonOutput {
 					fmt.Printf("Dry run: skipping removal of existing staged update\n")
@@ -191,7 +191,7 @@ func runDownload(cmd *cobra.Command, args []string) error {
 		progress = pkg.NewTextReporter(os.Stdout)
 	}
 
-	metadata, err := cache.Download(downloadImage, progress)
+	metadata, err := cache.Download(cmd.Context(), downloadImage, progress)
 	if err != nil {
 		if jsonOutput {
 			return outputJSONError("failed to download image", err)

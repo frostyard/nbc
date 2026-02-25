@@ -196,7 +196,7 @@ func runCacheRemove(cmd *cobra.Command, args []string) error {
 		progress = pkg.NewTextReporter(os.Stdout)
 	}
 	if cacheRemoveType == "" || cacheRemoveType == "install" {
-		if err := installCache.Remove(digest, progress); err == nil {
+		if err := installCache.Remove(cmd.Context(), digest, progress); err == nil {
 			removed = true
 		} else if cacheRemoveType == "install" {
 			removeErr = err
@@ -206,7 +206,7 @@ func runCacheRemove(cmd *cobra.Command, args []string) error {
 	// Try update cache
 	if !removed && (cacheRemoveType == "" || cacheRemoveType == "update") {
 		updateCache := pkg.NewStagedUpdateCache()
-		if err := updateCache.Remove(digest, progress); err == nil {
+		if err := updateCache.Remove(cmd.Context(), digest, progress); err == nil {
 			removed = true
 		} else if cacheRemoveType == "update" {
 			removeErr = err
@@ -264,7 +264,7 @@ func runCacheClear(cmd *cobra.Command, args []string) error {
 	} else {
 		progress = pkg.NewTextReporter(os.Stdout)
 	}
-	if err := cache.Clear(progress); err != nil {
+	if err := cache.Clear(cmd.Context(), progress); err != nil {
 		if jsonOutput {
 			return outputJSONError("failed to clear cache", err)
 		}

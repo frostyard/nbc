@@ -563,7 +563,7 @@ func (u *SystemUpdater) Update() error {
 	// Ensure critical files (SSH host keys, machine-id) are in overlay upper layer
 	// This must happen before we extract the new container image, so that these
 	// files persist even if the new container image has different versions
-	if err := EnsureCriticalFilesInOverlay(u.Config.DryRun, p); err != nil {
+	if err := EnsureCriticalFilesInOverlay(context.Background(), u.Config.DryRun, p); err != nil {
 		p.Warning("Failed to preserve critical files in overlay: %v", err)
 		// Continue anyway - this is a best-effort operation
 	}
@@ -678,7 +678,7 @@ func (u *SystemUpdater) Update() error {
 	} else {
 		p.Message("Installing etc-overlay dracut module and regenerating initramfs")
 		// Install the embedded dracut module for /etc overlay persistence
-		if err := InstallDracutEtcOverlay(u.Config.MountPoint, u.Config.DryRun, p); err != nil {
+		if err := InstallDracutEtcOverlay(context.Background(), u.Config.MountPoint, u.Config.DryRun, p); err != nil {
 			return fmt.Errorf("failed to install dracut etc-overlay module: %w", err)
 		}
 
@@ -703,13 +703,13 @@ func (u *SystemUpdater) Update() error {
 			activeRoot = "/dev/mapper/root2"
 		}
 	}
-	if err := MergeEtcFromActive(u.Config.MountPoint, activeRoot, u.Config.DryRun, p); err != nil {
+	if err := MergeEtcFromActive(context.Background(), u.Config.MountPoint, activeRoot, u.Config.DryRun, p); err != nil {
 		return fmt.Errorf("failed to merge /etc: %w", err)
 	}
 
 	// Step 5: Setup system directories
 	p.Step(5, 7, "Setting up system directories")
-	if err := SetupSystemDirectories(u.Config.MountPoint, p); err != nil {
+	if err := SetupSystemDirectories(context.Background(), u.Config.MountPoint, p); err != nil {
 		return fmt.Errorf("failed to setup directories: %w", err)
 	}
 
@@ -785,12 +785,12 @@ func (u *SystemUpdater) Update() error {
 	// Prepare /etc/machine-id for first boot on read-only root
 	// IMPORTANT: Must be done BEFORE PopulateEtcLower so the lower layer
 	// contains the "uninitialized" machine-id for systemd first-boot
-	if err := PrepareMachineID(u.Config.MountPoint, p); err != nil {
+	if err := PrepareMachineID(context.Background(), u.Config.MountPoint, p); err != nil {
 		return fmt.Errorf("failed to prepare machine-id: %w", err)
 	}
 
 	// Populate /.etc.lower with new container's /etc for overlay lower layer
-	if err := PopulateEtcLower(u.Config.MountPoint, u.Config.DryRun, p); err != nil {
+	if err := PopulateEtcLower(context.Background(), u.Config.MountPoint, u.Config.DryRun, p); err != nil {
 		return fmt.Errorf("failed to populate .etc.lower: %w", err)
 	}
 
@@ -823,12 +823,12 @@ func (u *SystemUpdater) Update() error {
 
 			// Write to target's /var partition (already mounted at varMountPoint)
 			// This also handles migration from legacy /etc/nbc location
-			if err := WriteSystemConfigToVar(varMountPoint, existingConfig, false, p); err != nil {
+			if err := WriteSystemConfigToVar(context.Background(), varMountPoint, existingConfig, false, p); err != nil {
 				p.Warning("failed to write config to target var: %v", err)
 			}
 
 			// Update running system's config (migrates from /etc/nbc if needed)
-			if err := WriteSystemConfig(existingConfig, false, p); err != nil {
+			if err := WriteSystemConfig(context.Background(), existingConfig, false, p); err != nil {
 				p.Warning("failed to update running system config: %v", err)
 			} else {
 				p.Message("Updated running system config")
@@ -838,7 +838,7 @@ func (u *SystemUpdater) Update() error {
 
 	// Install tmpfiles.d config for /run/nbc-booted marker
 	// This ensures the marker exists after boot on the new root
-	if err := InstallTmpfilesConfig(u.Config.MountPoint, u.Config.DryRun, p); err != nil {
+	if err := InstallTmpfilesConfig(context.Background(), u.Config.MountPoint, u.Config.DryRun, p); err != nil {
 		return fmt.Errorf("failed to install tmpfiles config: %w", err)
 	}
 

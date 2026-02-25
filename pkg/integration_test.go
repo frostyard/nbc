@@ -217,7 +217,7 @@ func TestIntegration_EtcOverlaySetup(t *testing.T) {
 
 	// Setup /etc overlay
 	t.Log("Setting up /etc overlay...")
-	if err := SetupEtcOverlay(mountPoint, false, NoopReporter{}); err != nil {
+	if err := SetupEtcOverlay(context.Background(), mountPoint, false, NoopReporter{}); err != nil {
 		t.Fatalf("SetupEtcOverlay failed: %v", err)
 	}
 
@@ -270,7 +270,7 @@ func TestIntegration_TmpfilesConfig(t *testing.T) {
 
 	// Install tmpfiles.d config
 	t.Log("Installing tmpfiles.d config...")
-	if err := InstallTmpfilesConfig(mountPoint, false, NoopReporter{}); err != nil {
+	if err := InstallTmpfilesConfig(context.Background(), mountPoint, false, NoopReporter{}); err != nil {
 		t.Fatalf("InstallTmpfilesConfig failed: %v", err)
 	}
 
@@ -332,7 +332,7 @@ func TestIntegration_SystemConfig(t *testing.T) {
 
 	t.Log("Writing system config to var partition...")
 	varMountPoint := filepath.Join(mountPoint, "var")
-	if err := WriteSystemConfigToVar(varMountPoint, config, false, NoopReporter{}); err != nil {
+	if err := WriteSystemConfigToVar(context.Background(), varMountPoint, config, false, NoopReporter{}); err != nil {
 		t.Fatalf("WriteSystemConfigToVar failed: %v", err)
 	}
 
@@ -491,7 +491,7 @@ func TestIntegration_PopulateEtcLower_Install(t *testing.T) {
 	}
 
 	// Run PopulateEtcLower
-	if err := PopulateEtcLower(mountPoint, false, NoopReporter{}); err != nil {
+	if err := PopulateEtcLower(context.Background(), mountPoint, false, NoopReporter{}); err != nil {
 		t.Fatalf("PopulateEtcLower failed: %v", err)
 	}
 
@@ -579,7 +579,7 @@ func TestIntegration_PopulateEtcLower_Update(t *testing.T) {
 	}
 
 	// Create old .etc.lower
-	if err := PopulateEtcLower(mountPoint, false, NoopReporter{}); err != nil {
+	if err := PopulateEtcLower(context.Background(), mountPoint, false, NoopReporter{}); err != nil {
 		t.Fatalf("Initial PopulateEtcLower failed: %v", err)
 	}
 
@@ -608,7 +608,7 @@ func TestIntegration_PopulateEtcLower_Update(t *testing.T) {
 	}
 
 	// Run PopulateEtcLower again (simulating update)
-	if err := PopulateEtcLower(mountPoint, false, NoopReporter{}); err != nil {
+	if err := PopulateEtcLower(context.Background(), mountPoint, false, NoopReporter{}); err != nil {
 		t.Fatalf("Update PopulateEtcLower failed: %v", err)
 	}
 
@@ -669,7 +669,7 @@ func TestIntegration_EtcLowerWithSymlinks(t *testing.T) {
 	}
 
 	// Populate .etc.lower
-	if err := PopulateEtcLower(mountPoint, false, NoopReporter{}); err != nil {
+	if err := PopulateEtcLower(context.Background(), mountPoint, false, NoopReporter{}); err != nil {
 		t.Fatalf("PopulateEtcLower failed: %v", err)
 	}
 

@@ -30,7 +30,7 @@ nbc is a Go-based tool for installing bootc (bootable container) systems to disk
 
 **IMPORTANT**: nbc has TWO code paths that must stay in sync:
 
-1. **Installation** (`pkg/bootc.go` - `Install()` function)
+1. **Installation** (`pkg/install.go` - `Install()` function)
 2. **A/B Updates** (`pkg/update.go` - `Update()` function)
 
 **Any change to the installation flow MUST also be applied to the update flow.**

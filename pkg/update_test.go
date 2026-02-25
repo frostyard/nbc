@@ -2,6 +2,7 @@ package pkg
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -264,14 +265,20 @@ func installTestSystem(t *testing.T, version string) (*testutil.TestDisk, *Parti
 
 	// Install
 	mountPoint := filepath.Join(t.TempDir(), "install")
-	installer := NewBootcInstaller(imageName, disk.GetDevice())
-	installer.SetMountPoint(mountPoint)
-	installer.SetVerbose(true)
-	installer.SetDryRun(false)
+	installer, err := NewInstaller(&InstallConfig{
+		ImageRef:       imageName,
+		Device:         disk.GetDevice(),
+		MountPoint:     mountPoint,
+		FilesystemType: "ext4",
+		Verbose:        true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create installer: %v", err)
+	}
 
 	defer testutil.CleanupMounts(t, mountPoint)
 
-	if err := installer.Install(context.Background()); err != nil {
+	if _, err := installer.Install(context.Background()); err != nil {
 		t.Fatalf("Install failed: %v", err)
 	}
 
@@ -936,4 +943,18 @@ ID=test
 			}
 		}
 	})
+}
+
+func readConfigFromFile(path string) (*SystemConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var config SystemConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, err
+	}
+
+	return &config, nil
 }

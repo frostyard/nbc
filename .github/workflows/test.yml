@@ -152,7 +152,7 @@ jobs:
           ls -lh nbc
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: nbc-${{ matrix.goos }}-${{ matrix.goarch }}
           path: nbc

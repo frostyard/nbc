@@ -1,7 +1,6 @@
 package pkg
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -21,7 +20,7 @@ func TestCreatePartitions(t *testing.T) {
 
 	// Create partitions
 	t.Log("Creating partitions on test disk")
-	scheme, err := CreatePartitions(context.Background(), disk.GetDevice(), false, NoopReporter{})
+	scheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, NoopReporter{})
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
 	}
@@ -67,7 +66,7 @@ func TestFormatPartitions(t *testing.T) {
 		t.Fatalf("Failed to create test disk: %v", err)
 	}
 
-	scheme, err := CreatePartitions(context.Background(), disk.GetDevice(), false, NoopReporter{})
+	scheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, NoopReporter{})
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
 	}
@@ -76,7 +75,7 @@ func TestFormatPartitions(t *testing.T) {
 
 	// Format partitions
 	t.Log("Formatting partitions")
-	if err := FormatPartitions(context.Background(), scheme, false, NoopReporter{}); err != nil {
+	if err := FormatPartitions(t.Context(), scheme, false, NoopReporter{}); err != nil {
 		t.Fatalf("FormatPartitions failed: %v", err)
 	}
 
@@ -87,7 +86,7 @@ func TestFormatPartitions(t *testing.T) {
 		"Root2": scheme.Root2Partition,
 		"Var":   scheme.VarPartition,
 	} {
-		uuid, err := GetPartitionUUID(context.Background(), part)
+		uuid, err := GetPartitionUUID(t.Context(), part)
 		if err != nil {
 			t.Errorf("Failed to get UUID for %s partition %s: %v", name, part, err)
 		} else if uuid == "" {
@@ -108,14 +107,14 @@ func TestMountPartitions(t *testing.T) {
 		t.Fatalf("Failed to create test disk: %v", err)
 	}
 
-	scheme, err := CreatePartitions(context.Background(), disk.GetDevice(), false, NoopReporter{})
+	scheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, NoopReporter{})
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
 	}
 
 	_ = testutil.WaitForDevice(disk.GetDevice())
 
-	if err := FormatPartitions(context.Background(), scheme, false, NoopReporter{}); err != nil {
+	if err := FormatPartitions(t.Context(), scheme, false, NoopReporter{}); err != nil {
 		t.Fatalf("FormatPartitions failed: %v", err)
 	}
 
@@ -130,7 +129,7 @@ func TestMountPartitions(t *testing.T) {
 
 	// Mount partitions
 	t.Log("Mounting partitions")
-	if err := MountPartitions(context.Background(), scheme, mountPoint, false, NoopReporter{}); err != nil {
+	if err := MountPartitions(t.Context(), scheme, mountPoint, false, NoopReporter{}); err != nil {
 		t.Fatalf("MountPartitions failed: %v", err)
 	}
 
@@ -155,7 +154,7 @@ func TestMountPartitions(t *testing.T) {
 
 	// Cleanup
 	t.Log("Unmounting partitions")
-	if err := UnmountPartitions(context.Background(), mountPoint, false, NoopReporter{}); err != nil {
+	if err := UnmountPartitions(t.Context(), mountPoint, false, NoopReporter{}); err != nil {
 		t.Errorf("UnmountPartitions failed: %v", err)
 	}
 }
@@ -170,7 +169,7 @@ func TestDetectExistingPartitionScheme(t *testing.T) {
 		t.Fatalf("Failed to create test disk: %v", err)
 	}
 
-	originalScheme, err := CreatePartitions(context.Background(), disk.GetDevice(), false, NoopReporter{})
+	originalScheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, NoopReporter{})
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
 	}

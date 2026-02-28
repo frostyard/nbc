@@ -3,7 +3,6 @@ package pkg
 import (
 	"archive/tar"
 	"bytes"
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -101,7 +100,7 @@ func TestExtractTar_PreservesSpecialBits(t *testing.T) {
 
 	// Extract the tar
 	reader := bytes.NewReader(buf.Bytes())
-	if err := extractTar(context.Background(), reader, targetDir); err != nil {
+	if err := extractTar(t.Context(), reader, targetDir); err != nil {
 		t.Fatalf("extractTar failed: %v", err)
 	}
 
@@ -187,7 +186,7 @@ func TestExtractTar_WhiteoutHandling(t *testing.T) {
 
 	// Extract the tar
 	reader := bytes.NewReader(buf.Bytes())
-	if err := extractTar(context.Background(), reader, targetDir); err != nil {
+	if err := extractTar(t.Context(), reader, targetDir); err != nil {
 		t.Fatalf("extractTar failed: %v", err)
 	}
 
@@ -246,7 +245,7 @@ func TestExtractTar_OpaqueWhiteout(t *testing.T) {
 
 	// Extract the tar
 	reader := bytes.NewReader(buf.Bytes())
-	if err := extractTar(context.Background(), reader, targetDir); err != nil {
+	if err := extractTar(t.Context(), reader, targetDir); err != nil {
 		t.Fatalf("extractTar failed: %v", err)
 	}
 
@@ -385,7 +384,7 @@ func TestVerifyExtraction_EmptyDirectory(t *testing.T) {
 func TestSetupSystemDirectories(t *testing.T) {
 	targetDir := t.TempDir()
 
-	err := SetupSystemDirectories(context.Background(), targetDir, NoopReporter{})
+	err := SetupSystemDirectories(t.Context(), targetDir, NoopReporter{})
 	if err != nil {
 		t.Fatalf("SetupSystemDirectories failed: %v", err)
 	}
@@ -442,7 +441,7 @@ func TestPrepareMachineID(t *testing.T) {
 			t.Fatalf("failed to create etc dir: %v", err)
 		}
 
-		err := PrepareMachineID(context.Background(), targetDir, NoopReporter{})
+		err := PrepareMachineID(t.Context(), targetDir, NoopReporter{})
 		if err != nil {
 			t.Fatalf("PrepareMachineID failed: %v", err)
 		}
@@ -467,7 +466,7 @@ func TestPrepareMachineID(t *testing.T) {
 			t.Fatalf("failed to create empty machine-id: %v", err)
 		}
 
-		err := PrepareMachineID(context.Background(), targetDir, NoopReporter{})
+		err := PrepareMachineID(t.Context(), targetDir, NoopReporter{})
 		if err != nil {
 			t.Fatalf("PrepareMachineID failed: %v", err)
 		}
@@ -492,7 +491,7 @@ func TestPrepareMachineID(t *testing.T) {
 			t.Fatalf("failed to create machine-id: %v", err)
 		}
 
-		err := PrepareMachineID(context.Background(), targetDir, NoopReporter{})
+		err := PrepareMachineID(t.Context(), targetDir, NoopReporter{})
 		if err != nil {
 			t.Fatalf("PrepareMachineID failed: %v", err)
 		}
@@ -518,7 +517,7 @@ func TestPrepareMachineID(t *testing.T) {
 			t.Fatalf("failed to create machine-id: %v", err)
 		}
 
-		err := PrepareMachineID(context.Background(), targetDir, NoopReporter{})
+		err := PrepareMachineID(t.Context(), targetDir, NoopReporter{})
 		if err != nil {
 			t.Fatalf("PrepareMachineID failed: %v", err)
 		}

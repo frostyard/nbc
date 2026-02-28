@@ -232,8 +232,7 @@ func TestGenerateCrypttab(t *testing.T) {
 		}
 
 		// Should not have device entries
-		lines := strings.Split(crypttab, "\n")
-		for _, line := range lines {
+		for line := range strings.SplitSeq(crypttab, "\n") {
 			if line != "" && !strings.HasPrefix(line, "#") {
 				t.Errorf("should not have non-comment lines, got: %q", line)
 			}

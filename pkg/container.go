@@ -564,10 +564,9 @@ func ParseOSRelease(targetDir string) string {
 	}
 
 	// Parse the file for PRETTY_NAME, NAME, or ID
-	lines := strings.Split(string(data), "\n")
 	values := make(map[string]string)
 
-	for _, line := range lines {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue

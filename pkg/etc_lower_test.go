@@ -1,7 +1,6 @@
 package pkg
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -210,7 +209,7 @@ func TestPopulateEtcLower(t *testing.T) {
 
 			// Run the function
 			dryRun := tt.name == "dry run mode"
-			err := PopulateEtcLower(context.Background(), tmpDir, dryRun, NoopReporter{})
+			err := PopulateEtcLower(t.Context(), tmpDir, dryRun, NoopReporter{})
 
 			// Check error
 			if (err != nil) != tt.wantErr {
@@ -254,7 +253,7 @@ func TestPopulateEtcLower_Overwrite(t *testing.T) {
 	}
 
 	// Run PopulateEtcLower
-	if err := PopulateEtcLower(context.Background(), tmpDir, false, NoopReporter{}); err != nil {
+	if err := PopulateEtcLower(t.Context(), tmpDir, false, NoopReporter{}); err != nil {
 		t.Fatalf("PopulateEtcLower() failed: %v", err)
 	}
 

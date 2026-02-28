@@ -1,7 +1,6 @@
 package pkg
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -278,7 +277,7 @@ func installTestSystem(t *testing.T, version string) (*testutil.TestDisk, *Parti
 
 	defer testutil.CleanupMounts(t, mountPoint)
 
-	if _, err := installer.Install(context.Background()); err != nil {
+	if _, err := installer.Install(t.Context()); err != nil {
 		t.Fatalf("Install failed: %v", err)
 	}
 
@@ -450,13 +449,13 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 	}
 
 	// Create partitions
-	scheme, err := CreatePartitions(context.Background(), disk.GetDevice(), false, NoopReporter{})
+	scheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, NoopReporter{})
 	if err != nil {
 		t.Fatalf("Failed to create partitions: %v", err)
 	}
 
 	// Format partitions so they have UUIDs
-	if err := FormatPartitions(context.Background(), scheme, false, NoopReporter{}); err != nil {
+	if err := FormatPartitions(t.Context(), scheme, false, NoopReporter{}); err != nil {
 		t.Fatalf("Failed to format partitions: %v", err)
 	}
 
@@ -467,19 +466,19 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 	_ = testutil.WaitForDevice(scheme.VarPartition)
 
 	// Get actual UUIDs
-	bootUUID, err := GetPartitionUUID(context.Background(), scheme.BootPartition)
+	bootUUID, err := GetPartitionUUID(t.Context(), scheme.BootPartition)
 	if err != nil {
 		t.Fatalf("Failed to get boot UUID: %v", err)
 	}
-	root1UUID, err := GetPartitionUUID(context.Background(), scheme.Root1Partition)
+	root1UUID, err := GetPartitionUUID(t.Context(), scheme.Root1Partition)
 	if err != nil {
 		t.Fatalf("Failed to get root1 UUID: %v", err)
 	}
-	root2UUID, err := GetPartitionUUID(context.Background(), scheme.Root2Partition)
+	root2UUID, err := GetPartitionUUID(t.Context(), scheme.Root2Partition)
 	if err != nil {
 		t.Fatalf("Failed to get root2 UUID: %v", err)
 	}
-	varUUID, err := GetPartitionUUID(context.Background(), scheme.VarPartition)
+	varUUID, err := GetPartitionUUID(t.Context(), scheme.VarPartition)
 	if err != nil {
 		t.Fatalf("Failed to get var UUID: %v", err)
 	}
@@ -551,10 +550,10 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 	t.Run("encrypted includes boot mount", func(t *testing.T) {
 		// Setup LUKS encryption
 		passphrase := "test-passphrase"
-		if err := SetupLUKS(context.Background(), scheme, passphrase, false, NoopReporter{}); err != nil {
+		if err := SetupLUKS(t.Context(), scheme, passphrase, false, NoopReporter{}); err != nil {
 			t.Fatalf("Failed to setup LUKS: %v", err)
 		}
-		defer scheme.CloseLUKSDevices(context.Background())
+		defer scheme.CloseLUKSDevices(t.Context())
 
 		root1Dev := scheme.GetLUKSDevice("root1")
 		root2Dev := scheme.GetLUKSDevice("root2")

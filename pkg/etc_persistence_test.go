@@ -1,7 +1,6 @@
 package pkg
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -32,7 +31,7 @@ func TestSetupEtcOverlay(t *testing.T) {
 	t.Run("dry run does not create directories", func(t *testing.T) {
 		targetDir := t.TempDir()
 
-		err := SetupEtcOverlay(context.Background(), targetDir, true, testProgress())
+		err := SetupEtcOverlay(t.Context(), targetDir, true, testProgress())
 		if err != nil {
 			t.Fatalf("SetupEtcOverlay dry run failed: %v", err)
 		}
@@ -59,7 +58,7 @@ func TestSetupEtcOverlay(t *testing.T) {
 			}
 		}
 
-		err := SetupEtcOverlay(context.Background(), targetDir, false, testProgress())
+		err := SetupEtcOverlay(t.Context(), targetDir, false, testProgress())
 		if err != nil {
 			t.Fatalf("SetupEtcOverlay failed: %v", err)
 		}
@@ -79,7 +78,7 @@ func TestSetupEtcOverlay(t *testing.T) {
 	t.Run("fails if /etc does not exist", func(t *testing.T) {
 		targetDir := t.TempDir()
 
-		err := SetupEtcOverlay(context.Background(), targetDir, false, testProgress())
+		err := SetupEtcOverlay(t.Context(), targetDir, false, testProgress())
 		if err == nil {
 			t.Error("SetupEtcOverlay should fail when /etc does not exist")
 		}
@@ -94,7 +93,7 @@ func TestSetupEtcOverlay(t *testing.T) {
 			t.Fatalf("failed to create etc dir: %v", err)
 		}
 
-		err := SetupEtcOverlay(context.Background(), targetDir, false, testProgress())
+		err := SetupEtcOverlay(t.Context(), targetDir, false, testProgress())
 		if err == nil {
 			t.Error("SetupEtcOverlay should fail when /etc is empty")
 		}
@@ -114,7 +113,7 @@ func TestSetupEtcPersistence(t *testing.T) {
 			t.Fatalf("failed to create test file: %v", err)
 		}
 
-		err := SetupEtcPersistence(context.Background(), targetDir, false, testProgress())
+		err := SetupEtcPersistence(t.Context(), targetDir, false, testProgress())
 		if err != nil {
 			t.Fatalf("SetupEtcPersistence failed: %v", err)
 		}
@@ -140,7 +139,7 @@ func TestInstallEtcMountUnit(t *testing.T) {
 			t.Fatalf("failed to create test file: %v", err)
 		}
 
-		err := InstallEtcMountUnit(context.Background(), targetDir, false, testProgress())
+		err := InstallEtcMountUnit(t.Context(), targetDir, false, testProgress())
 		if err != nil {
 			t.Fatalf("InstallEtcMountUnit failed: %v", err)
 		}
@@ -151,7 +150,7 @@ func TestMergeEtcFromActive(t *testing.T) {
 	t.Run("dry run does nothing", func(t *testing.T) {
 		targetDir := t.TempDir()
 
-		err := MergeEtcFromActive(context.Background(), targetDir, "/dev/sda3", true, testProgress())
+		err := MergeEtcFromActive(t.Context(), targetDir, "/dev/sda3", true, testProgress())
 		if err != nil {
 			t.Fatalf("MergeEtcFromActive dry run failed: %v", err)
 		}
@@ -169,7 +168,7 @@ func TestMergeEtcFromActive(t *testing.T) {
 			t.Fatalf("failed to create test file: %v", err)
 		}
 
-		err := MergeEtcFromActive(context.Background(), targetDir, "/dev/sda3", false, testProgress())
+		err := MergeEtcFromActive(t.Context(), targetDir, "/dev/sda3", false, testProgress())
 		if err != nil {
 			t.Fatalf("MergeEtcFromActive failed: %v", err)
 		}

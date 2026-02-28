@@ -267,8 +267,7 @@ func CleanupMounts(t *testing.T, mountPoint string) {
 		return
 	}
 
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
+	for line := range strings.SplitSeq(string(output), "\n") {
 		if strings.Contains(line, mountPoint) {
 			// Extract mount point (format: "device on /path type fstype")
 			parts := strings.Split(line, " on ")

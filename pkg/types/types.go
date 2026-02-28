@@ -38,11 +38,11 @@ const (
 type ProgressEvent struct {
 	Type       EventType `json:"type"`
 	Timestamp  string    `json:"timestamp"`
-	Step       int       `json:"step,omitempty"`
-	TotalSteps int       `json:"total_steps,omitempty"`
+	Step       int       `json:"step,omitzero"`
+	TotalSteps int       `json:"total_steps,omitzero"`
 	StepName   string    `json:"step_name,omitempty"`
 	Message    string    `json:"message,omitempty"`
-	Percent    int       `json:"percent,omitempty"`
+	Percent    int       `json:"percent,omitzero"`
 	Details    any       `json:"details,omitempty"`
 }
 
@@ -64,7 +64,7 @@ type LintIssue struct {
 	Severity LintSeverity `json:"severity"`
 	Message  string       `json:"message"`
 	Path     string       `json:"path,omitempty"`
-	Fixed    bool         `json:"fixed,omitempty"` // True if the issue was automatically fixed
+	Fixed    bool         `json:"fixed,omitzero"` // True if the issue was automatically fixed
 }
 
 // LintResult contains all issues found by the linter
@@ -72,17 +72,17 @@ type LintResult struct {
 	Issues     []LintIssue `json:"issues"`
 	ErrorCount int         `json:"error_count"`
 	WarnCount  int         `json:"warning_count"`
-	FixedCount int         `json:"fixed_count,omitempty"`
+	FixedCount int         `json:"fixed_count,omitzero"`
 }
 
 // LintOutput represents the JSON output structure for the lint command
 type LintOutput struct {
 	Image      string      `json:"image,omitempty"`
-	Local      bool        `json:"local,omitempty"`
+	Local      bool        `json:"local,omitzero"`
 	Issues     []LintIssue `json:"issues"`
 	ErrorCount int         `json:"error_count"`
 	WarnCount  int         `json:"warning_count"`
-	FixedCount int         `json:"fixed_count,omitempty"`
+	FixedCount int         `json:"fixed_count,omitzero"`
 	Success    bool        `json:"success"`
 }
 
@@ -96,7 +96,7 @@ type CachedImageMetadata struct {
 	ImageDigest         string            `json:"image_digest"`           // Image manifest digest (sha256:...)
 	DownloadDate        string            `json:"download_date"`          // When the image was downloaded
 	Architecture        string            `json:"architecture"`           // Image architecture (amd64, arm64, etc.)
-	Labels              map[string]string `json:"labels,omitempty"`       // Container image labels
+	Labels              map[string]string `json:"labels,omitzero"`        // Container image labels
 	OSReleasePrettyName string            `json:"os_release_pretty_name"` // PRETTY_NAME from os-release
 	OSReleaseVersionID  string            `json:"os_release_version_id"`  // VERSION_ID from os-release
 	OSReleaseID         string            `json:"os_release_id"`          // ID from os-release (e.g., debian, fedora)
@@ -163,7 +163,7 @@ type StatusOutput struct {
 	BootloaderType string             `json:"bootloader_type"`
 	FilesystemType string             `json:"filesystem_type"`
 	InstallDate    string             `json:"install_date,omitempty"`
-	KernelArgs     []string           `json:"kernel_args,omitempty"`
+	KernelArgs     []string           `json:"kernel_args,omitzero"`
 	UpdateCheck    *UpdateCheck       `json:"update_check,omitempty"`
 	StagedUpdate   *StagedUpdate      `json:"staged_update,omitempty"`
 	RebootPending  *RebootPendingInfo `json:"reboot_pending,omitempty"`

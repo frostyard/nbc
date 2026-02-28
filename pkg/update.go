@@ -55,8 +55,7 @@ func GetActiveRootPartition() (string, error) {
 	cmdlineStr := string(cmdline)
 
 	// Look for root=UUID=XXX or root=/dev/XXX
-	fields := strings.Fields(cmdlineStr)
-	for _, field := range fields {
+	for field := range strings.FieldsSeq(cmdlineStr) {
 		if strings.HasPrefix(field, "root=UUID=") {
 			uuid := strings.TrimPrefix(field, "root=UUID=")
 			// Find which partition has this UUID
@@ -83,8 +82,7 @@ func IsRootMountedReadOnly() string {
 		fields := strings.Fields(scanner.Text())
 		if len(fields) >= 4 && fields[1] == "/" {
 			// fields[3] contains mount options
-			options := strings.Split(fields[3], ",")
-			for _, opt := range options {
+			for opt := range strings.SplitSeq(fields[3], ",") {
 				switch opt {
 				case "ro":
 					return "ro"

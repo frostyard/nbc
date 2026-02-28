@@ -90,9 +90,13 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 	jsonOutput := viper.GetBool("json")
 
-	// Create progress reporter for early error output
+	// Create progress reporter for early error output.
+	// For --check --json, suppress streaming progress so only the final
+	// UpdateCheckOutput JSON object is emitted.
 	var progress pkg.Reporter
-	if jsonOutput {
+	if jsonOutput && updFlags.checkOnly {
+		progress = pkg.NoopReporter{}
+	} else if jsonOutput {
 		progress = pkg.NewJSONReporter(os.Stdout)
 	} else {
 		progress = pkg.NewTextReporter(os.Stdout)
@@ -324,6 +328,13 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	updater.SetDryRun(dryRun)
 	updater.SetForce(force)
 	updater.SetJSONOutput(jsonOutput)
+
+	// For --check --json, override the updater's reporter with NoopReporter
+	// so IsUpdateNeeded doesn't emit streaming JSON — only the final
+	// UpdateCheckOutput JSON object should be written.
+	if updFlags.checkOnly && jsonOutput {
+		updater.Progress = pkg.NoopReporter{}
+	}
 
 	// Set local image if using staged update
 	if localLayoutPath != "" {

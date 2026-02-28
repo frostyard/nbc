@@ -1,7 +1,6 @@
 package pkg
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -308,7 +307,7 @@ func TestIntegration_Installer_Install(t *testing.T) {
 
 	// Perform installation
 	t.Log("Starting Installer.Install() test")
-	result, err := installer.Install(context.Background())
+	result, err := installer.Install(t.Context())
 	if err != nil {
 		t.Fatalf("Install() failed: %v", err)
 	}
@@ -362,10 +361,10 @@ func TestIntegration_Installer_Install(t *testing.T) {
 	defer testutil.CleanupMounts(t, verifyMount)
 
 	// Mount root1 partition
-	if err := MountPartitions(context.Background(), scheme, verifyMount, false, NoopReporter{}); err != nil {
+	if err := MountPartitions(t.Context(), scheme, verifyMount, false, NoopReporter{}); err != nil {
 		t.Fatalf("Failed to mount partitions for verification: %v", err)
 	}
-	defer func() { _ = UnmountPartitions(context.Background(), verifyMount, false, NoopReporter{}) }()
+	defer func() { _ = UnmountPartitions(t.Context(), verifyMount, false, NoopReporter{}) }()
 
 	// Check for expected directories
 	expectedDirs := []string{
@@ -434,7 +433,7 @@ func TestIntegration_Installer_DryRun(t *testing.T) {
 
 	// Perform dry-run installation
 	t.Log("Testing Installer.Install() in dry-run mode")
-	result, err := installer.Install(context.Background())
+	result, err := installer.Install(t.Context())
 	if err != nil {
 		t.Fatalf("Dry-run Install() failed: %v", err)
 	}
@@ -504,7 +503,7 @@ func TestIntegration_Installer_WithEncryption(t *testing.T) {
 
 	// Perform installation
 	t.Log("Starting encrypted installation test")
-	result, err := installer.Install(context.Background())
+	result, err := installer.Install(t.Context())
 	if err != nil {
 		t.Fatalf("Encrypted Install() failed: %v", err)
 	}

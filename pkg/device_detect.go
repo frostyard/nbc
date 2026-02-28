@@ -99,8 +99,7 @@ func getLUKSBackingDevice(mapperDevice string) (string, error) {
 
 	// Parse output to find "device:" line
 	// Example line: "  device:  /dev/nvme0n1p3"
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
+	for line := range strings.SplitSeq(string(output), "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "device:") {
 			// Extract device path after "device:"

@@ -89,7 +89,7 @@ func TestIncus_Install(t *testing.T) {
 	testutil.RequireRoot(t)
 	testutil.RequireTools(t, "incus")
 
-	ctx, cancel := context.WithTimeout(context.Background(), testutil.TimeoutVM)
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.TimeoutVM)
 	defer cancel()
 
 	// Create fixture (cleanup registered automatically)
@@ -219,7 +219,7 @@ func TestIncus_FullCycle(t *testing.T) {
 	testutil.RequireRoot(t)
 	testutil.RequireTools(t, "incus")
 
-	ctx, cancel := context.WithTimeout(context.Background(), testutil.TimeoutVM)
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.TimeoutVM)
 	defer cancel()
 
 	// Create fixture (cleanup registered automatically)
@@ -549,7 +549,7 @@ func TestIncus_FullCycle(t *testing.T) {
 		bootFixture := &bootTestFixture{client: client, vmName: bootVMName}
 
 		// Verify /etc overlay is mounted
-		bootCtx, bootCancel := context.WithTimeout(context.Background(), testutil.TimeoutVMBoot)
+		bootCtx, bootCancel := context.WithTimeout(t.Context(), testutil.TimeoutVMBoot)
 		defer bootCancel()
 
 		// Wait for systemd to be ready (with retries)

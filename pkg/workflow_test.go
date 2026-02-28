@@ -33,7 +33,7 @@ func TestWorkflow_RunsAllSteps(t *testing.T) {
 		return nil
 	})
 
-	if err := w.Run(context.Background(), &WorkflowState{}); err != nil {
+	if err := w.Run(t.Context(), &WorkflowState{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(ran) != 2 || ran[0] != "step1" || ran[1] != "step2" {
@@ -56,7 +56,7 @@ func TestWorkflow_StopsOnError(t *testing.T) {
 		return nil
 	})
 
-	err := w.Run(context.Background(), &WorkflowState{})
+	err := w.Run(t.Context(), &WorkflowState{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -66,7 +66,7 @@ func TestWorkflow_StopsOnError(t *testing.T) {
 }
 
 func TestWorkflow_RespectsContextCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
 	var ran bool
@@ -91,7 +91,7 @@ func TestWorkflow_ReportsSteps(t *testing.T) {
 	w.AddStep("First", func(_ context.Context, _ *WorkflowState) error { return nil })
 	w.AddStep("Second", func(_ context.Context, _ *WorkflowState) error { return nil })
 
-	if err := w.Run(context.Background(), &WorkflowState{}); err != nil {
+	if err := w.Run(t.Context(), &WorkflowState{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(reporter.steps) != 2 {
@@ -111,7 +111,7 @@ func TestWorkflow_ErrorWrapsStepName(t *testing.T) {
 		return errors.New("disk full")
 	})
 
-	err := w.Run(context.Background(), &WorkflowState{})
+	err := w.Run(t.Context(), &WorkflowState{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -125,7 +125,7 @@ func TestWorkflow_ErrorWrapsStepName(t *testing.T) {
 
 func TestWorkflow_EmptyWorkflow(t *testing.T) {
 	w := NewWorkflow(&NoopReporter{})
-	if err := w.Run(context.Background(), &WorkflowState{}); err != nil {
+	if err := w.Run(t.Context(), &WorkflowState{}); err != nil {
 		t.Fatalf("empty workflow should succeed, got: %v", err)
 	}
 }

@@ -175,16 +175,16 @@ func TestIncus_Install(t *testing.T) {
         mkdir -p /mnt/check /mnt/check-var
         mount $ROOT /mnt/check
         mount $VAR /mnt/check-var
-        
+
         # Check config exists
         [ -f /mnt/check-var/lib/nbc/state/config.json ] && echo "config:ok" || echo "config:missing"
-        
+
         # Check dracut module
         [ -d /mnt/check/usr/lib/dracut/modules.d/95etc-overlay ] && echo "dracut:ok" || echo "dracut:missing"
-        
+
         # Check .etc.lower
         [ -d /mnt/check/.etc.lower ] && echo "etclower:ok" || echo "etclower:missing"
-        
+
         umount /mnt/check-var
         umount /mnt/check
         rmdir /mnt/check /mnt/check-var
@@ -309,16 +309,16 @@ func TestIncus_FullCycle(t *testing.T) {
             mkdir -p /mnt/check /mnt/check-var
             mount $ROOT /mnt/check
             mount $VAR /mnt/check-var
-            
+
             # Check config exists
             [ -f /mnt/check-var/lib/nbc/state/config.json ] && echo "config:ok" || echo "config:missing"
-            
+
             # Check dracut module
             [ -d /mnt/check/usr/lib/dracut/modules.d/95etc-overlay ] && echo "dracut:ok" || echo "dracut:missing"
-            
+
             # Check .etc.lower
             [ -d /mnt/check/.etc.lower ] && echo "etclower:ok" || echo "etclower:missing"
-            
+
             umount /mnt/check-var
             umount /mnt/check
             rmdir /mnt/check /mnt/check-var
@@ -417,10 +417,10 @@ func TestIncus_FullCycle(t *testing.T) {
 		}
 
 		// Extract file counts
-		lines := strings.Split(verifyOutput, "\n")
-		for _, line := range lines {
-			if strings.HasPrefix(line, "root2_files:") {
-				countStr := strings.TrimPrefix(line, "root2_files:")
+		lines := strings.SplitSeq(verifyOutput, "\n")
+		for line := range lines {
+			if after, ok := strings.CutPrefix(line, "root2_files:"); ok {
+				countStr := after
 				if countStr == "0" {
 					t.Error("Root2 partition is empty after update - A/B update may have failed")
 				}

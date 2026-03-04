@@ -10,6 +10,7 @@
     -d --device   Disk device to validate (required)
     -n --dry-run  Dry run mode (no actual changes)
     -h --help     Help for validate
-    --json        Output in JSON format for machine-readable output
+    --json        Output in JSON format
+    -s --silent   Suppress all progress output
     -v --verbose  Verbose output
 

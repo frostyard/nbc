@@ -6,9 +6,9 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/huh"
+	"github.com/frostyard/clix"
 	"github.com/frostyard/nbc/pkg"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // interactiveInstallOptions holds all the options collected from the interactive form
@@ -44,13 +44,10 @@ Example:
 }
 
 func init() {
-	rootCmd.AddCommand(interactiveInstallCmd)
+	RootCmd.AddCommand(interactiveInstallCmd)
 }
 
 func runInteractiveInstall(cmd *cobra.Command, args []string) error {
-	verbose := viper.GetBool("verbose")
-	dryRun := viper.GetBool("dry-run")
-
 	opts := &interactiveInstallOptions{
 		filesystem: "btrfs",
 	}
@@ -432,8 +429,8 @@ func runInteractiveInstall(cmd *cobra.Command, args []string) error {
 	// Build InstallConfig from interactive options
 	cfg := &pkg.InstallConfig{
 		FilesystemType: opts.filesystem,
-		Verbose:        verbose,
-		DryRun:         dryRun,
+		Verbose:        clix.Verbose,
+		DryRun:         clix.DryRun,
 		RootPassword:   opts.rootPassword,
 	}
 

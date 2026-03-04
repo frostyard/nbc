@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/frostyard/clix"
 	"github.com/frostyard/nbc/pkg"
 	"github.com/frostyard/nbc/pkg/types"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var statusCmd = &cobra.Command{
@@ -35,25 +35,22 @@ Example:
 }
 
 func init() {
-	rootCmd.AddCommand(statusCmd)
+	RootCmd.AddCommand(statusCmd)
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
-	verbose := viper.GetBool("verbose")
-	jsonOutput := viper.GetBool("json")
-
 	// Read system configuration
 	config, err := pkg.ReadSystemConfig()
 	if err != nil {
-		if jsonOutput {
-			return outputJSONError("failed to read system config", err)
+		if clix.JSONOutput {
+			return clix.OutputJSONError("failed to read system config", err)
 		}
 		return fmt.Errorf("failed to read system config: %w\n\nIs this system installed with nbc?", err)
 	}
 
 	// Get active root partition
 	activeRoot, err := pkg.GetActiveRootPartition()
-	if err != nil && verbose && !jsonOutput {
+	if err != nil && clix.Verbose && !clix.JSONOutput {
 		fmt.Printf("Warning: could not determine active root partition: %v\n", err)
 	}
 
@@ -79,7 +76,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	// Check if root is mounted read-only or read-write
 	rootMountMode := pkg.IsRootMountedReadOnly()
 
-	if jsonOutput {
+	if clix.JSONOutput {
 		output := types.StatusOutput{
 			Image:          config.ImageRef,
 			Digest:         config.ImageDigest,
@@ -136,7 +133,8 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		return outputJSON(output)
+		clix.OutputJSON(output)
+		return nil
 	}
 
 	// Print status
@@ -147,7 +145,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Image:       %s\n", config.ImageRef)
 	if config.ImageDigest != "" {
 		// Show shortened digest for cleaner output, full in verbose
-		if verbose {
+		if clix.Verbose {
 			fmt.Printf("Digest:      %s\n", config.ImageDigest)
 		} else {
 			digest := config.ImageDigest
@@ -192,7 +190,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Target:      %s\n", rebootInfo.TargetPartition)
 	}
 
-	if verbose {
+	if clix.Verbose {
 		fmt.Println()
 		fmt.Printf("Installed:   %s\n", config.InstallDate)
 		if len(config.KernelArgs) > 0 {
@@ -201,7 +199,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check for available updates if verbose
-	if verbose && config.ImageRef != "" {
+	if clix.Verbose && config.ImageRef != "" {
 		fmt.Println()
 		fmt.Println("Checking for updates...")
 		remoteDigest, err := pkg.GetRemoteImageDigest(config.ImageRef)

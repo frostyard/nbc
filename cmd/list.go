@@ -1,14 +1,12 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 
+	"github.com/frostyard/clix"
 	"github.com/frostyard/nbc/pkg"
 	"github.com/frostyard/nbc/pkg/types"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var listCmd = &cobra.Command{
@@ -20,22 +18,19 @@ var listCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(listCmd)
+	RootCmd.AddCommand(listCmd)
 }
 
 func runList(cmd *cobra.Command, args []string) error {
-	verbose := viper.GetBool("verbose")
-	jsonOutput := viper.GetBool("json")
-
 	disks, err := pkg.ListDisks()
 	if err != nil {
-		if jsonOutput {
-			return outputJSONError("failed to list disks", err)
+		if clix.JSONOutput {
+			return clix.OutputJSONError("failed to list disks", err)
 		}
 		return fmt.Errorf("failed to list disks: %w", err)
 	}
 
-	if jsonOutput {
+	if clix.JSONOutput {
 		output := types.ListOutput{
 			Disks: make([]types.DiskOutput, 0, len(disks)),
 		}
@@ -59,7 +54,8 @@ func runList(cmd *cobra.Command, args []string) error {
 			}
 			output.Disks = append(output.Disks, diskOut)
 		}
-		return outputJSON(output)
+		clix.OutputJSON(output)
+		return nil
 	}
 
 	if len(disks) == 0 {
@@ -85,7 +81,7 @@ func runList(cmd *cobra.Command, args []string) error {
 				if part.MountPoint != "" {
 					fmt.Printf(" mounted at %s", part.MountPoint)
 				}
-				if part.FileSystem != "" && verbose {
+				if part.FileSystem != "" && clix.Verbose {
 					fmt.Printf(" [%s]", part.FileSystem)
 				}
 				fmt.Println()
@@ -97,22 +93,4 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
-}
-
-// outputJSON writes the given data as JSON to stdout
-func outputJSON(data interface{}) error {
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(data)
-}
-
-// outputJSONError outputs an error in JSON format
-func outputJSONError(message string, err error) error {
-	errOutput := map[string]interface{}{
-		"error":   true,
-		"message": message,
-		"details": err.Error(),
-	}
-	_ = outputJSON(errOutput)
-	return fmt.Errorf("%s: %w", message, err)
 }

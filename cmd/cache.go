@@ -2,13 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
+	"github.com/frostyard/clix"
 	"github.com/frostyard/nbc/pkg"
 	"github.com/frostyard/nbc/pkg/types"
-	"github.com/frostyard/std/reporter"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 type cacheListFlags struct {
@@ -95,7 +93,7 @@ Examples:
 }
 
 func init() {
-	rootCmd.AddCommand(cacheCmd)
+	RootCmd.AddCommand(cacheCmd)
 	cacheCmd.AddCommand(cacheListCmd)
 	cacheCmd.AddCommand(cacheRemoveCmd)
 	cacheCmd.AddCommand(cacheClearCmd)
@@ -113,8 +111,6 @@ func init() {
 }
 
 func runCacheList(cmd *cobra.Command, args []string) error {
-	jsonOutput := viper.GetBool("json")
-
 	// Validate flags
 	if !cacheListF.installImages && !cacheListF.updateImages {
 		return fmt.Errorf("must specify either --install-images or --update-images")
@@ -138,13 +134,13 @@ func runCacheList(cmd *cobra.Command, args []string) error {
 
 	images, err := cache.List()
 	if err != nil {
-		if jsonOutput {
-			return outputJSONError("failed to list cached images", err)
+		if clix.JSONOutput {
+			return clix.OutputJSONError("failed to list cached images", err)
 		}
 		return fmt.Errorf("failed to list cached images: %w", err)
 	}
 
-	if jsonOutput {
+	if clix.JSONOutput {
 		output := types.CacheListOutput{
 			CacheType: cacheType,
 			CacheDir:  cacheDir,
@@ -153,7 +149,8 @@ func runCacheList(cmd *cobra.Command, args []string) error {
 		if output.Images == nil {
 			output.Images = []types.CachedImageMetadata{} // Ensure empty array, not null
 		}
-		return outputJSON(output)
+		clix.OutputJSON(output)
+		return nil
 	}
 
 	// Human-readable output
@@ -191,7 +188,6 @@ func runCacheList(cmd *cobra.Command, args []string) error {
 
 func runCacheRemove(cmd *cobra.Command, args []string) error {
 	digest := args[0]
-	jsonOutput := viper.GetBool("json")
 
 	// Try to find and remove from either cache
 	var removed bool
@@ -199,12 +195,7 @@ func runCacheRemove(cmd *cobra.Command, args []string) error {
 
 	// Try install cache first
 	installCache := pkg.NewStagedInstallCache()
-	var progress reporter.Reporter
-	if jsonOutput {
-		progress = reporter.NewJSONReporter(os.Stdout)
-	} else {
-		progress = reporter.NewTextReporter(os.Stdout)
-	}
+	progress := clix.NewReporter()
 	if cacheRemoveF.cacheType == "" || cacheRemoveF.cacheType == "install" {
 		if err := installCache.Remove(cmd.Context(), digest, progress); err == nil {
 			removed = true
@@ -225,31 +216,30 @@ func runCacheRemove(cmd *cobra.Command, args []string) error {
 
 	if !removed {
 		if removeErr != nil {
-			if jsonOutput {
-				return outputJSONError("failed to remove cached image", removeErr)
+			if clix.JSONOutput {
+				return clix.OutputJSONError("failed to remove cached image", removeErr)
 			}
 			return removeErr
 		}
 		err := fmt.Errorf("no cached image matches: %s", digest)
-		if jsonOutput {
-			return outputJSONError("image not found", err)
+		if clix.JSONOutput {
+			return clix.OutputJSONError("image not found", err)
 		}
 		return err
 	}
 
-	if jsonOutput {
-		return outputJSON(map[string]interface{}{
+	if clix.JSONOutput {
+		clix.OutputJSON(map[string]any{
 			"success": true,
 			"removed": digest,
 		})
+		return nil
 	}
 
 	return nil
 }
 
 func runCacheClear(cmd *cobra.Command, args []string) error {
-	jsonOutput := viper.GetBool("json")
-
 	if !cacheClearF.install && !cacheClearF.update {
 		return fmt.Errorf("must specify either --install or --update")
 	}
@@ -268,24 +258,20 @@ func runCacheClear(cmd *cobra.Command, args []string) error {
 		cacheType = "update"
 	}
 
-	var progress reporter.Reporter
-	if jsonOutput {
-		progress = reporter.NewJSONReporter(os.Stdout)
-	} else {
-		progress = reporter.NewTextReporter(os.Stdout)
-	}
+	progress := clix.NewReporter()
 	if err := cache.Clear(cmd.Context(), progress); err != nil {
-		if jsonOutput {
-			return outputJSONError("failed to clear cache", err)
+		if clix.JSONOutput {
+			return clix.OutputJSONError("failed to clear cache", err)
 		}
 		return fmt.Errorf("failed to clear cache: %w", err)
 	}
 
-	if jsonOutput {
-		return outputJSON(map[string]interface{}{
+	if clix.JSONOutput {
+		clix.OutputJSON(map[string]any{
 			"success":    true,
 			"cache_type": cacheType,
 		})
+		return nil
 	}
 
 	return nil

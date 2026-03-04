@@ -71,5 +71,5 @@ is in markdown format.`,
 }
 
 func init() {
-	rootCmd.AddCommand(NewGendocsCommand())
+	RootCmd.AddCommand(NewGendocsCommand())
 }

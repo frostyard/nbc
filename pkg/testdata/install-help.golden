@@ -48,12 +48,13 @@
     -h --help             Help for install
     -i --image            Container image reference (required unless --local-image or staged image exists)
     --image-size          Size of loopback image in GB (minimum 35GB, default 35GB) (35)
-    --json                Output in JSON format for machine-readable output
+    --json                Output in JSON format
     -k --karg             Kernel argument to pass (can be specified multiple times)
     --keyfile             Path to file containing LUKS passphrase (alternative to --passphrase)
     --local-image         Use staged local image by digest (auto-detects from /var/cache/nbc/staged-install/ if not specified)
     --passphrase          Luks passphrase (required when --encrypt is set, unless --keyfile is provided)
     --root-password-file  Path to file containing root password to set during installation
+    -s --silent           Suppress all progress output
     --skip-pull           Skip pulling the image (use already pulled image)
     --tpm2                Enroll TPM2 for automatic LUKS unlock (no PCR binding)
     -v --verbose          Verbose output

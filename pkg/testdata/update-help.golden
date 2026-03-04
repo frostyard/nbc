@@ -47,9 +47,10 @@
     -f --force       Force reinstall even if system is up-to-date
     -h --help        Help for update
     -i --image       Container image reference (uses saved config if not specified)
-    --json           Output in JSON format for machine-readable output
+    --json           Output in JSON format
     -k --karg        Kernel argument to pass (can be specified multiple times)
     --local-image    Apply update from staged cache (/var/cache/nbc/staged-update/)
+    -s --silent      Suppress all progress output
     --skip-pull      Skip pulling the image (use already pulled image)
     -v --verbose     Verbose output
 

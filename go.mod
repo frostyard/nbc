@@ -3,17 +3,16 @@ module github.com/frostyard/nbc
 go 1.26
 
 require (
-	github.com/charmbracelet/fang v0.4.4
 	github.com/charmbracelet/huh v0.8.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/docker/docker v28.5.2+incompatible
+	github.com/frostyard/clix v0.2.0
 	github.com/frostyard/std v0.1.0
 	github.com/google/go-containerregistry v0.20.7
 	github.com/lxc/incus/v6 v6.21.0
 	github.com/muesli/termenv v0.16.0
 	github.com/sebdah/goldie/v2 v2.8.0
 	github.com/spf13/cobra v1.10.2
-	github.com/spf13/viper v1.21.0
 	golang.org/x/term v0.40.0
 )
 
@@ -31,6 +30,7 @@ require (
 	github.com/charmbracelet/bubbles v0.21.1-0.20250623103423-23b8fd6302d7 // indirect
 	github.com/charmbracelet/bubbletea v1.3.6 // indirect
 	github.com/charmbracelet/colorprofile v0.3.3 // indirect
+	github.com/charmbracelet/fang v0.4.4 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20251106190538-99ea45596692 // indirect
 	github.com/charmbracelet/x/ansi v0.11.3 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.14 // indirect
@@ -104,6 +104,7 @@ require (
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
+	github.com/spf13/viper v1.21.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/urfave/cli v1.22.17 // indirect
 	github.com/vbatts/go-mtree v0.7.0 // indirect

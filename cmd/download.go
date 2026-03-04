@@ -2,13 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
+	"github.com/frostyard/clix"
 	"github.com/frostyard/nbc/pkg"
 	"github.com/frostyard/nbc/pkg/types"
-	"github.com/frostyard/std/reporter"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 type downloadFlags struct {
@@ -53,7 +51,7 @@ Examples:
 }
 
 func init() {
-	rootCmd.AddCommand(downloadCmd)
+	RootCmd.AddCommand(downloadCmd)
 
 	downloadCmd.Flags().StringVarP(&dlFlags.image, "image", "i", "", "Container image reference (required for --for-install, uses system config for --for-update)")
 	downloadCmd.Flags().BoolVar(&dlFlags.forInstall, "for-install", false, "Save to staged-install cache (for ISO embedding)")
@@ -61,10 +59,6 @@ func init() {
 }
 
 func runDownload(cmd *cobra.Command, args []string) error {
-	jsonOutput := viper.GetBool("json")
-	verbose := viper.GetBool("verbose")
-	dryRun := viper.GetBool("dry-run")
-
 	// Validate mutually exclusive flags
 	if !dlFlags.forInstall && !dlFlags.forUpdate {
 		return fmt.Errorf("must specify either --for-install or --for-update")
@@ -82,13 +76,13 @@ func runDownload(cmd *cobra.Command, args []string) error {
 	if dlFlags.forUpdate && dlFlags.image == "" {
 		config, err := pkg.ReadSystemConfig()
 		if err != nil {
-			if jsonOutput {
-				return outputJSONError("failed to read system config", err)
+			if clix.JSONOutput {
+				return clix.OutputJSONError("failed to read system config", err)
 			}
 			return fmt.Errorf("no --image specified and failed to read system config: %w", err)
 		}
 		dlFlags.image = config.ImageRef
-		if !jsonOutput {
+		if !clix.JSONOutput {
 			fmt.Printf("Using image from system config: %s\n", dlFlags.image)
 		}
 	}
@@ -106,8 +100,8 @@ func runDownload(cmd *cobra.Command, args []string) error {
 		// Read current system config
 		config, err := pkg.ReadSystemConfig()
 		if err != nil {
-			if jsonOutput {
-				return outputJSONError("failed to read system config", err)
+			if clix.JSONOutput {
+				return clix.OutputJSONError("failed to read system config", err)
 			}
 			return fmt.Errorf("failed to read system config: %w\n\nIs this system installed with nbc?", err)
 		}
@@ -115,21 +109,21 @@ func runDownload(cmd *cobra.Command, args []string) error {
 		// Get remote digest of new image
 		remoteDigest, err := pkg.GetRemoteImageDigest(dlFlags.image)
 		if err != nil {
-			if jsonOutput {
-				return outputJSONError("failed to get remote image digest", err)
+			if clix.JSONOutput {
+				return clix.OutputJSONError("failed to get remote image digest", err)
 			}
 			return fmt.Errorf("failed to get remote image digest: %w", err)
 		}
 
 		// Check if update is actually newer
 		if config.ImageDigest == remoteDigest {
-			if jsonOutput {
-				return outputJSONError("no update available", fmt.Errorf("image digest matches installed version"))
+			if clix.JSONOutput {
+				return clix.OutputJSONError("no update available", fmt.Errorf("image digest matches installed version"))
 			}
 			return fmt.Errorf("no update available: image digest matches installed version (%s)", remoteDigest[:19]+"...")
 		}
 
-		if !jsonOutput {
+		if !clix.JSONOutput {
 			fmt.Printf("Update available:\n")
 			fmt.Printf("  Current: %s\n", config.ImageDigest[:min(19, len(config.ImageDigest))]+"...")
 			fmt.Printf("  New:     %s\n", remoteDigest[:min(19, len(remoteDigest))]+"...")
@@ -138,20 +132,15 @@ func runDownload(cmd *cobra.Command, args []string) error {
 		// Clear any existing staged update
 		updateCache := pkg.NewStagedUpdateCache()
 		existing, _ := updateCache.GetSingle()
-		var progress reporter.Reporter
-		if jsonOutput {
-			progress = reporter.NewJSONReporter(os.Stdout)
-		} else {
-			progress = reporter.NewTextReporter(os.Stdout)
-		}
+		progress := clix.NewReporter()
 		if existing != nil {
-			if verbose && !jsonOutput {
+			if clix.Verbose && !clix.JSONOutput {
 				fmt.Printf("Removing existing staged update: %s\n", existing.ImageDigest)
 			}
-			if !dryRun {
+			if !clix.DryRun {
 				_ = updateCache.Clear(cmd.Context(), progress)
 			} else {
-				if verbose && !jsonOutput {
+				if clix.Verbose && !clix.JSONOutput {
 					fmt.Printf("Dry run: skipping removal of existing staged update\n")
 				}
 			}
@@ -160,9 +149,9 @@ func runDownload(cmd *cobra.Command, args []string) error {
 
 	// Create cache and download
 	cache := pkg.NewImageCache(cacheDir)
-	cache.SetVerbose(verbose)
+	cache.SetVerbose(clix.Verbose)
 
-	if !jsonOutput {
+	if !clix.JSONOutput {
 		if dlFlags.forInstall {
 			fmt.Printf("Downloading image for staged installation...\n")
 		} else {
@@ -171,15 +160,16 @@ func runDownload(cmd *cobra.Command, args []string) error {
 	}
 
 	// Skip download if dry run
-	if dryRun {
-		if jsonOutput {
+	if clix.DryRun {
+		if clix.JSONOutput {
 			// In dry-run mode, only report the requested image reference and cache directory.
 			// Do not fabricate digest, size, architecture, or OS metadata.
 			output := types.DownloadOutput{
 				ImageRef: dlFlags.image,
 				CacheDir: cacheDir,
 			}
-			return outputJSON(output)
+			clix.OutputJSON(output)
+			return nil
 		}
 
 		// Human-readable dry-run output: just state that the download is skipped.
@@ -187,22 +177,17 @@ func runDownload(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	var progress reporter.Reporter
-	if jsonOutput {
-		progress = reporter.NewJSONReporter(os.Stdout)
-	} else {
-		progress = reporter.NewTextReporter(os.Stdout)
-	}
+	progress := clix.NewReporter()
 
 	metadata, err := cache.Download(cmd.Context(), dlFlags.image, progress)
 	if err != nil {
-		if jsonOutput {
-			return outputJSONError("failed to download image", err)
+		if clix.JSONOutput {
+			return clix.OutputJSONError("failed to download image", err)
 		}
 		return fmt.Errorf("failed to download image: %w", err)
 	}
 
-	if jsonOutput {
+	if clix.JSONOutput {
 		output := types.DownloadOutput{
 			ImageRef:     metadata.ImageRef,
 			ImageDigest:  metadata.ImageDigest,
@@ -211,7 +196,8 @@ func runDownload(cmd *cobra.Command, args []string) error {
 			Architecture: metadata.Architecture,
 			OSName:       metadata.OSReleasePrettyName,
 		}
-		return outputJSON(output)
+		clix.OutputJSON(output)
+		return nil
 	}
 	// Human-readable output
 	fmt.Println()

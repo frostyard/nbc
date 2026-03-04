@@ -1,15 +1,14 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/frostyard/clix"
 	"github.com/frostyard/nbc/pkg"
 	"github.com/frostyard/nbc/pkg/types"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 type lintFlags struct {
@@ -55,15 +54,12 @@ Examples:
 }
 
 func init() {
-	rootCmd.AddCommand(lintCmd)
+	RootCmd.AddCommand(lintCmd)
 	lintCmd.Flags().BoolVar(&lntFlags.local, "local", false, "Lint the current filesystem instead of a container image (for use inside container builds)")
 	lintCmd.Flags().BoolVar(&lntFlags.fix, "fix", false, "Automatically fix issues (only valid with --local)")
 }
 
 func runLint(cmd *cobra.Command, args []string) error {
-	verbose := viper.GetBool("verbose")
-	jsonOutput := viper.GetBool("json")
-
 	// Validate arguments
 	if lntFlags.local && len(args) > 0 {
 		return fmt.Errorf("cannot specify both --local and an image reference")
@@ -81,8 +77,8 @@ func runLint(cmd *cobra.Command, args []string) error {
 	}
 
 	linter := pkg.NewLinter()
-	linter.SetVerbose(verbose)
-	linter.SetQuiet(jsonOutput) // Suppress stdout for clean JSON output
+	linter.SetVerbose(clix.Verbose)
+	linter.SetQuiet(clix.JSONOutput) // Suppress stdout for clean JSON output
 	linter.SetFix(lntFlags.fix)
 
 	var result *pkg.LintResult
@@ -91,7 +87,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 
 	if lntFlags.local {
 		// Lint the current filesystem (for use inside container builds)
-		if !jsonOutput {
+		if !clix.JSONOutput {
 			if lntFlags.fix {
 				fmt.Println("Linting and fixing current filesystem...")
 			} else {
@@ -102,12 +98,12 @@ func runLint(cmd *cobra.Command, args []string) error {
 	} else {
 		// Lint a container image
 		imageRef = args[0]
-		if !jsonOutput {
+		if !clix.JSONOutput {
 			fmt.Printf("Linting container image: %s\n", imageRef)
 		}
 		result, err = linter.LintContainerImage(imageRef)
 		if err != nil {
-			if jsonOutput {
+			if clix.JSONOutput {
 				output := types.LintOutput{
 					Image:   imageRef,
 					Success: false,
@@ -118,15 +114,14 @@ func runLint(cmd *cobra.Command, args []string) error {
 					}},
 					ErrorCount: 1,
 				}
-				data, _ := json.MarshalIndent(output, "", "  ")
-				fmt.Println(string(data))
+				clix.OutputJSON(output)
 				os.Exit(1)
 			}
 			return fmt.Errorf("failed to lint image: %w", err)
 		}
 	}
 
-	if jsonOutput {
+	if clix.JSONOutput {
 		output := types.LintOutput{
 			Issues:     result.Issues,
 			ErrorCount: result.ErrorCount,
@@ -139,8 +134,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 		} else {
 			output.Image = imageRef
 		}
-		data, _ := json.MarshalIndent(output, "", "  ")
-		fmt.Println(string(data))
+		clix.OutputJSON(output)
 		if result.ErrorCount > 0 {
 			os.Exit(1)
 		}

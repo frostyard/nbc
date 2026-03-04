@@ -1,15 +1,13 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 
+	"github.com/frostyard/clix"
 	"github.com/frostyard/nbc/pkg"
 	"github.com/frostyard/nbc/pkg/types"
 	"github.com/frostyard/std/reporter"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 type updateFlags struct {
@@ -66,7 +64,7 @@ Example:
 }
 
 func init() {
-	rootCmd.AddCommand(updateCmd)
+	RootCmd.AddCommand(updateCmd)
 
 	updateCmd.Flags().StringVarP(&updFlags.image, "image", "i", "", "Container image reference (uses saved config if not specified)")
 	updateCmd.Flags().StringVarP(&updFlags.device, "device", "d", "", "Target disk device (auto-detected if not specified)")
@@ -79,34 +77,28 @@ func init() {
 	updateCmd.Flags().BoolVar(&updFlags.downloadOnly, "download-only", false, "Download update to cache without applying")
 	updateCmd.Flags().BoolVar(&updFlags.localImage, "local-image", false, "Apply update from staged cache (/var/cache/nbc/staged-update/)")
 	updateCmd.Flags().BoolVar(&updFlags.auto, "auto", false, "Automatically use staged update if available, otherwise pull from registry")
-	_ = viper.BindPFlag("force", updateCmd.Flags().Lookup("force"))
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {
-	verbose := viper.GetBool("verbose")
-	dryRun := viper.GetBool("dry-run")
-	force := viper.GetBool("force")
+	force, _ := cmd.Flags().GetBool("force")
 	if yes, _ := cmd.Flags().GetBool("yes"); yes {
 		force = true
 	}
-	jsonOutput := viper.GetBool("json")
 
 	// Create progress reporter for early error output.
 	// For --check --json, suppress streaming progress so only the final
 	// UpdateCheckOutput JSON object is emitted.
 	var progress reporter.Reporter
-	if jsonOutput && updFlags.checkOnly {
+	if clix.JSONOutput && updFlags.checkOnly {
 		progress = reporter.NoopReporter{}
-	} else if jsonOutput {
-		progress = reporter.NewJSONReporter(os.Stdout)
 	} else {
-		progress = reporter.NewTextReporter(os.Stdout)
+		progress = clix.NewReporter()
 	}
 
 	// Validate mutually exclusive flags
 	if updFlags.downloadOnly && updFlags.localImage {
 		err := fmt.Errorf("--download-only and --local-image are mutually exclusive")
-		if jsonOutput {
+		if clix.JSONOutput {
 			progress.Error(err, "Invalid options")
 		}
 		return err
@@ -114,7 +106,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	if updFlags.downloadOnly && updFlags.auto {
 		err := fmt.Errorf("--download-only and --auto are mutually exclusive")
-		if jsonOutput {
+		if clix.JSONOutput {
 			progress.Error(err, "Invalid options")
 		}
 		return err
@@ -122,7 +114,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	if updFlags.localImage && updFlags.auto {
 		err := fmt.Errorf("--local-image and --auto are mutually exclusive")
-		if jsonOutput {
+		if clix.JSONOutput {
 			progress.Error(err, "Invalid options")
 		}
 		return err
@@ -130,7 +122,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	if updFlags.downloadOnly && updFlags.checkOnly {
 		err := fmt.Errorf("--download-only and --check are mutually exclusive")
-		if jsonOutput {
+		if clix.JSONOutput {
 			progress.Error(err, "Invalid options")
 		}
 		return err
@@ -143,24 +135,24 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	if updFlags.device != "" {
 		device, err = pkg.GetDiskByPath(updFlags.device)
 		if err != nil {
-			if jsonOutput {
+			if clix.JSONOutput {
 				progress.Error(err, "Invalid device")
 			}
 			return fmt.Errorf("invalid device: %w", err)
 		}
-		if verbose && !jsonOutput {
+		if clix.Verbose && !clix.JSONOutput {
 			fmt.Printf("Using specified device: %s\n", device)
 		}
 	} else {
 		// Auto-detect boot device
-		device, err = pkg.GetCurrentBootDeviceInfo(cmd.Context(), verbose, progress)
+		device, err = pkg.GetCurrentBootDeviceInfo(cmd.Context(), clix.Verbose, progress)
 		if err != nil {
-			if jsonOutput {
+			if clix.JSONOutput {
 				progress.Error(err, "Failed to auto-detect boot device")
 			}
 			return fmt.Errorf("failed to auto-detect boot device: %w (use --device to specify manually)", err)
 		}
-		if !verbose && !jsonOutput {
+		if !clix.Verbose && !clix.JSONOutput {
 			fmt.Printf("Auto-detected boot device: %s\n", device)
 		}
 	}
@@ -170,13 +162,13 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	if imageRef == "" && !updFlags.localImage {
 		config, err := pkg.ReadSystemConfig()
 		if err != nil {
-			if jsonOutput {
+			if clix.JSONOutput {
 				progress.Error(err, "No image specified and failed to read system config")
 			}
 			return fmt.Errorf("no image specified and failed to read system config: %w", err)
 		}
 		imageRef = config.ImageRef
-		if !jsonOutput {
+		if !clix.JSONOutput {
 			fmt.Printf("Using image from system config: %s\n", imageRef)
 		}
 	}
@@ -186,7 +178,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		// Read current system config to compare digests
 		config, err := pkg.ReadSystemConfig()
 		if err != nil {
-			if jsonOutput {
+			if clix.JSONOutput {
 				progress.Error(err, "Failed to read system config")
 			}
 			return fmt.Errorf("failed to read system config: %w", err)
@@ -195,7 +187,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		// Get remote digest of new image
 		remoteDigest, err := pkg.GetRemoteImageDigest(imageRef)
 		if err != nil {
-			if jsonOutput {
+			if clix.JSONOutput {
 				progress.Error(err, "Failed to get remote image digest")
 			}
 			return fmt.Errorf("failed to get remote image digest: %w", err)
@@ -203,7 +195,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 		// Check if update is actually newer (unless force is set)
 		if !force && config.ImageDigest == remoteDigest {
-			if jsonOutput {
+			if clix.JSONOutput {
 				output := types.UpdateCheckOutput{
 					UpdateNeeded:  false,
 					Image:         imageRef,
@@ -212,15 +204,14 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 					NewDigest:     remoteDigest,
 					Message:       "System is up-to-date, no download needed",
 				}
-				encoder := json.NewEncoder(os.Stdout)
-				encoder.SetIndent("", "  ")
-				return encoder.Encode(output)
+				clix.OutputJSON(output)
+				return nil
 			}
 			fmt.Println("System is up-to-date, no download needed.")
 			return nil
 		}
 
-		if !jsonOutput {
+		if !clix.JSONOutput {
 			fmt.Printf("Update available:\n")
 			fmt.Printf("  Current: %s\n", config.ImageDigest[:min(19, len(config.ImageDigest))]+"...")
 			fmt.Printf("  New:     %s\n", remoteDigest[:min(19, len(remoteDigest))]+"...")
@@ -231,24 +222,24 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		updateCache := pkg.NewStagedUpdateCache()
 		existing, _ := updateCache.GetSingle()
 		if existing != nil {
-			if verbose && !jsonOutput {
+			if clix.Verbose && !clix.JSONOutput {
 				fmt.Printf("Removing existing staged update: %s\n", existing.ImageDigest)
 			}
 			_ = updateCache.Clear(cmd.Context(), progress)
 		}
 
 		// Download to staged-update cache
-		updateCache.SetVerbose(verbose)
+		updateCache.SetVerbose(clix.Verbose)
 		metadata, err := updateCache.Download(cmd.Context(), imageRef, progress)
 		if err != nil {
-			if jsonOutput {
+			if clix.JSONOutput {
 				progress.Error(err, "Failed to download update")
 			}
 			return fmt.Errorf("failed to download update: %w", err)
 		}
 
-		if jsonOutput {
-			output := map[string]interface{}{
+		if clix.JSONOutput {
+			output := map[string]any{
 				"success":      true,
 				"image_ref":    metadata.ImageRef,
 				"image_digest": metadata.ImageDigest,
@@ -256,9 +247,8 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 				"cache_dir":    pkg.StagedUpdateDir,
 				"message":      "Update downloaded and staged",
 			}
-			encoder := json.NewEncoder(os.Stdout)
-			encoder.SetIndent("", "  ")
-			return encoder.Encode(output)
+			clix.OutputJSON(output)
+			return nil
 		}
 
 		fmt.Println()
@@ -278,14 +268,14 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		updateCache := pkg.NewStagedUpdateCache()
 		metadata, err := updateCache.GetSingle()
 		if err != nil {
-			if jsonOutput {
+			if clix.JSONOutput {
 				progress.Error(err, "Failed to read staged update")
 			}
 			return fmt.Errorf("failed to read staged update: %w", err)
 		}
 		if metadata == nil {
 			err := fmt.Errorf("no staged update found in %s", pkg.StagedUpdateDir)
-			if jsonOutput {
+			if clix.JSONOutput {
 				progress.Error(err, "No staged update")
 			}
 			return err
@@ -295,7 +285,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		localMetadata = metadata
 		imageRef = metadata.ImageRef
 
-		if !jsonOutput {
+		if !clix.JSONOutput {
 			fmt.Printf("Using staged update: %s\n", metadata.ImageRef)
 			fmt.Printf("  Digest: %s\n", metadata.ImageDigest)
 		}
@@ -311,13 +301,13 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 			localMetadata = metadata
 			imageRef = metadata.ImageRef
 
-			if !jsonOutput {
+			if !clix.JSONOutput {
 				fmt.Printf("Using staged update: %s\n", metadata.ImageRef)
 				fmt.Printf("  Digest: %s\n", metadata.ImageDigest)
 			}
 		} else {
 			// No staged update available, will pull from registry
-			if verbose && !jsonOutput {
+			if clix.Verbose && !clix.JSONOutput {
 				fmt.Println("No staged update found, will pull from registry")
 			}
 		}
@@ -325,15 +315,15 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	// Create updater
 	updater := pkg.NewSystemUpdater(device, imageRef)
-	updater.SetVerbose(verbose)
-	updater.SetDryRun(dryRun)
+	updater.SetVerbose(clix.Verbose)
+	updater.SetDryRun(clix.DryRun)
 	updater.SetForce(force)
-	updater.SetJSONOutput(jsonOutput)
+	updater.SetJSONOutput(clix.JSONOutput)
 
 	// For --check --json, override the updater's reporter with NoopReporter
 	// so IsUpdateNeeded doesn't emit streaming JSON — only the final
 	// UpdateCheckOutput JSON object should be written.
-	if updFlags.checkOnly && jsonOutput {
+	if updFlags.checkOnly && clix.JSONOutput {
 		updater.Progress = reporter.NoopReporter{}
 	}
 
@@ -346,13 +336,13 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	if updFlags.checkOnly {
 		needed, digest, err := updater.IsUpdateNeeded(true)
 		if err != nil {
-			if jsonOutput {
+			if clix.JSONOutput {
 				progress.Error(err, "Failed to check for updates")
 			}
 			return fmt.Errorf("failed to check for updates: %w", err)
 		}
 
-		if jsonOutput {
+		if clix.JSONOutput {
 			// Get current digest for JSON output
 			config, _ := pkg.ReadSystemConfig()
 			currentDigest := ""
@@ -371,9 +361,8 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 			} else {
 				output.Message = "System is up-to-date"
 			}
-			encoder := json.NewEncoder(os.Stdout)
-			encoder.SetIndent("", "  ")
-			return encoder.Encode(output)
+			clix.OutputJSON(output)
+			return nil
 		}
 
 		if needed {
@@ -394,7 +383,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	// Run update (skip pull if using local image)
 	skipPull := updFlags.skipPull || localLayoutPath != ""
 	if err := updater.PerformUpdate(skipPull); err != nil {
-		if jsonOutput {
+		if clix.JSONOutput {
 			progress.Error(err, "Update failed")
 		}
 		return err
@@ -405,10 +394,10 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		updateCache := pkg.NewStagedUpdateCache()
 		if err := updateCache.Clear(cmd.Context(), progress); err != nil {
 			// Non-fatal, just warn
-			if verbose && !jsonOutput {
+			if clix.Verbose && !clix.JSONOutput {
 				fmt.Printf("Warning: failed to clean up staged update cache: %v\n", err)
 			}
-		} else if verbose && !jsonOutput {
+		} else if clix.Verbose && !clix.JSONOutput {
 			fmt.Println("Cleaned up staged update cache.")
 		}
 	}

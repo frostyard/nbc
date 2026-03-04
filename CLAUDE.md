@@ -79,7 +79,9 @@ if err != nil {
 
 ### Console Output
 - Use the `Reporter` interface for all user-facing output — never raw `fmt.Print` in `pkg/`
-- Implementations: `TextReporter` (human), `JSONReporter` (machine), `NoopReporter` (tests)
+- Create reporters via `clix.NewReporter()` in `cmd/` — handles JSON/text/silent mode
+- Access common flags via `clix.Verbose`, `clix.DryRun`, `clix.JSONOutput`, `clix.Silent`
+- Use `clix.OutputJSON()` and `clix.OutputJSONError()` for structured JSON output
 - Pass `Reporter` as a parameter to functions that produce output
 
 ### Dry-Run Pattern

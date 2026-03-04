@@ -24,7 +24,8 @@
          
     -n --dry-run            Dry run mode (no actual changes)
     -h --help               Help for nbc
-    --json                  Output in JSON format for machine-readable output
+    --json                  Output in JSON format
+    -s --silent             Suppress all progress output
     -v --verbose            Verbose output
     --version               Version for nbc
 

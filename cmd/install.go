@@ -6,10 +6,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/frostyard/clix"
 	"github.com/frostyard/nbc/pkg"
-	"github.com/frostyard/std/reporter"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 type installFlags struct {
@@ -73,7 +72,7 @@ Example:
 }
 
 func init() {
-	rootCmd.AddCommand(installCmd)
+	RootCmd.AddCommand(installCmd)
 
 	installCmd.Flags().StringVarP(&instFlags.image, "image", "i", "", "Container image reference (required unless --local-image or staged image exists)")
 	installCmd.Flags().StringVarP(&instFlags.device, "device", "d", "", "Target disk device (required)")
@@ -96,12 +95,8 @@ func init() {
 }
 
 func runInstall(cmd *cobra.Command, args []string) error {
-	verbose := viper.GetBool("verbose")
-	dryRun := viper.GetBool("dry-run")
-	jsonOutput := viper.GetBool("json")
-
 	// Build configuration from flags
-	cfg, err := buildInstallConfig(cmd.Context(), verbose, dryRun, jsonOutput)
+	cfg, err := buildInstallConfig(cmd.Context())
 	if err != nil {
 		return err
 	}
@@ -129,7 +124,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	}
 
 	// Print loopback usage instructions
-	if result.LoopbackPath != "" && !jsonOutput {
+	if result.LoopbackPath != "" && !clix.JSONOutput {
 		fmt.Println()
 		fmt.Println("Loopback image created successfully!")
 		fmt.Println()
@@ -146,14 +141,9 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 // buildInstallConfig constructs an InstallConfig from command-line flags.
 // It handles local image resolution and validation of flag combinations.
-func buildInstallConfig(ctx context.Context, verbose, dryRun, jsonOutput bool) (*pkg.InstallConfig, error) {
+func buildInstallConfig(ctx context.Context) (*pkg.InstallConfig, error) {
 	// Create reporter for early error output
-	var progress reporter.Reporter
-	if jsonOutput {
-		progress = reporter.NewJSONReporter(os.Stdout)
-	} else {
-		progress = reporter.NewTextReporter(os.Stdout)
-	}
+	progress := clix.NewReporter()
 	reportError := func(err error, msg string) error {
 		progress.Error(err, msg)
 		return err
@@ -165,9 +155,9 @@ func buildInstallConfig(ctx context.Context, verbose, dryRun, jsonOutput bool) (
 		FilesystemType: instFlags.filesystem,
 		KernelArgs:     instFlags.kernelArgs,
 		RootPassword:   "",
-		Verbose:        verbose,
-		DryRun:         dryRun,
-		JSONOutput:     jsonOutput,
+		Verbose:        clix.Verbose,
+		DryRun:         clix.DryRun,
+		JSONOutput:     clix.JSONOutput,
 		SkipPull:       instFlags.skipPull,
 	}
 
@@ -190,7 +180,7 @@ func buildInstallConfig(ctx context.Context, verbose, dryRun, jsonOutput bool) (
 		}
 		cfg.ImageRef = "" // Clear image ref since we're using local image
 		cfg.SkipPull = true
-		if !jsonOutput {
+		if !clix.JSONOutput {
 			fmt.Printf("Using staged image: %s\n", metadata.ImageRef)
 			fmt.Printf("  Digest: %s\n", metadata.ImageDigest)
 		}
@@ -215,7 +205,7 @@ func buildInstallConfig(ctx context.Context, verbose, dryRun, jsonOutput bool) (
 				Metadata:   localMetadata,
 			}
 			cfg.SkipPull = true
-			if !jsonOutput {
+			if !clix.JSONOutput {
 				fmt.Printf("Auto-detected staged image: %s\n", localMetadata.ImageRef)
 				fmt.Printf("  Digest: %s\n", localMetadata.ImageDigest)
 			}

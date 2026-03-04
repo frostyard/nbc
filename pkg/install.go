@@ -33,6 +33,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/frostyard/std/reporter"
 )
 
 // InstallConfig holds all configuration options for an installation.
@@ -155,7 +157,7 @@ type Installer struct {
 	// Internal state
 	loopback  *LoopbackDevice
 	startTime time.Time
-	progress  Reporter
+	progress  reporter.Reporter
 }
 
 // Validate checks the InstallConfig for errors.
@@ -231,16 +233,16 @@ func NewInstaller(cfg *InstallConfig) (*Installer, error) {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	var reporter Reporter
+	var progress reporter.Reporter
 	if cfg.JSONOutput {
-		reporter = NewJSONReporter(os.Stdout)
+		progress = reporter.NewJSONReporter(os.Stdout)
 	} else {
-		reporter = NewTextReporter(os.Stdout)
+		progress = reporter.NewTextReporter(os.Stdout)
 	}
 
 	return &Installer{
 		config:   cfg,
-		progress: reporter,
+		progress: progress,
 	}, nil
 }
 

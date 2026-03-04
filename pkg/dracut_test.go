@@ -5,6 +5,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/frostyard/std/reporter"
 )
 
 func TestInitramfsHasEtcOverlay(t *testing.T) {
@@ -98,7 +100,7 @@ func getKernelVersion() string {
 
 func TestVerifyDracutEtcOverlay(t *testing.T) {
 	t.Run("dry run always succeeds", func(t *testing.T) {
-		progress := NoopReporter{}
+		progress := reporter.NoopReporter{}
 		err := VerifyDracutEtcOverlay(t.Context(), "/nonexistent", true, progress)
 		if err != nil {
 			t.Errorf("dry run should succeed: %v", err)
@@ -114,7 +116,7 @@ func TestVerifyDracutEtcOverlay(t *testing.T) {
 		}
 
 		// Should fail because required files are missing
-		progress := NoopReporter{}
+		progress := reporter.NoopReporter{}
 		err := VerifyDracutEtcOverlay(t.Context(), tmpDir, false, progress)
 		if err == nil {
 			t.Error("should fail when required files are missing")
@@ -136,7 +138,7 @@ func TestVerifyDracutEtcOverlay(t *testing.T) {
 			}
 		}
 
-		progress := NoopReporter{}
+		progress := reporter.NoopReporter{}
 		err := VerifyDracutEtcOverlay(t.Context(), tmpDir, false, progress)
 		if err != nil {
 			t.Errorf("should succeed when module files exist: %v", err)

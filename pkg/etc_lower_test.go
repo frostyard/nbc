@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/frostyard/std/reporter"
 )
 
 func TestPopulateEtcLower(t *testing.T) {
@@ -209,7 +211,7 @@ func TestPopulateEtcLower(t *testing.T) {
 
 			// Run the function
 			dryRun := tt.name == "dry run mode"
-			err := PopulateEtcLower(t.Context(), tmpDir, dryRun, NoopReporter{})
+			err := PopulateEtcLower(t.Context(), tmpDir, dryRun, reporter.NoopReporter{})
 
 			// Check error
 			if (err != nil) != tt.wantErr {
@@ -253,7 +255,7 @@ func TestPopulateEtcLower_Overwrite(t *testing.T) {
 	}
 
 	// Run PopulateEtcLower
-	if err := PopulateEtcLower(t.Context(), tmpDir, false, NoopReporter{}); err != nil {
+	if err := PopulateEtcLower(t.Context(), tmpDir, false, reporter.NoopReporter{}); err != nil {
 		t.Fatalf("PopulateEtcLower() failed: %v", err)
 	}
 

@@ -41,7 +41,7 @@ go test -v ./pkg/... -run TestInstallConfig_Validate
 - **SystemUpdater** (`pkg/update.go`) - A/B partition updates with rollback
 - **ContainerExtractor** (`pkg/container.go`) - OCI image extraction via go-containerregistry
 - **BootloaderInstaller** (`pkg/bootloader.go`) - GRUB2 or systemd-boot configuration
-- **Reporter** (`pkg/reporter.go`) - Interface for all user-facing output (TextReporter, JSONReporter, NoopReporter)
+- **Reporter** (`github.com/frostyard/std/reporter`) - Interface for all user-facing output (TextReporter, JSONReporter, NoopReporter)
 - **Shared Steps** (`pkg/steps.go`) - Common install/update operations (SetupTargetSystem, ExtractAndVerifyContainer)
 - **Workflow** (`pkg/workflow.go`) - Composable step-based orchestration type
 

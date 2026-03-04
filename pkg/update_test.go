@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/frostyard/nbc/pkg/testutil"
+	"github.com/frostyard/std/reporter"
 )
 
 func TestSystemUpdater_Update(t *testing.T) {
@@ -449,13 +450,13 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 	}
 
 	// Create partitions
-	scheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, NoopReporter{})
+	scheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, reporter.NoopReporter{})
 	if err != nil {
 		t.Fatalf("Failed to create partitions: %v", err)
 	}
 
 	// Format partitions so they have UUIDs
-	if err := FormatPartitions(t.Context(), scheme, false, NoopReporter{}); err != nil {
+	if err := FormatPartitions(t.Context(), scheme, false, reporter.NoopReporter{}); err != nil {
 		t.Fatalf("Failed to format partitions: %v", err)
 	}
 
@@ -550,7 +551,7 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 	t.Run("encrypted includes boot mount", func(t *testing.T) {
 		// Setup LUKS encryption
 		passphrase := "test-passphrase"
-		if err := SetupLUKS(t.Context(), scheme, passphrase, false, NoopReporter{}); err != nil {
+		if err := SetupLUKS(t.Context(), scheme, passphrase, false, reporter.NoopReporter{}); err != nil {
 			t.Fatalf("Failed to setup LUKS: %v", err)
 		}
 		defer scheme.CloseLUKSDevices(t.Context())

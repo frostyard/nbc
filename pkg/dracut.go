@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/frostyard/std/reporter"
 )
 
 // Embed the dracut module files directly into the nbc binary.
@@ -22,7 +24,7 @@ var dracutModuleFS embed.FS
 // InstallDracutEtcOverlay installs the embedded etc-overlay dracut module to the target filesystem.
 // This overwrites any existing module from the container image to ensure the nbc binary's
 // version is used (which may have fixes not yet in the published container image).
-func InstallDracutEtcOverlay(ctx context.Context, targetDir string, dryRun bool, progress Reporter) error {
+func InstallDracutEtcOverlay(ctx context.Context, targetDir string, dryRun bool, progress reporter.Reporter) error {
 	if dryRun {
 		progress.Message("[DRY RUN] Would install etc-overlay dracut module")
 		return nil
@@ -122,7 +124,7 @@ func InitramfsHasEtcOverlay(initramfsPath string) (bool, error) {
 // VerifyDracutEtcOverlay verifies that the etc-overlay dracut module exists in the target filesystem.
 // The module is installed via the nbc deb/rpm package to /usr/lib/dracut/modules.d/95etc-overlay/.
 // This function checks that the container/host has nbc installed with the dracut module.
-func VerifyDracutEtcOverlay(ctx context.Context, targetDir string, dryRun bool, progress Reporter) error {
+func VerifyDracutEtcOverlay(ctx context.Context, targetDir string, dryRun bool, progress reporter.Reporter) error {
 	if dryRun {
 		progress.Message("[DRY RUN] Would verify etc-overlay dracut module exists")
 		return nil
@@ -152,7 +154,7 @@ func VerifyDracutEtcOverlay(ctx context.Context, targetDir string, dryRun bool, 
 // RegenerateInitramfs regenerates the initramfs using dracut in a chroot environment.
 // This is necessary to include the etc-overlay module in the initramfs.
 // If the initramfs already contains the etc-overlay module, regeneration is skipped.
-func RegenerateInitramfs(ctx context.Context, targetDir string, dryRun bool, verbose bool, progress Reporter) error {
+func RegenerateInitramfs(ctx context.Context, targetDir string, dryRun bool, verbose bool, progress reporter.Reporter) error {
 	if dryRun {
 		progress.Message("[DRY RUN] Would check/regenerate initramfs with dracut if needed")
 		return nil

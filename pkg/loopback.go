@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/frostyard/std/reporter"
 )
 
 const (
@@ -149,7 +151,7 @@ func ParseSizeGB(sizeStr string) (int, error) {
 
 // SetupLoopbackInstall creates a loopback image file and attaches it.
 // Returns the LoopbackDevice for cleanup and the device path for installation.
-func SetupLoopbackInstall(ctx context.Context, imagePath string, sizeGB int, force bool, progress Reporter) (*LoopbackDevice, error) {
+func SetupLoopbackInstall(ctx context.Context, imagePath string, sizeGB int, force bool, progress reporter.Reporter) (*LoopbackDevice, error) {
 	// Create the image file
 	progress.MessagePlain("Creating loopback image: %s (%dGB)", imagePath, sizeGB)
 	if err := CreateLoopbackFile(imagePath, sizeGB, force); err != nil {
@@ -175,7 +177,7 @@ func SetupLoopbackInstall(ctx context.Context, imagePath string, sizeGB int, for
 }
 
 // Cleanup detaches the loopback device.
-func (l *LoopbackDevice) Cleanup(ctx context.Context, progress Reporter) error {
+func (l *LoopbackDevice) Cleanup(ctx context.Context, progress reporter.Reporter) error {
 	if l == nil || l.Device == "" {
 		return nil
 	}

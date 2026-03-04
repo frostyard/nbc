@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"syscall"
+
+	"github.com/frostyard/std/reporter"
 )
 
 const (
@@ -31,7 +33,7 @@ const (
 //
 // This allows user changes to /etc to persist across A/B updates while
 // keeping the base /etc from the container image.
-func SetupEtcOverlay(ctx context.Context, targetDir string, dryRun bool, progress Reporter) error {
+func SetupEtcOverlay(ctx context.Context, targetDir string, dryRun bool, progress reporter.Reporter) error {
 	if dryRun {
 		progress.MessagePlain("[DRY RUN] Would setup /etc overlay directories")
 		return nil
@@ -93,13 +95,13 @@ func SetupEtcOverlay(ctx context.Context, targetDir string, dryRun bool, progres
 //
 // This approach solves the timing issues that plagued bind-mount approaches,
 // because the dracut hook runs before pivot_root when /etc is not yet in use.
-func SetupEtcPersistence(ctx context.Context, targetDir string, dryRun bool, progress Reporter) error {
+func SetupEtcPersistence(ctx context.Context, targetDir string, dryRun bool, progress reporter.Reporter) error {
 	return SetupEtcOverlay(ctx, targetDir, dryRun, progress)
 }
 
 // InstallEtcMountUnit is DEPRECATED - use SetupEtcPersistence instead.
 // This function now just calls SetupEtcPersistence for backwards compatibility.
-func InstallEtcMountUnit(ctx context.Context, targetDir string, dryRun bool, progress Reporter) error {
+func InstallEtcMountUnit(ctx context.Context, targetDir string, dryRun bool, progress reporter.Reporter) error {
 	return SetupEtcPersistence(ctx, targetDir, dryRun, progress)
 }
 
@@ -113,7 +115,7 @@ func InstallEtcMountUnit(ctx context.Context, targetDir string, dryRun bool, pro
 //
 // By populating /.etc.lower during install/update, we ensure consistent behavior
 // and the container's /etc is preserved as the read-only base layer.
-func PopulateEtcLower(ctx context.Context, targetDir string, dryRun bool, progress Reporter) error {
+func PopulateEtcLower(ctx context.Context, targetDir string, dryRun bool, progress reporter.Reporter) error {
 	if dryRun {
 		progress.MessagePlain("[DRY RUN] Would populate /.etc.lower with container /etc")
 		return nil
@@ -163,7 +165,7 @@ func PopulateEtcLower(ctx context.Context, targetDir string, dryRun bool, progre
 
 // SavePristineEtc saves a copy of the pristine /etc after installation
 // This is used to detect user modifications during updates
-func SavePristineEtc(ctx context.Context, targetDir string, dryRun bool, progress Reporter) error {
+func SavePristineEtc(ctx context.Context, targetDir string, dryRun bool, progress reporter.Reporter) error {
 	if dryRun {
 		progress.MessagePlain("[DRY RUN] Would save pristine /etc to %s", PristineEtcPath)
 		return nil
@@ -204,7 +206,7 @@ func SavePristineEtc(ctx context.Context, targetDir string, dryRun bool, progres
 //   - activeRootPartition: the CURRENT root partition device (not used with overlay)
 //   - dryRun: if true, don't make changes
 //   - progress: progress reporter for output
-func MergeEtcFromActive(ctx context.Context, targetDir string, activeRootPartition string, dryRun bool, progress Reporter) error {
+func MergeEtcFromActive(ctx context.Context, targetDir string, activeRootPartition string, dryRun bool, progress reporter.Reporter) error {
 	if dryRun {
 		progress.MessagePlain("[DRY RUN] Would setup /etc overlay for updated root")
 		return nil
@@ -319,7 +321,7 @@ func hashFile(path string) (string, error) {
 //
 // This function copies critical files from the running system's /etc to the overlay
 // upper layer if they don't already exist there.
-func EnsureCriticalFilesInOverlay(ctx context.Context, dryRun bool, progress Reporter) error {
+func EnsureCriticalFilesInOverlay(ctx context.Context, dryRun bool, progress reporter.Reporter) error {
 	if dryRun {
 		progress.MessagePlain("[DRY RUN] Would ensure critical files are in overlay upper layer")
 		return nil

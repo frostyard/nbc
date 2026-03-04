@@ -313,21 +313,21 @@ func runNbcInstall(image, device string) error {
 
     scanner := bufio.NewScanner(stdout)
     for scanner.Scan() {
-        var event types.ProgressEvent
+        var event reporter.ProgressEvent
         if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
             continue
         }
 
         switch event.Type {
-        case types.EventTypeStep:
+        case reporter.EventTypeStep:
             fmt.Printf("[%d/%d] %s\n", event.Step, event.TotalSteps, event.StepName)
-        case types.EventTypeMessage:
+        case reporter.EventTypeMessage:
             fmt.Printf("  %s\n", event.Message)
-        case types.EventTypeWarning:
+        case reporter.EventTypeWarning:
             fmt.Printf("WARNING: %s\n", event.Message)
-        case types.EventTypeError:
+        case reporter.EventTypeError:
             return fmt.Errorf("%s", event.Message)
-        case types.EventTypeComplete:
+        case reporter.EventTypeComplete:
             fmt.Printf("\nSUCCESS: %s\n", event.Message)
         }
     }
@@ -344,8 +344,6 @@ The `github.com/frostyard/nbc/pkg/types` package provides all JSON output types 
 
 | Type                  | Description                                       |
 | --------------------- | ------------------------------------------------- |
-| `ProgressEvent`       | Streaming progress event (install/update)         |
-| `EventType`           | Event type constants (step, message, error, etc.) |
 | `StatusOutput`        | Output from `nbc status --json`                   |
 | `ListOutput`          | Output from `nbc list --json`                     |
 | `DiskOutput`          | Disk information within ListOutput                |

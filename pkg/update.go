@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/frostyard/nbc/pkg/types"
+	"github.com/frostyard/std/reporter"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
@@ -118,7 +119,7 @@ func findPartitionByLUKSUUID(luksUUID string) (string, error) {
 }
 
 // GetInactiveRootPartition returns the inactive root partition given a partition scheme
-func GetInactiveRootPartition(scheme *PartitionScheme, progress Reporter) (string, bool, error) {
+func GetInactiveRootPartition(scheme *PartitionScheme, progress reporter.Reporter) (string, bool, error) {
 	active, err := GetActiveRootPartition()
 	if err != nil {
 		// If we can't determine active, default to root1 as active
@@ -218,7 +219,7 @@ type SystemUpdater struct {
 	Target           string
 	TargetMapperName string // For encrypted systems: "root1" or "root2"
 	TargetMapperPath string // For encrypted systems: "/dev/mapper/root1" or "/dev/mapper/root2"
-	Progress         Reporter
+	Progress         reporter.Reporter
 	Encryption       *EncryptionConfig    // Encryption configuration (loaded from system config)
 	LocalLayoutPath  string               // Path to OCI layout directory for local image
 	LocalMetadata    *CachedImageMetadata // Metadata from cached image
@@ -233,7 +234,7 @@ func NewSystemUpdater(device, imageRef string) *SystemUpdater {
 			MountPoint:     "/tmp/nbc-update",
 			BootMountPoint: "/tmp/nbc-boot",
 		},
-		Progress: NewTextReporter(os.Stdout),
+		Progress: reporter.NewTextReporter(os.Stdout),
 	}
 }
 
@@ -256,9 +257,9 @@ func (u *SystemUpdater) SetForce(force bool) {
 func (u *SystemUpdater) SetJSONOutput(jsonOutput bool) {
 	u.Config.JSONOutput = jsonOutput
 	if jsonOutput {
-		u.Progress = NewJSONReporter(os.Stdout)
+		u.Progress = reporter.NewJSONReporter(os.Stdout)
 	} else {
-		u.Progress = NewTextReporter(os.Stdout)
+		u.Progress = reporter.NewTextReporter(os.Stdout)
 	}
 }
 

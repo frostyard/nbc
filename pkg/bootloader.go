@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/frostyard/std/reporter"
 )
 
 // BootloaderType represents the type of bootloader to install
@@ -27,8 +29,8 @@ type BootloaderInstaller struct {
 	KernelArgs []string
 	OSName     string
 	Verbose    bool
-	Encryption *LUKSConfig // Encryption configuration
-	Progress   Reporter    // Progress reporter for output
+	Encryption *LUKSConfig       // Encryption configuration
+	Progress   reporter.Reporter // Progress reporter for output
 }
 
 // NewBootloaderInstaller creates a new BootloaderInstaller
@@ -40,7 +42,7 @@ func NewBootloaderInstaller(targetDir, device string, scheme *PartitionScheme, o
 		Scheme:     scheme,
 		KernelArgs: []string{},
 		OSName:     osName,
-		Progress:   NewTextReporter(os.Stdout), // Default to text output
+		Progress:   reporter.NewTextReporter(os.Stdout), // Default to text output
 	}
 }
 
@@ -60,7 +62,7 @@ func (b *BootloaderInstaller) SetVerbose(verbose bool) {
 }
 
 // SetProgress sets the progress reporter
-func (b *BootloaderInstaller) SetProgress(p Reporter) {
+func (b *BootloaderInstaller) SetProgress(p reporter.Reporter) {
 	b.Progress = p
 }
 
@@ -171,7 +173,7 @@ func (b *BootloaderInstaller) buildKernelCmdline(ctx context.Context) ([]string,
 // image was extracted with a lowercase "efi" directory, we need to rename it to "EFI".
 // On FAT32, we must use a two-step rename (efi → efi_tmp → EFI) to actually change the
 // stored case, since direct rename is a no-op on case-insensitive filesystems.
-func ensureUppercaseEFIDirectory(espPath string, progress Reporter) error {
+func ensureUppercaseEFIDirectory(espPath string, progress reporter.Reporter) error {
 	// Check for lowercase "efi" directory by listing the parent directory
 	// and looking for the actual case used
 	entries, err := os.ReadDir(espPath)
@@ -221,7 +223,7 @@ func ensureUppercaseEFIDirectory(espPath string, progress Reporter) error {
 }
 
 // ensureUppercaseBOOTDirectory ensures the BOOT subdirectory inside EFI uses uppercase
-func ensureUppercaseBOOTDirectory(efiPath string, progress Reporter) error {
+func ensureUppercaseBOOTDirectory(efiPath string, progress reporter.Reporter) error {
 	entries, err := os.ReadDir(efiPath)
 	if err != nil {
 		return nil

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/frostyard/nbc/pkg/testutil"
+	"github.com/frostyard/std/reporter"
 )
 
 func TestBootloaderType(t *testing.T) {
@@ -156,13 +157,13 @@ func TestBuildKernelCmdline_BootloaderWithBootMount(t *testing.T) {
 	}
 
 	// Create partitions
-	scheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, NoopReporter{})
+	scheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, reporter.NoopReporter{})
 	if err != nil {
 		t.Fatalf("Failed to create partitions: %v", err)
 	}
 
 	// Format boot and var partitions so they have UUIDs
-	if err := FormatPartitions(t.Context(), scheme, false, NoopReporter{}); err != nil {
+	if err := FormatPartitions(t.Context(), scheme, false, reporter.NoopReporter{}); err != nil {
 		t.Fatalf("Failed to format partitions: %v", err)
 	}
 
@@ -225,7 +226,7 @@ func TestBuildKernelCmdline_BootloaderWithBootMount(t *testing.T) {
 	t.Run("encrypted includes boot mount", func(t *testing.T) {
 		// Setup LUKS encryption for testing
 		passphrase := "test-passphrase"
-		if err := SetupLUKS(t.Context(), scheme, passphrase, false, NoopReporter{}); err != nil {
+		if err := SetupLUKS(t.Context(), scheme, passphrase, false, reporter.NoopReporter{}); err != nil {
 			t.Fatalf("Failed to setup LUKS: %v", err)
 		}
 		defer scheme.CloseLUKSDevices(t.Context())
@@ -272,7 +273,7 @@ func TestBuildKernelCmdline_BootloaderWithBootMount(t *testing.T) {
 func TestEnsureUppercaseEFIDirectory(t *testing.T) {
 	t.Run("handles non-existent ESP", func(t *testing.T) {
 		// Should return nil for non-existent directory
-		err := ensureUppercaseEFIDirectory("/nonexistent/path", NoopReporter{})
+		err := ensureUppercaseEFIDirectory("/nonexistent/path", reporter.NoopReporter{})
 		if err != nil {
 			t.Errorf("should return nil for non-existent path: %v", err)
 		}
@@ -280,7 +281,7 @@ func TestEnsureUppercaseEFIDirectory(t *testing.T) {
 
 	t.Run("handles empty ESP", func(t *testing.T) {
 		espPath := t.TempDir()
-		err := ensureUppercaseEFIDirectory(espPath, NoopReporter{})
+		err := ensureUppercaseEFIDirectory(espPath, reporter.NoopReporter{})
 		if err != nil {
 			t.Errorf("should return nil for empty ESP: %v", err)
 		}
@@ -293,7 +294,7 @@ func TestEnsureUppercaseEFIDirectory(t *testing.T) {
 			t.Fatalf("failed to create EFI dir: %v", err)
 		}
 
-		err := ensureUppercaseEFIDirectory(espPath, NoopReporter{})
+		err := ensureUppercaseEFIDirectory(espPath, reporter.NoopReporter{})
 		if err != nil {
 			t.Errorf("should succeed with uppercase EFI: %v", err)
 		}
@@ -317,7 +318,7 @@ func TestEnsureUppercaseEFIDirectory(t *testing.T) {
 			t.Fatalf("failed to create test file: %v", err)
 		}
 
-		err := ensureUppercaseEFIDirectory(espPath, NoopReporter{})
+		err := ensureUppercaseEFIDirectory(espPath, reporter.NoopReporter{})
 		if err != nil {
 			t.Errorf("rename should succeed: %v", err)
 		}
@@ -353,7 +354,7 @@ func TestEnsureUppercaseEFIDirectory(t *testing.T) {
 
 func TestEnsureUppercaseBOOTDirectory(t *testing.T) {
 	t.Run("handles non-existent EFI", func(t *testing.T) {
-		err := ensureUppercaseBOOTDirectory("/nonexistent/EFI", NoopReporter{})
+		err := ensureUppercaseBOOTDirectory("/nonexistent/EFI", reporter.NoopReporter{})
 		if err != nil {
 			t.Errorf("should return nil for non-existent path: %v", err)
 		}
@@ -361,7 +362,7 @@ func TestEnsureUppercaseBOOTDirectory(t *testing.T) {
 
 	t.Run("handles empty EFI", func(t *testing.T) {
 		efiPath := t.TempDir()
-		err := ensureUppercaseBOOTDirectory(efiPath, NoopReporter{})
+		err := ensureUppercaseBOOTDirectory(efiPath, reporter.NoopReporter{})
 		if err != nil {
 			t.Errorf("should return nil for empty EFI: %v", err)
 		}
@@ -374,7 +375,7 @@ func TestEnsureUppercaseBOOTDirectory(t *testing.T) {
 			t.Fatalf("failed to create BOOT dir: %v", err)
 		}
 
-		err := ensureUppercaseBOOTDirectory(efiPath, NoopReporter{})
+		err := ensureUppercaseBOOTDirectory(efiPath, reporter.NoopReporter{})
 		if err != nil {
 			t.Errorf("should succeed with uppercase BOOT: %v", err)
 		}
@@ -387,7 +388,7 @@ func TestEnsureUppercaseBOOTDirectory(t *testing.T) {
 			t.Fatalf("failed to create boot dir: %v", err)
 		}
 
-		err := ensureUppercaseBOOTDirectory(efiPath, NoopReporter{})
+		err := ensureUppercaseBOOTDirectory(efiPath, reporter.NoopReporter{})
 		if err != nil {
 			t.Errorf("rename should succeed: %v", err)
 		}

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/frostyard/std/reporter"
 )
 
 // SetupTargetSystem performs the common post-extraction system setup sequence
@@ -17,7 +19,7 @@ import (
 //
 // Operations specific to install (InstallEtcMountUnit, SavePristineEtc)
 // or update (MergeEtcFromActive) must be called separately.
-func SetupTargetSystem(ctx context.Context, mountPoint string, dryRun, verbose bool, progress Reporter) error {
+func SetupTargetSystem(ctx context.Context, mountPoint string, dryRun, verbose bool, progress reporter.Reporter) error {
 	// Install the embedded dracut module for /etc overlay persistence
 	// Check if container already has it first
 	moduleSetupSh := filepath.Join(mountPoint, "usr", "lib", "dracut", "modules.d", "95etc-overlay", "module-setup.sh")
@@ -60,7 +62,7 @@ func SetupTargetSystem(ctx context.Context, mountPoint string, dryRun, verbose b
 
 // ExtractAndVerifyContainer creates and runs a container extractor, then verifies
 // the extraction succeeded. Used by both install and update flows.
-func ExtractAndVerifyContainer(ctx context.Context, imageRef, localLayoutPath, mountPoint string, verbose bool, progress Reporter) error {
+func ExtractAndVerifyContainer(ctx context.Context, imageRef, localLayoutPath, mountPoint string, verbose bool, progress reporter.Reporter) error {
 	var extractor *ContainerExtractor
 	if localLayoutPath != "" {
 		extractor = NewContainerExtractorFromLocal(localLayoutPath, mountPoint)

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/frostyard/nbc/pkg/types"
+	"github.com/frostyard/std/reporter"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -35,14 +36,14 @@ type CachedImageMetadata = types.CachedImageMetadata
 type ImageCache struct {
 	CacheDir string
 	Verbose  bool
-	Progress Reporter
+	Progress reporter.Reporter
 }
 
 // NewImageCache creates a new ImageCache for the specified directory
 func NewImageCache(cacheDir string) *ImageCache {
 	return &ImageCache{
 		CacheDir: cacheDir,
-		Progress: NewTextReporter(os.Stdout),
+		Progress: reporter.NewTextReporter(os.Stdout),
 	}
 }
 
@@ -80,7 +81,7 @@ func (c *ImageCache) GetLayoutPath(digest string) string {
 // Download pulls a container image and saves it to the cache in OCI layout format
 // Download pulls a container image and saves it to the cache in OCI layout format.
 // If progress is non-nil and set to JSON mode, interactive spinners are skipped.
-func (c *ImageCache) Download(ctx context.Context, imageRef string, progress Reporter) (*CachedImageMetadata, error) {
+func (c *ImageCache) Download(ctx context.Context, imageRef string, progress reporter.Reporter) (*CachedImageMetadata, error) {
 	// Acquire exclusive lock for cache write operation
 	lock, err := AcquireCacheLock()
 	if err != nil {
@@ -416,7 +417,7 @@ func (c *ImageCache) IsCached(digest string) (bool, error) {
 }
 
 // Remove removes a cached image by digest or digest prefix
-func (c *ImageCache) Remove(ctx context.Context, digestOrPrefix string, progress Reporter) error {
+func (c *ImageCache) Remove(ctx context.Context, digestOrPrefix string, progress reporter.Reporter) error {
 	// Acquire exclusive lock for cache write operation
 	lock, err := AcquireCacheLock()
 	if err != nil {
@@ -458,7 +459,7 @@ func (c *ImageCache) Remove(ctx context.Context, digestOrPrefix string, progress
 }
 
 // Clear removes all cached images
-func (c *ImageCache) Clear(ctx context.Context, progress Reporter) error {
+func (c *ImageCache) Clear(ctx context.Context, progress reporter.Reporter) error {
 	// Acquire exclusive lock for cache write operation
 	lock, err := AcquireCacheLock()
 	if err != nil {

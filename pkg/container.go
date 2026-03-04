@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/docker/docker/client"
+	"github.com/frostyard/std/reporter"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -26,7 +27,7 @@ type ContainerExtractor struct {
 	Verbose         bool
 	JSONOutput      bool
 	LocalLayoutPath string // Path to OCI layout directory for local image
-	Progress        Reporter
+	Progress        reporter.Reporter
 }
 
 // NewContainerExtractor creates a new ContainerExtractor
@@ -34,7 +35,7 @@ func NewContainerExtractor(imageRef, targetDir string) *ContainerExtractor {
 	return &ContainerExtractor{
 		ImageRef:  imageRef,
 		TargetDir: targetDir,
-		Progress:  NewTextReporter(os.Stdout),
+		Progress:  reporter.NewTextReporter(os.Stdout),
 	}
 }
 
@@ -43,7 +44,7 @@ func NewContainerExtractorFromLocal(layoutPath, targetDir string) *ContainerExtr
 	return &ContainerExtractor{
 		LocalLayoutPath: layoutPath,
 		TargetDir:       targetDir,
-		Progress:        NewTextReporter(os.Stdout),
+		Progress:        reporter.NewTextReporter(os.Stdout),
 	}
 }
 
@@ -56,14 +57,14 @@ func (c *ContainerExtractor) SetVerbose(verbose bool) {
 func (c *ContainerExtractor) SetJSONOutput(jsonOutput bool) {
 	c.JSONOutput = jsonOutput
 	if jsonOutput {
-		c.Progress = NewJSONReporter(os.Stdout)
+		c.Progress = reporter.NewJSONReporter(os.Stdout)
 	} else {
-		c.Progress = NewTextReporter(os.Stdout)
+		c.Progress = reporter.NewTextReporter(os.Stdout)
 	}
 }
 
 // SetProgress sets the progress reporter directly
-func (c *ContainerExtractor) SetProgress(p Reporter) {
+func (c *ContainerExtractor) SetProgress(p reporter.Reporter) {
 	c.Progress = p
 }
 
@@ -404,7 +405,7 @@ func extractTar(ctx context.Context, r io.Reader, targetDir string) error {
 }
 
 // CreateFstab creates an /etc/fstab file with the proper mount points
-func CreateFstab(ctx context.Context, targetDir string, scheme *PartitionScheme, progress Reporter) error {
+func CreateFstab(ctx context.Context, targetDir string, scheme *PartitionScheme, progress reporter.Reporter) error {
 	if progress != nil {
 		progress.Message("Creating /etc/fstab...")
 	}
@@ -445,7 +446,7 @@ func CreateFstab(ctx context.Context, targetDir string, scheme *PartitionScheme,
 }
 
 // SetupSystemDirectories creates necessary system directories
-func SetupSystemDirectories(ctx context.Context, targetDir string, progress Reporter) error {
+func SetupSystemDirectories(ctx context.Context, targetDir string, progress reporter.Reporter) error {
 	progress.Message("Setting up system directories...")
 
 	directories := []string{
@@ -483,7 +484,7 @@ func SetupSystemDirectories(ctx context.Context, targetDir string, progress Repo
 // PrepareMachineID ensures /etc/machine-id contains "uninitialized" for first-boot detection.
 // This is required for read-only root filesystems where systemd cannot create the file at boot.
 // systemd will detect "uninitialized" and properly initialize the machine-id on first boot.
-func PrepareMachineID(ctx context.Context, targetDir string, progress Reporter) error {
+func PrepareMachineID(ctx context.Context, targetDir string, progress reporter.Reporter) error {
 	machineIDPath := filepath.Join(targetDir, "etc", "machine-id")
 
 	// Check current state
@@ -682,7 +683,7 @@ func VerifyExtraction(targetDir string) error {
 // PullImage validates an image reference and checks if it's accessible.
 // This is a standalone function for use by Installer.
 // The actual image pull happens during Extract() to avoid duplicate work.
-func PullImage(ctx context.Context, imageRef string, verbose bool, progress Reporter) error {
+func PullImage(ctx context.Context, imageRef string, verbose bool, progress reporter.Reporter) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}

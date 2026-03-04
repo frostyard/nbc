@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/frostyard/nbc/pkg/testutil"
+	"github.com/frostyard/std/reporter"
 )
 
 func TestInstallConfig_Validate(t *testing.T) {
@@ -361,10 +362,10 @@ func TestIntegration_Installer_Install(t *testing.T) {
 	defer testutil.CleanupMounts(t, verifyMount)
 
 	// Mount root1 partition
-	if err := MountPartitions(t.Context(), scheme, verifyMount, false, NoopReporter{}); err != nil {
+	if err := MountPartitions(t.Context(), scheme, verifyMount, false, reporter.NoopReporter{}); err != nil {
 		t.Fatalf("Failed to mount partitions for verification: %v", err)
 	}
-	defer func() { _ = UnmountPartitions(t.Context(), verifyMount, false, NoopReporter{}) }()
+	defer func() { _ = UnmountPartitions(t.Context(), verifyMount, false, reporter.NoopReporter{}) }()
 
 	// Check for expected directories
 	expectedDirs := []string{

@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/frostyard/std/reporter"
 )
 
 // Device Detection and Naming Stability
@@ -114,7 +116,7 @@ func getLUKSBackingDevice(mapperDevice string) (string, error) {
 }
 
 // GetCurrentBootDevice determines the disk device that the system booted from
-func GetCurrentBootDevice(progress Reporter) (string, error) {
+func GetCurrentBootDevice(progress reporter.Reporter) (string, error) {
 	// Get the active root partition from kernel command line
 	rootPartition, err := GetActiveRootPartition()
 	if err != nil {
@@ -177,7 +179,7 @@ func GetCurrentBootDevice(progress Reporter) (string, error) {
 }
 
 // GetCurrentBootDeviceInfo returns detailed information about the boot device
-func GetCurrentBootDeviceInfo(ctx context.Context, verbose bool, progress Reporter) (string, error) {
+func GetCurrentBootDeviceInfo(ctx context.Context, verbose bool, progress reporter.Reporter) (string, error) {
 	device, err := GetCurrentBootDevice(progress)
 	if err != nil {
 		return "", err

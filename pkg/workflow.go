@@ -3,6 +3,8 @@ package pkg
 import (
 	"context"
 	"fmt"
+
+	"github.com/frostyard/std/reporter"
 )
 
 // StepFunc is a single step in a workflow.
@@ -17,12 +19,12 @@ type namedStep struct {
 // and context cancellation.
 type Workflow struct {
 	steps    []namedStep
-	reporter Reporter
+	progress reporter.Reporter
 }
 
 // NewWorkflow creates a Workflow that reports progress via the given Reporter.
-func NewWorkflow(reporter Reporter) *Workflow {
-	return &Workflow{reporter: reporter}
+func NewWorkflow(r reporter.Reporter) *Workflow {
+	return &Workflow{progress: r}
 }
 
 // AddStep appends a named step to the workflow.
@@ -38,7 +40,7 @@ func (w *Workflow) Run(ctx context.Context, state *WorkflowState) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		w.reporter.Step(i+1, total, step.name)
+		w.progress.Step(i+1, total, step.name)
 		if err := step.fn(ctx, state); err != nil {
 			return fmt.Errorf("%s: %w", step.name, err)
 		}
@@ -66,8 +68,8 @@ type WorkflowState struct {
 	DryRun bool
 	// Verbose enables additional output.
 	Verbose bool
-	// Reporter is the output reporter for the workflow.
-	Reporter Reporter
+	// Progress is the output reporter for the workflow.
+	Progress reporter.Reporter
 	// Encrypted indicates whether LUKS encryption is enabled.
 	Encrypted bool
 	// Passphrase is the LUKS passphrase (if encrypted).

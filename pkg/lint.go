@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/frostyard/nbc/pkg/types"
+	"github.com/frostyard/std/reporter"
 )
 
 // =============================================================================
@@ -106,13 +107,13 @@ type Linter struct {
 	verbose  bool
 	quiet    bool // Suppress all output (for JSON mode)
 	fix      bool // Attempt to fix issues (only valid with local mode)
-	progress Reporter
+	progress reporter.Reporter
 }
 
 // NewLinter creates a new Linter with default checks
 func NewLinter() *Linter {
 	l := &Linter{
-		progress: NewTextReporter(os.Stdout),
+		progress: reporter.NewTextReporter(os.Stdout),
 	}
 	l.RegisterDefaultChecks()
 	return l
@@ -127,7 +128,7 @@ func (l *Linter) SetVerbose(verbose bool) {
 func (l *Linter) SetQuiet(quiet bool) {
 	l.quiet = quiet
 	if quiet {
-		l.progress = NoopReporter{}
+		l.progress = reporter.NoopReporter{}
 	}
 }
 

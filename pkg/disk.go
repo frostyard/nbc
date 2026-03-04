@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/frostyard/std/reporter"
 )
 
 // DiskInfo represents information about a physical disk
@@ -179,7 +181,7 @@ func ValidateDisk(device string, minSize uint64) error {
 }
 
 // WipeDisk securely wipes a disk's partition table
-func WipeDisk(ctx context.Context, device string, dryRun bool, progress Reporter) error {
+func WipeDisk(ctx context.Context, device string, dryRun bool, progress reporter.Reporter) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}

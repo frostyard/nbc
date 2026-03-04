@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/frostyard/std/reporter"
 )
 
 func TestIsNBCBooted(t *testing.T) {
@@ -23,7 +25,7 @@ func TestIsNBCBooted(t *testing.T) {
 func TestInstallTmpfilesConfig(t *testing.T) {
 	t.Run("dry run does not create files", func(t *testing.T) {
 		targetDir := t.TempDir()
-		err := InstallTmpfilesConfig(t.Context(), targetDir, true, NoopReporter{})
+		err := InstallTmpfilesConfig(t.Context(), targetDir, true, reporter.NoopReporter{})
 		if err != nil {
 			t.Fatalf("InstallTmpfilesConfig dry run failed: %v", err)
 		}
@@ -37,7 +39,7 @@ func TestInstallTmpfilesConfig(t *testing.T) {
 
 	t.Run("creates tmpfiles.d config", func(t *testing.T) {
 		targetDir := t.TempDir()
-		err := InstallTmpfilesConfig(t.Context(), targetDir, false, NoopReporter{})
+		err := InstallTmpfilesConfig(t.Context(), targetDir, false, reporter.NoopReporter{})
 		if err != nil {
 			t.Fatalf("InstallTmpfilesConfig failed: %v", err)
 		}
@@ -60,7 +62,7 @@ func TestInstallTmpfilesConfig(t *testing.T) {
 
 	t.Run("creates parent directories", func(t *testing.T) {
 		targetDir := t.TempDir()
-		err := InstallTmpfilesConfig(t.Context(), targetDir, false, NoopReporter{})
+		err := InstallTmpfilesConfig(t.Context(), targetDir, false, reporter.NoopReporter{})
 		if err != nil {
 			t.Fatalf("InstallTmpfilesConfig failed: %v", err)
 		}
@@ -162,7 +164,7 @@ func TestWriteSystemConfigToVar(t *testing.T) {
 		varMountPoint := t.TempDir()
 		config := &SystemConfig{ImageRef: "test:latest"}
 
-		err := WriteSystemConfigToVar(t.Context(), varMountPoint, config, true, NoopReporter{})
+		err := WriteSystemConfigToVar(t.Context(), varMountPoint, config, true, reporter.NoopReporter{})
 		if err != nil {
 			t.Fatalf("WriteSystemConfigToVar dry run failed: %v", err)
 		}
@@ -181,7 +183,7 @@ func TestWriteSystemConfigToVar(t *testing.T) {
 			BootloaderType: "grub2",
 		}
 
-		err := WriteSystemConfigToVar(t.Context(), varMountPoint, config, false, NoopReporter{})
+		err := WriteSystemConfigToVar(t.Context(), varMountPoint, config, false, reporter.NoopReporter{})
 		if err != nil {
 			t.Fatalf("WriteSystemConfigToVar failed: %v", err)
 		}
@@ -206,7 +208,7 @@ func TestWriteSystemConfigToVar(t *testing.T) {
 		varMountPoint := t.TempDir()
 		config := &SystemConfig{ImageRef: "test:latest"}
 
-		err := WriteSystemConfigToVar(t.Context(), varMountPoint, config, false, NoopReporter{})
+		err := WriteSystemConfigToVar(t.Context(), varMountPoint, config, false, reporter.NoopReporter{})
 		if err != nil {
 			t.Fatalf("WriteSystemConfigToVar failed: %v", err)
 		}

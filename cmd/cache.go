@@ -6,6 +6,7 @@ import (
 
 	"github.com/frostyard/nbc/pkg"
 	"github.com/frostyard/nbc/pkg/types"
+	"github.com/frostyard/std/reporter"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -198,11 +199,11 @@ func runCacheRemove(cmd *cobra.Command, args []string) error {
 
 	// Try install cache first
 	installCache := pkg.NewStagedInstallCache()
-	var progress pkg.Reporter
+	var progress reporter.Reporter
 	if jsonOutput {
-		progress = pkg.NewJSONReporter(os.Stdout)
+		progress = reporter.NewJSONReporter(os.Stdout)
 	} else {
-		progress = pkg.NewTextReporter(os.Stdout)
+		progress = reporter.NewTextReporter(os.Stdout)
 	}
 	if cacheRemoveF.cacheType == "" || cacheRemoveF.cacheType == "install" {
 		if err := installCache.Remove(cmd.Context(), digest, progress); err == nil {
@@ -267,11 +268,11 @@ func runCacheClear(cmd *cobra.Command, args []string) error {
 		cacheType = "update"
 	}
 
-	var progress pkg.Reporter
+	var progress reporter.Reporter
 	if jsonOutput {
-		progress = pkg.NewJSONReporter(os.Stdout)
+		progress = reporter.NewJSONReporter(os.Stdout)
 	} else {
-		progress = pkg.NewTextReporter(os.Stdout)
+		progress = reporter.NewTextReporter(os.Stdout)
 	}
 	if err := cache.Clear(cmd.Context(), progress); err != nil {
 		if jsonOutput {

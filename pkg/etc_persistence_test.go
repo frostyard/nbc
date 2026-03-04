@@ -4,11 +4,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/frostyard/std/reporter"
 )
 
-// testProgress creates a Reporter for tests that discards output
-func testProgress() Reporter {
-	return NoopReporter{}
+// testProgress creates a reporter.Reporter for tests that discards output
+func testProgress() reporter.Reporter {
+	return reporter.NoopReporter{}
 }
 
 func TestConstants(t *testing.T) {

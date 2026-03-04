@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/frostyard/std/reporter"
 )
 
 func TestNewImageCache(t *testing.T) {
@@ -129,7 +131,7 @@ func TestImageCache_Remove(t *testing.T) {
 	}
 
 	// Remove by full digest
-	if err := cache.Remove(t.Context(), "sha256:abc123def456", NoopReporter{}); err != nil {
+	if err := cache.Remove(t.Context(), "sha256:abc123def456", reporter.NoopReporter{}); err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
 
@@ -150,7 +152,7 @@ func TestImageCache_Remove_ByPrefix(t *testing.T) {
 	}
 
 	// Remove by prefix
-	if err := cache.Remove(t.Context(), "sha256:abc123", NoopReporter{}); err != nil {
+	if err := cache.Remove(t.Context(), "sha256:abc123", reporter.NoopReporter{}); err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
 
@@ -173,7 +175,7 @@ func TestImageCache_Remove_AmbiguousPrefix(t *testing.T) {
 	}
 
 	// Remove should fail with ambiguous prefix
-	err := cache.Remove(t.Context(), "sha256:abc123", NoopReporter{})
+	err := cache.Remove(t.Context(), "sha256:abc123", reporter.NoopReporter{})
 	if err == nil {
 		t.Error("Remove() should fail with ambiguous prefix")
 	}
@@ -192,7 +194,7 @@ func TestImageCache_Clear(t *testing.T) {
 	}
 
 	// Clear the cache
-	if err := cache.Clear(t.Context(), NoopReporter{}); err != nil {
+	if err := cache.Clear(t.Context(), reporter.NoopReporter{}); err != nil {
 		t.Fatalf("Clear() error = %v", err)
 	}
 

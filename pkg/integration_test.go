@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/frostyard/nbc/pkg/testutil"
+	"github.com/frostyard/std/reporter"
 )
 
 // TestIntegration_PartitionAndFormat tests the full partition and format flow
@@ -22,7 +23,7 @@ func TestIntegration_PartitionAndFormat(t *testing.T) {
 
 	// Create partitions
 	t.Log("Creating partitions...")
-	scheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, NoopReporter{})
+	scheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, reporter.NoopReporter{})
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
 	}
@@ -42,7 +43,7 @@ func TestIntegration_PartitionAndFormat(t *testing.T) {
 
 	// Format partitions
 	t.Log("Formatting partitions...")
-	if err := FormatPartitions(t.Context(), scheme, false, NoopReporter{}); err != nil {
+	if err := FormatPartitions(t.Context(), scheme, false, reporter.NoopReporter{}); err != nil {
 		t.Fatalf("FormatPartitions failed: %v", err)
 	}
 
@@ -76,14 +77,14 @@ func TestIntegration_MountUnmount(t *testing.T) {
 		t.Fatalf("Failed to create test disk: %v", err)
 	}
 
-	scheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, NoopReporter{})
+	scheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, reporter.NoopReporter{})
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
 	}
 
 	_ = testutil.WaitForDevice(disk.GetDevice())
 
-	if err := FormatPartitions(t.Context(), scheme, false, NoopReporter{}); err != nil {
+	if err := FormatPartitions(t.Context(), scheme, false, reporter.NoopReporter{}); err != nil {
 		t.Fatalf("FormatPartitions failed: %v", err)
 	}
 
@@ -95,7 +96,7 @@ func TestIntegration_MountUnmount(t *testing.T) {
 
 	// Mount partitions
 	t.Log("Mounting partitions...")
-	if err := MountPartitions(t.Context(), scheme, mountPoint, false, NoopReporter{}); err != nil {
+	if err := MountPartitions(t.Context(), scheme, mountPoint, false, reporter.NoopReporter{}); err != nil {
 		t.Fatalf("MountPartitions failed: %v", err)
 	}
 
@@ -120,7 +121,7 @@ func TestIntegration_MountUnmount(t *testing.T) {
 
 	// Unmount partitions
 	t.Log("Unmounting partitions...")
-	if err := UnmountPartitions(t.Context(), mountPoint, false, NoopReporter{}); err != nil {
+	if err := UnmountPartitions(t.Context(), mountPoint, false, reporter.NoopReporter{}); err != nil {
 		t.Errorf("UnmountPartitions failed: %v", err)
 	}
 }
@@ -136,7 +137,7 @@ func TestIntegration_DetectPartitionScheme(t *testing.T) {
 	}
 
 	// Create partitions
-	originalScheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, NoopReporter{})
+	originalScheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, reporter.NoopReporter{})
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
 	}
@@ -179,14 +180,14 @@ func TestIntegration_EtcOverlaySetup(t *testing.T) {
 		t.Fatalf("Failed to create test disk: %v", err)
 	}
 
-	scheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, NoopReporter{})
+	scheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, reporter.NoopReporter{})
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
 	}
 
 	_ = testutil.WaitForDevice(disk.GetDevice())
 
-	progress := NoopReporter{}
+	progress := reporter.NoopReporter{}
 	if err := FormatPartitions(t.Context(), scheme, false, progress); err != nil {
 		t.Fatalf("FormatPartitions failed: %v", err)
 	}
@@ -216,7 +217,7 @@ func TestIntegration_EtcOverlaySetup(t *testing.T) {
 
 	// Setup /etc overlay
 	t.Log("Setting up /etc overlay...")
-	if err := SetupEtcOverlay(t.Context(), mountPoint, false, NoopReporter{}); err != nil {
+	if err := SetupEtcOverlay(t.Context(), mountPoint, false, reporter.NoopReporter{}); err != nil {
 		t.Fatalf("SetupEtcOverlay failed: %v", err)
 	}
 
@@ -243,14 +244,14 @@ func TestIntegration_TmpfilesConfig(t *testing.T) {
 		t.Fatalf("Failed to create test disk: %v", err)
 	}
 
-	scheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, NoopReporter{})
+	scheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, reporter.NoopReporter{})
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
 	}
 
 	_ = testutil.WaitForDevice(disk.GetDevice())
 
-	progress := NoopReporter{}
+	progress := reporter.NoopReporter{}
 	if err := FormatPartitions(t.Context(), scheme, false, progress); err != nil {
 		t.Fatalf("FormatPartitions failed: %v", err)
 	}
@@ -269,7 +270,7 @@ func TestIntegration_TmpfilesConfig(t *testing.T) {
 
 	// Install tmpfiles.d config
 	t.Log("Installing tmpfiles.d config...")
-	if err := InstallTmpfilesConfig(t.Context(), mountPoint, false, NoopReporter{}); err != nil {
+	if err := InstallTmpfilesConfig(t.Context(), mountPoint, false, reporter.NoopReporter{}); err != nil {
 		t.Fatalf("InstallTmpfilesConfig failed: %v", err)
 	}
 
@@ -295,14 +296,14 @@ func TestIntegration_SystemConfig(t *testing.T) {
 		t.Fatalf("Failed to create test disk: %v", err)
 	}
 
-	scheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, NoopReporter{})
+	scheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, reporter.NoopReporter{})
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
 	}
 
 	_ = testutil.WaitForDevice(disk.GetDevice())
 
-	progress := NoopReporter{}
+	progress := reporter.NoopReporter{}
 	if err := FormatPartitions(t.Context(), scheme, false, progress); err != nil {
 		t.Fatalf("FormatPartitions failed: %v", err)
 	}
@@ -331,7 +332,7 @@ func TestIntegration_SystemConfig(t *testing.T) {
 
 	t.Log("Writing system config to var partition...")
 	varMountPoint := filepath.Join(mountPoint, "var")
-	if err := WriteSystemConfigToVar(t.Context(), varMountPoint, config, false, NoopReporter{}); err != nil {
+	if err := WriteSystemConfigToVar(t.Context(), varMountPoint, config, false, reporter.NoopReporter{}); err != nil {
 		t.Fatalf("WriteSystemConfigToVar failed: %v", err)
 	}
 
@@ -392,7 +393,7 @@ func TestIntegration_Crypttab(t *testing.T) {
 		t.Fatalf("Failed to create test disk: %v", err)
 	}
 
-	progress := NoopReporter{}
+	progress := reporter.NoopReporter{}
 	scheme, err := CreatePartitions(t.Context(), disk.GetDevice(), false, progress)
 	if err != nil {
 		t.Fatalf("CreatePartitions failed: %v", err)
@@ -490,7 +491,7 @@ func TestIntegration_PopulateEtcLower_Install(t *testing.T) {
 	}
 
 	// Run PopulateEtcLower
-	if err := PopulateEtcLower(t.Context(), mountPoint, false, NoopReporter{}); err != nil {
+	if err := PopulateEtcLower(t.Context(), mountPoint, false, reporter.NoopReporter{}); err != nil {
 		t.Fatalf("PopulateEtcLower failed: %v", err)
 	}
 
@@ -578,7 +579,7 @@ func TestIntegration_PopulateEtcLower_Update(t *testing.T) {
 	}
 
 	// Create old .etc.lower
-	if err := PopulateEtcLower(t.Context(), mountPoint, false, NoopReporter{}); err != nil {
+	if err := PopulateEtcLower(t.Context(), mountPoint, false, reporter.NoopReporter{}); err != nil {
 		t.Fatalf("Initial PopulateEtcLower failed: %v", err)
 	}
 
@@ -607,7 +608,7 @@ func TestIntegration_PopulateEtcLower_Update(t *testing.T) {
 	}
 
 	// Run PopulateEtcLower again (simulating update)
-	if err := PopulateEtcLower(t.Context(), mountPoint, false, NoopReporter{}); err != nil {
+	if err := PopulateEtcLower(t.Context(), mountPoint, false, reporter.NoopReporter{}); err != nil {
 		t.Fatalf("Update PopulateEtcLower failed: %v", err)
 	}
 
@@ -668,7 +669,7 @@ func TestIntegration_EtcLowerWithSymlinks(t *testing.T) {
 	}
 
 	// Populate .etc.lower
-	if err := PopulateEtcLower(t.Context(), mountPoint, false, NoopReporter{}); err != nil {
+	if err := PopulateEtcLower(t.Context(), mountPoint, false, reporter.NoopReporter{}); err != nil {
 		t.Fatalf("PopulateEtcLower failed: %v", err)
 	}
 

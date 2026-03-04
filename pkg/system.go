@@ -6,11 +6,13 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/frostyard/std/reporter"
 )
 
 // SetRootPasswordInTarget sets the root password in the installed system using chpasswd
 // The password is passed via stdin for security (not visible in process list)
-func SetRootPasswordInTarget(ctx context.Context, targetDir, password string, dryRun bool, progress Reporter) error {
+func SetRootPasswordInTarget(ctx context.Context, targetDir, password string, dryRun bool, progress reporter.Reporter) error {
 	if password == "" {
 		return nil // No password to set
 	}

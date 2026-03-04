@@ -6,6 +6,7 @@ import (
 
 	"github.com/frostyard/nbc/pkg"
 	"github.com/frostyard/nbc/pkg/types"
+	"github.com/frostyard/std/reporter"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -137,11 +138,11 @@ func runDownload(cmd *cobra.Command, args []string) error {
 		// Clear any existing staged update
 		updateCache := pkg.NewStagedUpdateCache()
 		existing, _ := updateCache.GetSingle()
-		var progress pkg.Reporter
+		var progress reporter.Reporter
 		if jsonOutput {
-			progress = pkg.NewJSONReporter(os.Stdout)
+			progress = reporter.NewJSONReporter(os.Stdout)
 		} else {
-			progress = pkg.NewTextReporter(os.Stdout)
+			progress = reporter.NewTextReporter(os.Stdout)
 		}
 		if existing != nil {
 			if verbose && !jsonOutput {
@@ -186,11 +187,11 @@ func runDownload(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	var progress pkg.Reporter
+	var progress reporter.Reporter
 	if jsonOutput {
-		progress = pkg.NewJSONReporter(os.Stdout)
+		progress = reporter.NewJSONReporter(os.Stdout)
 	} else {
-		progress = pkg.NewTextReporter(os.Stdout)
+		progress = reporter.NewTextReporter(os.Stdout)
 	}
 
 	metadata, err := cache.Download(cmd.Context(), dlFlags.image, progress)

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/frostyard/std/reporter"
 )
 
 type stepRecord struct {
@@ -13,7 +15,7 @@ type stepRecord struct {
 }
 
 type stepTrackingReporter struct {
-	NoopReporter
+	reporter.NoopReporter
 	steps []stepRecord
 }
 
@@ -23,7 +25,7 @@ func (r *stepTrackingReporter) Step(step, total int, name string) {
 
 func TestWorkflow_RunsAllSteps(t *testing.T) {
 	var ran []string
-	w := NewWorkflow(&NoopReporter{})
+	w := NewWorkflow(&reporter.NoopReporter{})
 	w.AddStep("step1", func(_ context.Context, _ *WorkflowState) error {
 		ran = append(ran, "step1")
 		return nil
@@ -43,7 +45,7 @@ func TestWorkflow_RunsAllSteps(t *testing.T) {
 
 func TestWorkflow_StopsOnError(t *testing.T) {
 	var ran []string
-	w := NewWorkflow(&NoopReporter{})
+	w := NewWorkflow(&reporter.NoopReporter{})
 	w.AddStep("good", func(_ context.Context, _ *WorkflowState) error {
 		ran = append(ran, "good")
 		return nil
@@ -70,7 +72,7 @@ func TestWorkflow_RespectsContextCancellation(t *testing.T) {
 	cancel()
 
 	var ran bool
-	w := NewWorkflow(&NoopReporter{})
+	w := NewWorkflow(&reporter.NoopReporter{})
 	w.AddStep("unreachable", func(_ context.Context, _ *WorkflowState) error {
 		ran = true
 		return nil
@@ -106,7 +108,7 @@ func TestWorkflow_ReportsSteps(t *testing.T) {
 }
 
 func TestWorkflow_ErrorWrapsStepName(t *testing.T) {
-	w := NewWorkflow(&NoopReporter{})
+	w := NewWorkflow(&reporter.NoopReporter{})
 	w.AddStep("Format disks", func(_ context.Context, _ *WorkflowState) error {
 		return errors.New("disk full")
 	})
@@ -124,7 +126,7 @@ func TestWorkflow_ErrorWrapsStepName(t *testing.T) {
 }
 
 func TestWorkflow_EmptyWorkflow(t *testing.T) {
-	w := NewWorkflow(&NoopReporter{})
+	w := NewWorkflow(&reporter.NoopReporter{})
 	if err := w.Run(t.Context(), &WorkflowState{}); err != nil {
 		t.Fatalf("empty workflow should succeed, got: %v", err)
 	}

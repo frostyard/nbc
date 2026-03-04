@@ -428,17 +428,20 @@ Checks include:
 For Go applications that need to parse nbc's JSON output, import the types package:
 
 ```go
-import "github.com/frostyard/nbc/pkg/types"
+import (
+    "github.com/frostyard/nbc/pkg/types"
+    "github.com/frostyard/std/reporter"
+)
 
 // Parse status output
 var status types.StatusOutput
 json.Unmarshal(data, &status)
 
 // Parse streaming progress events
-var event types.ProgressEvent
+var event reporter.ProgressEvent
 json.Unmarshal(line, &event)
 
-if event.Type == types.EventTypeComplete {
+if event.Type == reporter.EventTypeComplete {
     fmt.Println("Installation complete!")
 }
 ```

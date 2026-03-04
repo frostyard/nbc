@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/frostyard/std/reporter"
 )
 
 // PartitionScheme defines the disk partitioning layout
@@ -23,7 +25,7 @@ type PartitionScheme struct {
 }
 
 // CreatePartitions creates a GPT partition table with EFI, boot, and root partitions
-func CreatePartitions(ctx context.Context, device string, dryRun bool, progress Reporter) (*PartitionScheme, error) {
+func CreatePartitions(ctx context.Context, device string, dryRun bool, progress reporter.Reporter) (*PartitionScheme, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -130,7 +132,7 @@ func CreatePartitions(ctx context.Context, device string, dryRun bool, progress 
 
 // SetupLUKS creates LUKS containers on root and var partitions
 // Returns the opened LUKS devices (must be closed during cleanup)
-func SetupLUKS(ctx context.Context, scheme *PartitionScheme, passphrase string, dryRun bool, progress Reporter) error {
+func SetupLUKS(ctx context.Context, scheme *PartitionScheme, passphrase string, dryRun bool, progress reporter.Reporter) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -245,13 +247,13 @@ func (s *PartitionScheme) CloseLUKSDevices(ctx context.Context) {
 		return
 	}
 	for _, dev := range s.LUKSDevices {
-		_ = CloseLUKS(ctx, dev.MapperName, NoopReporter{})
+		_ = CloseLUKS(ctx, dev.MapperName, reporter.NoopReporter{})
 	}
 	s.LUKSDevices = nil
 }
 
 // FormatPartitions formats the partitions with appropriate filesystems
-func FormatPartitions(ctx context.Context, scheme *PartitionScheme, dryRun bool, progress Reporter) error {
+func FormatPartitions(ctx context.Context, scheme *PartitionScheme, dryRun bool, progress reporter.Reporter) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -336,7 +338,7 @@ func formatPartition(ctx context.Context, partition, fsType, label string) error
 }
 
 // MountPartitions mounts the partitions to a temporary directory
-func MountPartitions(ctx context.Context, scheme *PartitionScheme, mountPoint string, dryRun bool, progress Reporter) error {
+func MountPartitions(ctx context.Context, scheme *PartitionScheme, mountPoint string, dryRun bool, progress reporter.Reporter) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -390,7 +392,7 @@ func MountPartitions(ctx context.Context, scheme *PartitionScheme, mountPoint st
 }
 
 // UnmountPartitions unmounts all partitions
-func UnmountPartitions(ctx context.Context, mountPoint string, dryRun bool, progress Reporter) error {
+func UnmountPartitions(ctx context.Context, mountPoint string, dryRun bool, progress reporter.Reporter) error {
 	if dryRun {
 		progress.MessagePlain("[DRY RUN] Would unmount partitions at %s", mountPoint)
 		return nil

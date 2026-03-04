@@ -7,6 +7,7 @@ import (
 
 	"github.com/frostyard/nbc/pkg"
 	"github.com/frostyard/nbc/pkg/types"
+	"github.com/frostyard/std/reporter"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -93,13 +94,13 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	// Create progress reporter for early error output.
 	// For --check --json, suppress streaming progress so only the final
 	// UpdateCheckOutput JSON object is emitted.
-	var progress pkg.Reporter
+	var progress reporter.Reporter
 	if jsonOutput && updFlags.checkOnly {
-		progress = pkg.NoopReporter{}
+		progress = reporter.NoopReporter{}
 	} else if jsonOutput {
-		progress = pkg.NewJSONReporter(os.Stdout)
+		progress = reporter.NewJSONReporter(os.Stdout)
 	} else {
-		progress = pkg.NewTextReporter(os.Stdout)
+		progress = reporter.NewTextReporter(os.Stdout)
 	}
 
 	// Validate mutually exclusive flags
@@ -333,7 +334,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	// so IsUpdateNeeded doesn't emit streaming JSON — only the final
 	// UpdateCheckOutput JSON object should be written.
 	if updFlags.checkOnly && jsonOutput {
-		updater.Progress = pkg.NoopReporter{}
+		updater.Progress = reporter.NoopReporter{}
 	}
 
 	// Set local image if using staged update

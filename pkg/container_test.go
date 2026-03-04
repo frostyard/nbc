@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/frostyard/std/reporter"
 )
 
 func TestExtractTar_PreservesSpecialBits(t *testing.T) {
@@ -384,7 +386,7 @@ func TestVerifyExtraction_EmptyDirectory(t *testing.T) {
 func TestSetupSystemDirectories(t *testing.T) {
 	targetDir := t.TempDir()
 
-	err := SetupSystemDirectories(t.Context(), targetDir, NoopReporter{})
+	err := SetupSystemDirectories(t.Context(), targetDir, reporter.NoopReporter{})
 	if err != nil {
 		t.Fatalf("SetupSystemDirectories failed: %v", err)
 	}
@@ -441,7 +443,7 @@ func TestPrepareMachineID(t *testing.T) {
 			t.Fatalf("failed to create etc dir: %v", err)
 		}
 
-		err := PrepareMachineID(t.Context(), targetDir, NoopReporter{})
+		err := PrepareMachineID(t.Context(), targetDir, reporter.NoopReporter{})
 		if err != nil {
 			t.Fatalf("PrepareMachineID failed: %v", err)
 		}
@@ -466,7 +468,7 @@ func TestPrepareMachineID(t *testing.T) {
 			t.Fatalf("failed to create empty machine-id: %v", err)
 		}
 
-		err := PrepareMachineID(t.Context(), targetDir, NoopReporter{})
+		err := PrepareMachineID(t.Context(), targetDir, reporter.NoopReporter{})
 		if err != nil {
 			t.Fatalf("PrepareMachineID failed: %v", err)
 		}
@@ -491,7 +493,7 @@ func TestPrepareMachineID(t *testing.T) {
 			t.Fatalf("failed to create machine-id: %v", err)
 		}
 
-		err := PrepareMachineID(t.Context(), targetDir, NoopReporter{})
+		err := PrepareMachineID(t.Context(), targetDir, reporter.NoopReporter{})
 		if err != nil {
 			t.Fatalf("PrepareMachineID failed: %v", err)
 		}
@@ -517,7 +519,7 @@ func TestPrepareMachineID(t *testing.T) {
 			t.Fatalf("failed to create machine-id: %v", err)
 		}
 
-		err := PrepareMachineID(t.Context(), targetDir, NoopReporter{})
+		err := PrepareMachineID(t.Context(), targetDir, reporter.NoopReporter{})
 		if err != nil {
 			t.Fatalf("PrepareMachineID failed: %v", err)
 		}

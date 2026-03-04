@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/frostyard/nbc/pkg"
+	"github.com/frostyard/std/reporter"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -147,14 +148,14 @@ func runInstall(cmd *cobra.Command, args []string) error {
 // It handles local image resolution and validation of flag combinations.
 func buildInstallConfig(ctx context.Context, verbose, dryRun, jsonOutput bool) (*pkg.InstallConfig, error) {
 	// Create reporter for early error output
-	var reporter pkg.Reporter
+	var progress reporter.Reporter
 	if jsonOutput {
-		reporter = pkg.NewJSONReporter(os.Stdout)
+		progress = reporter.NewJSONReporter(os.Stdout)
 	} else {
-		reporter = pkg.NewTextReporter(os.Stdout)
+		progress = reporter.NewTextReporter(os.Stdout)
 	}
 	reportError := func(err error, msg string) error {
-		reporter.Error(err, msg)
+		progress.Error(err, msg)
 		return err
 	}
 

@@ -79,7 +79,7 @@ func NormalizeOutput(s string) string {
 
 	// Replace version strings: v0.14.0-25-g5568b48 -> VERSION
 	// Matches semantic versions with optional pre-release and git suffix
-	versionRe := regexp.MustCompile(`v\d+\.\d+\.\d+(-\d+-g[a-f0-9]+)?`)
+	versionRe := regexp.MustCompile(`v\d+\.\d+\.\d+(-\d+-g[a-f0-9]+)?(-dirty)?`)
 	s = versionRe.ReplaceAllString(s, "VERSION")
 
 	return s

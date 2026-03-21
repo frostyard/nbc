@@ -3,7 +3,7 @@ module github.com/frostyard/nbc
 go 1.26
 
 require (
-	github.com/charmbracelet/huh v0.8.0
+	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/frostyard/clix v0.2.0

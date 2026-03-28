@@ -7,7 +7,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/frostyard/clix v0.2.0
-	github.com/frostyard/std v0.1.0
+	github.com/frostyard/std v0.2.0
 	github.com/google/go-containerregistry v0.20.7
 	github.com/lxc/incus/v6 v6.22.0
 	github.com/muesli/termenv v0.16.0

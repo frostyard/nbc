@@ -1,6 +1,7 @@
 # nbc
 
 [![Tests](https://github.com/frostyard/nbc/actions/workflows/test.yml/badge.svg)](https://github.com/frostyard/nbc/actions/workflows/test.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/frostyard/nbc/badge)](https://scorecard.dev/viewer/?uri=github.com/frostyard/nbc)
 
 A Go application for installing bootc-compatible containers to physical disks with A/B partitioning and atomic updates.
 

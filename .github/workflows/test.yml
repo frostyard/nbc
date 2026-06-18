@@ -61,7 +61,7 @@ jobs:
         run: go test -v ./pkg/... -coverprofile=coverage.out -covermode=atomic -run "^Test[^I]" -skip "Integration"
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: ./coverage.out
           fail_ci_if_error: false

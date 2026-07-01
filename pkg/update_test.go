@@ -945,6 +945,159 @@ ID=test
 	})
 }
 
+func TestPruneBootKernelPairsKeepsCurrentAndPrevious(t *testing.T) {
+	bootDir := t.TempDir()
+
+	versions := []string{"6.18.1-old", "6.18.2-previous", "6.18.3-current"}
+	for _, version := range versions {
+		if err := os.WriteFile(filepath.Join(bootDir, "vmlinuz-"+version), []byte("kernel"), 0644); err != nil {
+			t.Fatalf("Failed to write kernel: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(bootDir, "initramfs-"+version+".img"), []byte("initramfs"), 0644); err != nil {
+			t.Fatalf("Failed to write initramfs: %v", err)
+		}
+	}
+
+	if err := os.WriteFile(filepath.Join(bootDir, "BOOTX64.EFI"), []byte("efi"), 0644); err != nil {
+		t.Fatalf("Failed to write unrelated EFI file: %v", err)
+	}
+
+	if err := pruneBootKernelPairs(bootDir, "6.18.3-current", "6.18.2-previous", reporter.NoopReporter{}); err != nil {
+		t.Fatalf("pruneBootKernelPairs failed: %v", err)
+	}
+
+	for _, kept := range []string{"6.18.3-current", "6.18.2-previous"} {
+		if _, err := os.Stat(filepath.Join(bootDir, "vmlinuz-"+kept)); err != nil {
+			t.Errorf("Expected kernel %s to remain: %v", kept, err)
+		}
+		if _, err := os.Stat(filepath.Join(bootDir, "initramfs-"+kept+".img")); err != nil {
+			t.Errorf("Expected initramfs %s to remain: %v", kept, err)
+		}
+	}
+
+	for _, removed := range []string{
+		"vmlinuz-6.18.1-old",
+		"initramfs-6.18.1-old.img",
+	} {
+		if _, err := os.Stat(filepath.Join(bootDir, removed)); !os.IsNotExist(err) {
+			t.Errorf("Expected %s to be pruned", removed)
+		}
+	}
+
+	if _, err := os.Stat(filepath.Join(bootDir, "BOOTX64.EFI")); err != nil {
+		t.Errorf("Expected unrelated EFI file to remain: %v", err)
+	}
+}
+
+func TestPruneBootKernelPairsLeavesIncompletePairs(t *testing.T) {
+	bootDir := t.TempDir()
+
+	completeVersions := []string{"6.18.2-previous", "6.18.3-current"}
+	for _, version := range completeVersions {
+		if err := os.WriteFile(filepath.Join(bootDir, "vmlinuz-"+version), []byte("kernel"), 0644); err != nil {
+			t.Fatalf("Failed to write kernel: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(bootDir, "initrd.img-"+version), []byte("initramfs"), 0644); err != nil {
+			t.Fatalf("Failed to write initramfs: %v", err)
+		}
+	}
+
+	orphans := []string{
+		"vmlinuz-6.18.0-orphan",
+		"initramfs-6.18.1-orphan.img",
+		"loader.conf",
+	}
+	for _, orphan := range orphans {
+		if err := os.WriteFile(filepath.Join(bootDir, orphan), []byte("orphan"), 0644); err != nil {
+			t.Fatalf("Failed to write orphan file: %v", err)
+		}
+	}
+
+	if err := pruneBootKernelPairs(bootDir, "6.18.3-current", "6.18.2-previous", reporter.NoopReporter{}); err != nil {
+		t.Fatalf("pruneBootKernelPairs failed: %v", err)
+	}
+
+	for _, orphan := range orphans {
+		if _, err := os.Stat(filepath.Join(bootDir, orphan)); err != nil {
+			t.Errorf("Expected incomplete/unrelated file %s to remain: %v", orphan, err)
+		}
+	}
+}
+
+func TestGetKernelVersionFromRoot(t *testing.T) {
+	root := t.TempDir()
+	modulesBase := filepath.Join(root, "usr", "lib", "modules")
+
+	for _, version := range []string{"6.18.2-previous", "6.18.3-current"} {
+		kernelDir := filepath.Join(modulesBase, version)
+		if err := os.MkdirAll(kernelDir, 0755); err != nil {
+			t.Fatalf("Failed to create modules directory: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(kernelDir, "vmlinuz"), []byte("kernel"), 0644); err != nil {
+			t.Fatalf("Failed to write vmlinuz: %v", err)
+		}
+	}
+
+	version, err := getKernelVersionFromRoot(root)
+	if err != nil {
+		t.Fatalf("getKernelVersionFromRoot failed: %v", err)
+	}
+	if version != "6.18.3-current" {
+		t.Errorf("getKernelVersionFromRoot = %q, want %q", version, "6.18.3-current")
+	}
+}
+
+func TestReadRunningKernelVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "osrelease")
+	if err := os.WriteFile(path, []byte("6.18.2-previous\n"), 0644); err != nil {
+		t.Fatalf("Failed to write osrelease: %v", err)
+	}
+
+	version, err := readRunningKernelVersion(path)
+	if err != nil {
+		t.Fatalf("readRunningKernelVersion failed: %v", err)
+	}
+	if version != "6.18.2-previous" {
+		t.Errorf("readRunningKernelVersion = %q, want %q", version, "6.18.2-previous")
+	}
+}
+
+func TestBuildSystemdBootEntryUsesRequestedKernelVersion(t *testing.T) {
+	entry := buildSystemdBootEntry("Test Linux", "6.18.2-previous", "initramfs-6.18.2-previous.img", []string{"root=UUID=previous", "ro"})
+
+	if !strings.Contains(entry, "linux   /vmlinuz-6.18.2-previous") {
+		t.Errorf("entry should reference previous kernel, got:\n%s", entry)
+	}
+	if !strings.Contains(entry, "initrd  /initramfs-6.18.2-previous.img") {
+		t.Errorf("entry should reference previous initramfs, got:\n%s", entry)
+	}
+	if strings.Contains(entry, "6.18.3-current") {
+		t.Errorf("entry should not reference current kernel, got:\n%s", entry)
+	}
+}
+
+func TestBuildGRUBConfigUsesPreviousKernelForPreviousEntry(t *testing.T) {
+	config := buildGRUBConfig(
+		"Test Linux",
+		"6.18.3-current",
+		"initramfs-6.18.3-current.img",
+		[]string{"root=UUID=current", "ro"},
+		"6.18.2-previous",
+		"initramfs-6.18.2-previous.img",
+		[]string{"root=UUID=previous", "ro"},
+	)
+
+	if !strings.Contains(config, "menuentry 'Test Linux (Previous)'") {
+		t.Errorf("config should contain previous entry, got:\n%s", config)
+	}
+	if !strings.Contains(config, "linux /vmlinuz-6.18.2-previous root=UUID=previous ro") {
+		t.Errorf("previous entry should reference previous kernel, got:\n%s", config)
+	}
+	if !strings.Contains(config, "initrd /initramfs-6.18.2-previous.img") {
+		t.Errorf("previous entry should reference previous initramfs, got:\n%s", config)
+	}
+}
+
 func readConfigFromFile(path string) (*SystemConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

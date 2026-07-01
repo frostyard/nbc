@@ -1277,7 +1277,7 @@ func (u *SystemUpdater) updateGRUBBootloader() error {
 	grubCfg := buildGRUBConfig(osName, kernelVersion, initrd, kernelCmdline, previousKernelVersion, previousInitrd, previousCmdline)
 
 	grubCfgPath := filepath.Join(grubDir, "grub.cfg")
-	if err := os.WriteFile(grubCfgPath, []byte(grubCfg), 0644); err != nil {
+	if err := atomicWriteFile(grubCfgPath, []byte(grubCfg), 0644); err != nil {
 		return fmt.Errorf("failed to write grub.cfg: %w", err)
 	}
 
@@ -1367,7 +1367,7 @@ func (u *SystemUpdater) updateSystemdBootBootloader() error {
 	mainEntry := buildSystemdBootEntry(osName, kernelVersion, initrd, kernelCmdline)
 
 	mainEntryPath := filepath.Join(entriesDir, "bootc.conf")
-	if err := os.WriteFile(mainEntryPath, []byte(mainEntry), 0644); err != nil {
+	if err := atomicWriteFile(mainEntryPath, []byte(mainEntry), 0644); err != nil {
 		return fmt.Errorf("failed to write main boot entry: %w", err)
 	}
 
@@ -1393,7 +1393,7 @@ func (u *SystemUpdater) updateSystemdBootBootloader() error {
 	previousEntry := buildSystemdBootEntry(osName+" (Previous)", previousKernelVersion, previousInitrd, previousCmdline)
 
 	previousEntryPath := filepath.Join(entriesDir, "bootc-previous.conf")
-	if err := os.WriteFile(previousEntryPath, []byte(previousEntry), 0644); err != nil {
+	if err := atomicWriteFile(previousEntryPath, []byte(previousEntry), 0644); err != nil {
 		return fmt.Errorf("failed to write rollback boot entry: %w", err)
 	}
 

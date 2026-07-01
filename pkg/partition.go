@@ -382,12 +382,15 @@ func MountPartitions(ctx context.Context, scheme *PartitionScheme, mountPoint st
 	// on the busy mountpoint.
 	var mounted []string
 	success := false
+	rollbackCtx := context.WithoutCancel(ctx)
 	defer func() {
 		if success {
 			return
 		}
 		for i := len(mounted) - 1; i >= 0; i-- {
-			_ = umountCommand(ctx, mounted[i])
+			if err := umountCommand(rollbackCtx, mounted[i]); err != nil {
+				progress.Warning("failed to rollback unmount %s: %v", mounted[i], err)
+			}
 		}
 	}()
 

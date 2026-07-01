@@ -119,7 +119,10 @@ func TestEtcOverlayHook_PopulatedLowerDoesNotPolluteUpper(t *testing.T) {
 	// The core assertion: upper must remain empty. On the buggy hook it gets the
 	// entire /etc copied into it.
 	if got := countEntries(t, upper); got != 0 {
-		names, _ := os.ReadDir(upper)
+		names, err := os.ReadDir(upper)
+		if err != nil {
+			t.Fatalf("failed to read upper dir: %v", err)
+		}
 		var polluted []string
 		for _, n := range names {
 			polluted = append(polluted, n.Name())

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	securejoin "github.com/cyphar/filepath-securejoin"
 	"github.com/docker/docker/client"
 	"github.com/frostyard/std/reporter"
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -227,13 +228,14 @@ func extractTar(ctx context.Context, r io.Reader, targetDir string) error {
 			return fmt.Errorf("failed to read tar header: %w", err)
 		}
 
-		target := filepath.Join(targetDir, header.Name)
-
-		// Ensure target is within targetDir (prevent path traversal)
-		cleanTarget := filepath.Clean(target)
-		cleanTargetDir := filepath.Clean(targetDir) + string(filepath.Separator)
-		if !strings.HasPrefix(cleanTarget+string(filepath.Separator), cleanTargetDir) && cleanTarget != filepath.Clean(targetDir) {
-			continue
+		// Resolve the destination safely within targetDir. SecureJoin lexically
+		// resolves each path component against targetDir as its root, so a
+		// hostile entry cannot escape the extraction directory -- neither via
+		// ".." traversal nor by writing "through" a previously-extracted symlink
+		// that points outside the root.
+		target, err := securejoin.SecureJoin(targetDir, header.Name)
+		if err != nil {
+			return fmt.Errorf("failed to resolve safe extraction path for %q: %w", header.Name, err)
 		}
 
 		// Handle whiteouts (deleted files in overlay filesystems)
@@ -244,7 +246,10 @@ func extractTar(ctx context.Context, r io.Reader, targetDir string) error {
 		// Opaque whiteout: .wh..wh..opq means "delete all files in this directory"
 		if base == ".wh..wh..opq" {
 			// Remove all contents of the directory
-			targetDir := filepath.Join(targetDir, dir)
+			targetDir, err := securejoin.SecureJoin(targetDir, dir)
+			if err != nil {
+				return fmt.Errorf("failed to resolve opaque whiteout path for %q: %w", header.Name, err)
+			}
 			// if the targetDir contains "efi" just skip it to avoid deleting efi contents
 			if filepath.Base(targetDir) == "efi" {
 				continue
@@ -266,7 +271,10 @@ func extractTar(ctx context.Context, r io.Reader, targetDir string) error {
 		if len(base) > 4 && base[:4] == ".wh." {
 			// The whiteout indicates we should delete the file it references
 			originalName := base[4:] // Remove .wh. prefix
-			whiteoutTarget := filepath.Join(targetDir, dir, originalName)
+			whiteoutTarget, err := securejoin.SecureJoin(targetDir, filepath.Join(dir, originalName))
+			if err != nil {
+				return fmt.Errorf("failed to resolve whiteout path for %q: %w", header.Name, err)
+			}
 			// Remove the file/directory that this whiteout references
 			if err := os.RemoveAll(whiteoutTarget); err != nil && !os.IsNotExist(err) {
 				return fmt.Errorf("failed to remove whiteout target %s: %w", whiteoutTarget, err)
@@ -372,8 +380,13 @@ func extractTar(ctx context.Context, r io.Reader, targetDir string) error {
 			_ = os.Lchown(target, header.Uid, header.Gid)
 
 		case tar.TypeLink:
-			// Hard link
-			linkTarget := filepath.Join(targetDir, header.Linkname)
+			// Hard link. Resolve the link source safely within targetDir so a
+			// hostile ".." link name cannot reference a file outside the
+			// extraction root (which would otherwise be copied into the image).
+			linkTarget, err := securejoin.SecureJoin(targetDir, header.Linkname)
+			if err != nil {
+				return fmt.Errorf("failed to resolve safe hard link source for %q: %w", header.Linkname, err)
+			}
 			if err := os.Link(linkTarget, target); err != nil {
 				// If hard link fails, try copying the file
 				if err := copyFile(linkTarget, target); err != nil {

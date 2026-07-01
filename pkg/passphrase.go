@@ -43,8 +43,13 @@ func readPassphrase(prompt string) (string, error) {
 // preserved. A final line with no newline (EOF) is returned as-is.
 func readPassphraseLine(r io.Reader) (string, error) {
 	line, err := bufio.NewReader(r).ReadString('\n')
-	if err != nil && err != io.EOF {
-		return "", err
+	if err != nil {
+		if err == io.EOF && line == "" {
+			return "", io.EOF
+		}
+		if err != io.EOF {
+			return "", err
+		}
 	}
 	return strings.TrimRight(line, "\r\n"), nil
 }

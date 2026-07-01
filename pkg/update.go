@@ -952,7 +952,120 @@ func (u *SystemUpdater) InstallKernelAndInitramfs() error {
 		p.Message("Kernel and initramfs are up to date")
 	}
 
+	currentKernelVersion, err := u.getUpdatedRootKernelVersion()
+	if err != nil {
+		return fmt.Errorf("failed to get current kernel version: %w", err)
+	}
+
+	previousKernelVersion, err := u.getActiveRootKernelVersion()
+	if err != nil {
+		p.Warning("failed to determine previous kernel version: %v", err)
+		p.Warning("skipping /boot kernel pruning to avoid removing the currently booted kernel")
+		return nil
+	}
+
+	if err := pruneBootKernelPairs(kernelDestDir, currentKernelVersion, previousKernelVersion, p); err != nil {
+		return fmt.Errorf("failed to prune old boot kernels: %w", err)
+	}
+
 	return nil
+}
+
+func (u *SystemUpdater) getActiveRootKernelVersion() (string, error) {
+	return readRunningKernelVersion("/proc/sys/kernel/osrelease")
+}
+
+func readRunningKernelVersion(path string) (string, error) {
+	version, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read running kernel version: %w", err)
+	}
+	trimmed := strings.TrimSpace(string(version))
+	if trimmed == "" {
+		return "", fmt.Errorf("running kernel version is empty")
+	}
+	return trimmed, nil
+}
+
+type bootKernelPair struct {
+	version string
+	kernel  string
+	initrd  string
+}
+
+func findBootKernelPairs(bootDir string) ([]bootKernelPair, error) {
+	kernels, err := filepath.Glob(filepath.Join(bootDir, "vmlinuz-*"))
+	if err != nil {
+		return nil, err
+	}
+
+	pairs := make([]bootKernelPair, 0, len(kernels))
+	for _, kernel := range kernels {
+		version := strings.TrimPrefix(filepath.Base(kernel), "vmlinuz-")
+		initrd, ok := findBootInitramfs(bootDir, version)
+		if !ok {
+			continue
+		}
+		pairs = append(pairs, bootKernelPair{
+			version: version,
+			kernel:  kernel,
+			initrd:  initrd,
+		})
+	}
+
+	return pairs, nil
+}
+
+func findBootInitramfs(bootDir, version string) (string, bool) {
+	patterns := []string{
+		filepath.Join(bootDir, "initramfs-"+version+".img"),
+		filepath.Join(bootDir, "initrd.img-"+version),
+		filepath.Join(bootDir, "initramfs-"+version),
+	}
+	for _, pattern := range patterns {
+		if info, err := os.Stat(pattern); err == nil && !info.IsDir() {
+			return pattern, true
+		}
+	}
+	return "", false
+}
+
+func pruneBootKernelPairs(bootDir, currentVersion, previousVersion string, progress reporter.Reporter) error {
+	pairs, err := findBootKernelPairs(bootDir)
+	if err != nil {
+		return fmt.Errorf("failed to find boot kernel pairs: %w", err)
+	}
+
+	keep := map[string]bool{
+		currentVersion: true,
+	}
+	if previousVersion != "" {
+		keep[previousVersion] = true
+	}
+
+	for _, pair := range pairs {
+		if keep[pair.version] {
+			continue
+		}
+
+		if err := os.Remove(pair.kernel); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove old kernel %s: %w", filepath.Base(pair.kernel), err)
+		}
+		if err := os.Remove(pair.initrd); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove old initramfs %s: %w", filepath.Base(pair.initrd), err)
+		}
+		progress.Message("Pruned old boot kernel pair: %s", pair.version)
+	}
+
+	return nil
+}
+
+func getBootInitramfsName(bootDir, version string) (string, error) {
+	initrd, ok := findBootInitramfs(bootDir, version)
+	if !ok {
+		return "", fmt.Errorf("initramfs for kernel %s not found on boot partition", version)
+	}
+	return filepath.Base(initrd), nil
 }
 
 // detectBootloaderTypeFromMount detects bootloader from already-mounted boot partition
@@ -1033,7 +1146,11 @@ func (u *SystemUpdater) detectBootloaderType() BootloaderType {
 // This ensures we use the kernel version from the newly extracted image, not a random kernel
 // from the boot partition which might be a different version.
 func (u *SystemUpdater) getUpdatedRootKernelVersion() (string, error) {
-	modulesDir := filepath.Join(u.Config.MountPoint, "usr", "lib", "modules")
+	return getKernelVersionFromRoot(u.Config.MountPoint)
+}
+
+func getKernelVersionFromRoot(root string) (string, error) {
+	modulesDir := filepath.Join(root, "usr", "lib", "modules")
 	entries, err := os.ReadDir(modulesDir)
 	if err != nil {
 		return "", fmt.Errorf("failed to read modules directory: %w", err)
@@ -1093,18 +1210,9 @@ func (u *SystemUpdater) updateGRUBBootloader() error {
 		return fmt.Errorf("kernel vmlinuz-%s not found on boot partition (should have been copied earlier): %w", kernelVersion, err)
 	}
 
-	// Look for initramfs
-	var initrd string
-	initrdPatterns := []string{
-		filepath.Join(u.Config.BootMountPoint, "initramfs-"+kernelVersion+".img"),
-		filepath.Join(u.Config.BootMountPoint, "initrd.img-"+kernelVersion),
-		filepath.Join(u.Config.BootMountPoint, "initramfs-"+kernelVersion),
-	}
-	for _, pattern := range initrdPatterns {
-		if _, err := os.Stat(pattern); err == nil {
-			initrd = filepath.Base(pattern)
-			break
-		}
+	initrd, err := getBootInitramfsName(u.Config.BootMountPoint, kernelVersion)
+	if err != nil {
+		return err
 	}
 
 	// Get filesystem type (default to ext4 for backward compatibility)
@@ -1154,7 +1262,31 @@ func (u *SystemUpdater) updateGRUBBootloader() error {
 		return fmt.Errorf("failed to build previous kernel cmdline: %w", err)
 	}
 
-	grubCfg := fmt.Sprintf(`set timeout=5
+	previousKernelVersion, err := u.getActiveRootKernelVersion()
+	if err != nil {
+		u.Progress.Warning("failed to get previous kernel version, falling back to current kernel for rollback entry: %v", err)
+		previousKernelVersion = kernelVersion
+	}
+	previousInitrd, err := getBootInitramfsName(u.Config.BootMountPoint, previousKernelVersion)
+	if err != nil {
+		u.Progress.Warning("failed to find initramfs for previous kernel %s, falling back to current initramfs for rollback entry: %v", previousKernelVersion, err)
+		previousKernelVersion = kernelVersion
+		previousInitrd = initrd
+	}
+
+	grubCfg := buildGRUBConfig(osName, kernelVersion, initrd, kernelCmdline, previousKernelVersion, previousInitrd, previousCmdline)
+
+	grubCfgPath := filepath.Join(grubDir, "grub.cfg")
+	if err := os.WriteFile(grubCfgPath, []byte(grubCfg), 0644); err != nil {
+		return fmt.Errorf("failed to write grub.cfg: %w", err)
+	}
+
+	u.Progress.Message("  Updated GRUB to boot from %s", u.Target)
+	return nil
+}
+
+func buildGRUBConfig(osName, currentKernelVersion, currentInitrd string, currentCmdline []string, previousKernelVersion, previousInitrd string, previousCmdline []string) string {
+	return fmt.Sprintf(`set timeout=5
 set default=0
 
 menuentry '%s' {
@@ -1166,16 +1298,8 @@ menuentry '%s (Previous)' {
     linux /vmlinuz-%s %s
     initrd /%s
 }
-`, osName, kernelVersion, strings.Join(kernelCmdline, " "), initrd,
-		osName, kernelVersion, strings.Join(previousCmdline, " "), initrd)
-
-	grubCfgPath := filepath.Join(grubDir, "grub.cfg")
-	if err := os.WriteFile(grubCfgPath, []byte(grubCfg), 0644); err != nil {
-		return fmt.Errorf("failed to write grub.cfg: %w", err)
-	}
-
-	u.Progress.Message("  Updated GRUB to boot from %s", u.Target)
-	return nil
+`, osName, currentKernelVersion, strings.Join(currentCmdline, " "), currentInitrd,
+		osName, previousKernelVersion, strings.Join(previousCmdline, " "), previousInitrd)
 }
 
 // updateSystemdBootBootloader updates systemd-boot configuration
@@ -1211,18 +1335,9 @@ func (u *SystemUpdater) updateSystemdBootBootloader() error {
 		return fmt.Errorf("kernel vmlinuz-%s not found on boot partition (should have been copied earlier): %w", kernelVersion, err)
 	}
 
-	// Look for initramfs on boot partition
-	var initrd string
-	initrdPatterns := []string{
-		filepath.Join(u.Config.BootMountPoint, "initramfs-"+kernelVersion+".img"),
-		filepath.Join(u.Config.BootMountPoint, "initrd.img-"+kernelVersion),
-		filepath.Join(u.Config.BootMountPoint, "initramfs-"+kernelVersion),
-	}
-	for _, pattern := range initrdPatterns {
-		if _, err := os.Stat(pattern); err == nil {
-			initrd = filepath.Base(pattern)
-			break
-		}
+	initrd, err := getBootInitramfsName(u.Config.BootMountPoint, kernelVersion)
+	if err != nil {
+		return err
 	}
 
 	// Get filesystem type (default to ext4 for backward compatibility)
@@ -1249,11 +1364,7 @@ func (u *SystemUpdater) updateSystemdBootBootloader() error {
 		return fmt.Errorf("failed to create entries directory: %w", err)
 	}
 
-	mainEntry := fmt.Sprintf(`title   %s
-linux   /vmlinuz-%s
-initrd  /%s
-options %s
-`, osName, kernelVersion, initrd, strings.Join(kernelCmdline, " "))
+	mainEntry := buildSystemdBootEntry(osName, kernelVersion, initrd, kernelCmdline)
 
 	mainEntryPath := filepath.Join(entriesDir, "bootc.conf")
 	if err := os.WriteFile(mainEntryPath, []byte(mainEntry), 0644); err != nil {
@@ -1266,12 +1377,20 @@ options %s
 		return fmt.Errorf("failed to build previous kernel cmdline: %w", err)
 	}
 
+	previousKernelVersion, err := u.getActiveRootKernelVersion()
+	if err != nil {
+		u.Progress.Warning("failed to get previous kernel version, falling back to current kernel for rollback entry: %v", err)
+		previousKernelVersion = kernelVersion
+	}
+	previousInitrd, err := getBootInitramfsName(u.Config.BootMountPoint, previousKernelVersion)
+	if err != nil {
+		u.Progress.Warning("failed to find initramfs for previous kernel %s, falling back to current initramfs for rollback entry: %v", previousKernelVersion, err)
+		previousKernelVersion = kernelVersion
+		previousInitrd = initrd
+	}
+
 	// Create/update rollback boot entry (points to previous system)
-	previousEntry := fmt.Sprintf(`title   %s (Previous)
-linux   /vmlinuz-%s
-initrd  /%s
-options %s
-`, osName, kernelVersion, initrd, strings.Join(previousCmdline, " "))
+	previousEntry := buildSystemdBootEntry(osName+" (Previous)", previousKernelVersion, previousInitrd, previousCmdline)
 
 	previousEntryPath := filepath.Join(entriesDir, "bootc-previous.conf")
 	if err := os.WriteFile(previousEntryPath, []byte(previousEntry), 0644); err != nil {
@@ -1280,6 +1399,14 @@ options %s
 
 	u.Progress.Message("Updated systemd-boot to boot from %s", u.Target)
 	return nil
+}
+
+func buildSystemdBootEntry(title, kernelVersion, initrd string, cmdline []string) string {
+	return fmt.Sprintf(`title   %s
+linux   /vmlinuz-%s
+initrd  /%s
+options %s
+`, title, kernelVersion, initrd, strings.Join(cmdline, " "))
 }
 
 // PerformUpdate performs the complete update workflow

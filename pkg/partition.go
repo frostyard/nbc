@@ -338,6 +338,22 @@ func formatPartition(ctx context.Context, partition, fsType, label string) error
 }
 
 // MountPartitions mounts the partitions to a temporary directory
+// mountCommand and umountCommand wrap the mount/umount syscalls used during
+// partition setup. They are variables so the rollback path can be exercised in
+// tests without root or real block devices.
+var (
+	mountCommand = func(ctx context.Context, device, target string) error {
+		cmd := exec.CommandContext(ctx, "mount", device, target)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("%w\nOutput: %s", err, string(output))
+		}
+		return nil
+	}
+	umountCommand = func(ctx context.Context, target string) error {
+		return exec.CommandContext(ctx, "umount", target).Run()
+	}
+)
+
 func MountPartitions(ctx context.Context, scheme *PartitionScheme, mountPoint string, dryRun bool, progress reporter.Reporter) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -359,11 +375,30 @@ func MountPartitions(ctx context.Context, scheme *PartitionScheme, mountPoint st
 	root1Dev := scheme.GetRoot1Device()
 	varDev := scheme.GetVarDevice()
 
+	// Track partitions we have mounted so a partial failure can be rolled back.
+	// Without this, a failure partway through leaves earlier mounts in place,
+	// and the caller only registers its unmount cleanup after MountPartitions
+	// returns successfully -- so the leaked mounts would block a retried install
+	// on the busy mountpoint.
+	var mounted []string
+	success := false
+	rollbackCtx := context.WithoutCancel(ctx)
+	defer func() {
+		if success {
+			return
+		}
+		for i := len(mounted) - 1; i >= 0; i-- {
+			if err := umountCommand(rollbackCtx, mounted[i]); err != nil {
+				progress.Warning("failed to rollback unmount %s: %v", mounted[i], err)
+			}
+		}
+	}()
+
 	// Mount first root partition (or LUKS mapper device)
-	cmd := exec.CommandContext(ctx, "mount", root1Dev, mountPoint)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to mount root1 partition: %w\nOutput: %s", err, string(output))
+	if err := mountCommand(ctx, root1Dev, mountPoint); err != nil {
+		return fmt.Errorf("failed to mount root1 partition: %w", err)
 	}
+	mounted = append(mounted, mountPoint)
 
 	// Create boot and var subdirectories
 	bootDir := filepath.Join(mountPoint, "boot")
@@ -376,17 +411,18 @@ func MountPartitions(ctx context.Context, scheme *PartitionScheme, mountPoint st
 	}
 
 	// Mount boot partition (FAT32 EFI System Partition - never encrypted)
-	cmd = exec.CommandContext(ctx, "mount", scheme.BootPartition, bootDir)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to mount boot partition: %w\nOutput: %s", err, string(output))
+	if err := mountCommand(ctx, scheme.BootPartition, bootDir); err != nil {
+		return fmt.Errorf("failed to mount boot partition: %w", err)
 	}
+	mounted = append(mounted, bootDir)
 
 	// Mount /var partition (or LUKS mapper device)
-	cmd = exec.CommandContext(ctx, "mount", varDev, varDir)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to mount var partition: %w\nOutput: %s", err, string(output))
+	if err := mountCommand(ctx, varDev, varDir); err != nil {
+		return fmt.Errorf("failed to mount var partition: %w", err)
 	}
+	mounted = append(mounted, varDir)
 
+	success = true
 	progress.MessagePlain("Partitions mounted successfully")
 	return nil
 }

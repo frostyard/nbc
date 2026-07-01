@@ -895,22 +895,11 @@ func (b *BootloaderInstaller) setupSecureBootChain(bootloaderEFI string) (bool, 
 		}
 	}
 
-	// Also copy fbx64.efi (fallback) if available
-	fbPaths := []string{
-		filepath.Join(b.TargetDir, "boot", "efi", "EFI", "fedora", "fbx64.efi"),
-		filepath.Join(b.TargetDir, "boot", "efi", "EFI", "BOOT", "fbx64.efi"),
-		filepath.Join(b.TargetDir, "usr", "lib", "shim", "fbx64.efi"),
-		filepath.Join(b.TargetDir, "usr", "lib64", "shim", "fbx64.efi"),
-	}
-	for _, fbPath := range fbPaths {
-		if _, err := os.Stat(fbPath); err == nil {
-			fbDest := filepath.Join(efiBootDir, "fbx64.efi")
-			if err := copyEFIFile(fbPath, fbDest); err == nil {
-				b.Progress.Message("Installed fallback bootloader (fbx64.efi)")
-			}
-			break
-		}
-	}
+	// NOTE: We intentionally do NOT install fbx64.efi (fallback bootloader),
+	// matching the systemd-boot path. fbx64.efi looks for EFI/<distro>/BOOTX64.CSV
+	// to restore boot entries, but our layout uses EFI/BOOT/ directly and never
+	// writes a BOOTX64.CSV, so the fallback loader fails with a "Restore Boot
+	// Option" blue screen. (See CLAUDE.md: "Do NOT include fbx64.efi".)
 
 	return true, nil
 }

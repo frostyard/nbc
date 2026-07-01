@@ -17,6 +17,78 @@ SYSROOT="${NEWROOT:-/sysroot}"
 # not here. Creating it here would be lost when systemd mounts a fresh
 # tmpfs on /run after switch_root.
 
+# prepare_etc_lower reconciles the overlay lower directory (.etc.lower) with the
+# root filesystem's /etc so the overlay can be mounted with a populated,
+# read-only lower layer and a CLEAN upper layer (user modifications only).
+#
+# Design (see docs/ETC-OVERLAY.md):
+#   - lowerdir = /.etc.lower   (base /etc from the container image, read-only)
+#   - upperdir = /var/lib/nbc/etc-overlay/upper  (user modifications ONLY)
+#
+# nbc pre-populates /.etc.lower with the container's /etc at install/update time.
+# In that (normal) case we MUST leave the layers untouched: the overlay mount
+# over /etc simply shadows the identical copy on the root filesystem, and the
+# lower layer supplies the defaults. Copying the root fs /etc into the upper
+# layer here would pin the container defaults in the writable upper and
+# permanently shadow future A/B updates -- silently defeating /etc updates.
+#
+# Only when /.etc.lower is empty/missing (its lower layer was never seeded) do we
+# seed it by moving the root fs /etc into place.
+#
+# Globals set for the caller:
+#   ETC_LOWER_DIR - path to the lower layer directory
+#   ROOT_WAS_RO   - 1 if we remounted the root rw and it must be restored
+#   ETC_MOVED     - 1 if we moved /etc into .etc.lower (affects failure rollback)
+# Reads global: ETC_LOWER (path to the root fs /etc), SYSROOT
+prepare_etc_lower() {
+    ETC_LOWER_DIR="$SYSROOT/.etc.lower"
+    ROOT_WAS_RO=0
+    ETC_MOVED=0
+
+    # Normal case: nbc already populated the lower layer (or a previous boot
+    # seeded it). Use it as-is; do NOT seed the upper layer.
+    if [ -d "$ETC_LOWER_DIR" ] && [ -n "$(ls -A "$ETC_LOWER_DIR" 2>/dev/null)" ]; then
+        info "etc-overlay: Using populated lower layer at $ETC_LOWER_DIR"
+        return 0
+    fi
+
+    # Fallback: lower layer is empty/missing -> seed it from the root fs /etc.
+    #
+    # We may need to temporarily remount the root rw to move /etc.
+    # /proc/mounts format: device mountpoint fstype options dump pass
+    # The 'ro' option is in the 4th field (options), as a comma-separated entry
+    # that can appear anywhere (e.g., "ro", "relatime,ro", "defaults,ro,noatime").
+    if grep -E "^[^ ]+ $SYSROOT [^ ]+ ([^ ]*,)?ro(,[^ ]*)?( |$)" /proc/mounts >/dev/null 2>&1; then
+        info "etc-overlay: Root is mounted read-only, temporarily remounting rw"
+        ROOT_WAS_RO=1
+        if ! mount -o remount,rw "$SYSROOT"; then
+            warn "etc-overlay: Failed to remount root rw, cannot setup overlay"
+            return 1
+        fi
+    fi
+
+    # Remove an empty .etc.lower placeholder if present (created by nbc during
+    # install). This must happen AFTER the ro remount check above.
+    if [ -d "$ETC_LOWER_DIR" ]; then
+        rm -rf "$ETC_LOWER_DIR"
+    fi
+
+    if ! mv "$ETC_LOWER" "$ETC_LOWER_DIR"; then
+        warn "etc-overlay: Failed to move original /etc"
+        if [ "$ROOT_WAS_RO" = "1" ]; then
+            mount -o remount,ro "$SYSROOT" 2>/dev/null || true
+        fi
+        return 1
+    fi
+    ETC_MOVED=1
+
+    return 0
+}
+
+# Allow tests to source this file and exercise prepare_etc_lower() in isolation
+# without running the boot-time flow below.
+[ -n "${ETC_OVERLAY_TEST:-}" ] && return 0
+
 # Check if overlay is enabled
 if ! getargbool 0 rd.etc.overlay; then
     info "etc-overlay: rd.etc.overlay not enabled, skipping overlay setup"
@@ -130,69 +202,13 @@ fi
 # - workdir: required by overlayfs for atomic operations
 info "etc-overlay: Mounting overlay (lower=$ETC_LOWER, upper=$OVERLAY_UPPER)"
 
-# We need to move the original /etc to a hidden location because overlayfs
-# requires lowerdir to be a separate path from the mount point.
-# Use a consistent hidden name so it's predictable.
-ETC_LOWER_DIR="$SYSROOT/.etc.lower"
-
-# Check if we already have a lower dir from a previous boot
-# This happens on subsequent boots - reuse the existing lower layer
-if [ -d "$ETC_LOWER_DIR" ] && [ "$(ls -A "$ETC_LOWER_DIR" 2>/dev/null)" ]; then
-    # Previous lower dir exists with content - this is a normal reboot
-    info "etc-overlay: Reusing existing lower layer at $ETC_LOWER_DIR"
-    # Check if current /etc is empty (just a mount point from before)
-    if [ ! "$(ls -A "$ETC_LOWER" 2>/dev/null)" ]; then
-        info "etc-overlay: Current /etc is empty mount point, will overlay on existing lower"
-    else
-        # /etc has content - this shouldn't happen, but handle gracefully
-        # The current /etc might be leftover from a failed overlay attempt
-        info "etc-overlay: Current /etc has content, merging with lower layer"
-        # Copy any new files from /etc to upper layer (they are customizations)
-        # Avoid overwriting existing entries in the upper layer to preserve user changes
-        for src in "$ETC_LOWER"/*; do
-            # Handle case where the glob doesn't match anything
-            [ -e "$src" ] || continue
-            name=${src##*/}  # basename
-            if [ -e "$OVERLAY_UPPER/$name" ]; then
-                info "etc-overlay: Skipping existing upper-layer entry: $name"
-                continue
-            fi
-            cp -a "$src" "$OVERLAY_UPPER/" 2>/dev/null || true
-        done
-    fi
-else
-    # First boot or lower dir is empty/missing - move /etc to lower dir
-
-    # Check if root is mounted read-only (ro kernel parameter)
-    # We need to temporarily remount rw to move /etc
-    # /proc/mounts format: device mountpoint fstype options dump pass
-    # The 'ro' option is in the 4th field (options), as a comma-separated entry that can
-    # appear anywhere in the list (e.g., "ro", "relatime,ro", "defaults,ro,noatime")
-    ROOT_WAS_RO=0
-    # Use grep to find the mount line for $SYSROOT and check for a 'ro' option anywhere
-    if grep -E "^[^ ]+ $SYSROOT [^ ]+ ([^ ]*,)?ro(,[^ ]*)?( |$)" /proc/mounts >/dev/null 2>&1; then
-        info "etc-overlay: Root is mounted read-only, temporarily remounting rw"
-        ROOT_WAS_RO=1
-        if ! mount -o remount,rw "$SYSROOT"; then
-            warn "etc-overlay: Failed to remount root rw, cannot setup overlay"
-            return 0
-        fi
-    fi
-
-    # Remove empty .etc.lower if it exists (created by nbc during install)
-    # This must happen AFTER the ro remount check above
-    if [ -d "$ETC_LOWER_DIR" ]; then
-        rm -rf "$ETC_LOWER_DIR"
-    fi
-
-    if ! mv "$ETC_LOWER" "$ETC_LOWER_DIR"; then
-        warn "etc-overlay: Failed to move original /etc"
-        # Restore ro if we changed it
-        if [ "$ROOT_WAS_RO" = "1" ]; then
-            mount -o remount,ro "$SYSROOT" 2>/dev/null || true
-        fi
-        return 0
-    fi
+# We need the original /etc content available at a hidden location because
+# overlayfs requires lowerdir to be a separate path from the mount point.
+# prepare_etc_lower sets ETC_LOWER_DIR (and, if it had to seed the lower layer,
+# ROOT_WAS_RO / ETC_MOVED for the rollback/restore paths below).
+if ! prepare_etc_lower; then
+    warn "etc-overlay: Failed to prepare lower layer, /etc overlay disabled"
+    return 0
 fi
 
 # Create/ensure the mount point exists
@@ -218,8 +234,11 @@ if mount -t overlay overlay \
     fi
 else
     warn "etc-overlay: Failed to mount overlay, restoring original /etc"
-    rmdir "$ETC_LOWER" 2>/dev/null
-    mv "$ETC_LOWER_DIR" "$ETC_LOWER"
+    # Only undo the move if prepare_etc_lower actually moved /etc into .etc.lower.
+    if [ "${ETC_MOVED:-0}" = "1" ]; then
+        rmdir "$ETC_LOWER" 2>/dev/null
+        mv "$ETC_LOWER_DIR" "$ETC_LOWER"
+    fi
     # Restore ro if we changed it
     if [ "${ROOT_WAS_RO:-0}" = "1" ]; then
         mount -o remount,ro "$SYSROOT" 2>/dev/null || true

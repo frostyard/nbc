@@ -36,6 +36,14 @@ check "Overlay work dir exists" \
 check "/.etc.lower exists" \
     test -d /.etc.lower
 
+# Regression guard for issue #84: the overlay upper layer must hold only user
+# modifications, NOT a copy of the container's default /etc. If default files
+# leak into upper they permanently shadow the lower layer and silently defeat
+# /etc updates on every A/B update. os-release ships in every image and is
+# never user-modified, so it must not appear in the upper layer.
+check "Overlay upper is not polluted with container defaults (os-release)" \
+    bash -c '! test -e /var/lib/nbc/etc-overlay/upper/os-release'
+
 # Test persistence: write a file to /etc and verify it's there
 MARKER="/etc/nbc-qemu-test-marker"
 check "Can write to /etc overlay" \

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	securejoin "github.com/cyphar/filepath-securejoin"
 	"github.com/docker/docker/client"
@@ -206,6 +207,47 @@ func (c *ContainerExtractor) Extract(ctx context.Context) error {
 	return nil
 }
 
+// secureLeafPath resolves name's PARENT within root using SecureJoin (so a
+// symlinked parent component cannot escape the extraction root) and appends
+// name's final component literally, WITHOUT resolving it. Callers can then
+// create, replace, or remove the leaf itself rather than following a symlink at
+// that leaf. This preserves tar/OCI semantics -- a later entry replaces an
+// earlier entry of the same name, and a whiteout removes the named entry rather
+// than what it points at -- while still containing ".." traversal and
+// parent-symlink escapes.
+func secureLeafPath(root, name string) (string, error) {
+	// Anchor to "/" and clean so any leading ".." is clamped and the leaf is
+	// well defined.
+	cleaned := filepath.Clean("/" + name)
+	base := filepath.Base(cleaned)
+	if base == "/" || base == "." {
+		// name refers to the root itself; there is no distinct leaf.
+		return securejoin.SecureJoin(root, name)
+	}
+	parent, err := securejoin.SecureJoin(root, filepath.Dir(cleaned))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(parent, base), nil
+}
+
+// removeExistingLeaf removes whatever currently exists at path without following
+// a symlink at the leaf, so a subsequent create replaces it cleanly. A missing
+// path is not an error.
+func removeExistingLeaf(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if info.IsDir() {
+		return os.RemoveAll(path)
+	}
+	return os.Remove(path)
+}
+
 // extractTar extracts a tar stream to a target directory
 func extractTar(ctx context.Context, r io.Reader, targetDir string) error {
 	tr := tar.NewReader(r)
@@ -228,12 +270,12 @@ func extractTar(ctx context.Context, r io.Reader, targetDir string) error {
 			return fmt.Errorf("failed to read tar header: %w", err)
 		}
 
-		// Resolve the destination safely within targetDir. SecureJoin lexically
-		// resolves each path component against targetDir as its root, so a
-		// hostile entry cannot escape the extraction directory -- neither via
-		// ".." traversal nor by writing "through" a previously-extracted symlink
-		// that points outside the root.
-		target, err := securejoin.SecureJoin(targetDir, header.Name)
+		// Resolve the destination within targetDir. secureLeafPath resolves the
+		// parent path against targetDir as its root (containing ".." traversal
+		// and parent-symlink escapes) but keeps the final component literal, so
+		// the leaf is replaced or removed rather than followed -- preserving tar
+		// replace semantics without letting a leaf symlink redirect the write.
+		target, err := secureLeafPath(targetDir, header.Name)
 		if err != nil {
 			return fmt.Errorf("failed to resolve safe extraction path for %q: %w", header.Name, err)
 		}
@@ -245,24 +287,26 @@ func extractTar(ctx context.Context, r io.Reader, targetDir string) error {
 
 		// Opaque whiteout: .wh..wh..opq means "delete all files in this directory"
 		if base == ".wh..wh..opq" {
-			// Remove all contents of the directory
-			targetDir, err := securejoin.SecureJoin(targetDir, dir)
+			// Remove all contents of the directory. Use a distinct variable name
+			// (not shadowing targetDir) to avoid confusing the opaque-whiteout
+			// directory with the extraction root.
+			opaqueDir, err := secureLeafPath(targetDir, dir)
 			if err != nil {
 				return fmt.Errorf("failed to resolve opaque whiteout path for %q: %w", header.Name, err)
 			}
-			// if the targetDir contains "efi" just skip it to avoid deleting efi contents
-			if filepath.Base(targetDir) == "efi" {
+			// if the directory is "efi"/"boot" just skip it to avoid deleting boot contents
+			if filepath.Base(opaqueDir) == "efi" {
 				continue
 			}
-			if filepath.Base(targetDir) == "boot" {
+			if filepath.Base(opaqueDir) == "boot" {
 				continue
 			}
-			if err := os.RemoveAll(targetDir); err != nil && !os.IsNotExist(err) {
-				return fmt.Errorf("failed to clear directory for opaque whiteout %s: %w", targetDir, err)
+			if err := os.RemoveAll(opaqueDir); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("failed to clear directory for opaque whiteout %s: %w", opaqueDir, err)
 			}
 			// Recreate the directory
-			if err := os.MkdirAll(targetDir, 0755); err != nil {
-				return fmt.Errorf("failed to recreate directory after opaque whiteout %s: %w", targetDir, err)
+			if err := os.MkdirAll(opaqueDir, 0755); err != nil {
+				return fmt.Errorf("failed to recreate directory after opaque whiteout %s: %w", opaqueDir, err)
 			}
 			continue
 		}
@@ -271,7 +315,9 @@ func extractTar(ctx context.Context, r io.Reader, targetDir string) error {
 		if len(base) > 4 && base[:4] == ".wh." {
 			// The whiteout indicates we should delete the file it references
 			originalName := base[4:] // Remove .wh. prefix
-			whiteoutTarget, err := securejoin.SecureJoin(targetDir, filepath.Join(dir, originalName))
+			// Use secureLeafPath so the whiteout removes the named entry itself
+			// (e.g. a symlink) rather than following it to its referent.
+			whiteoutTarget, err := secureLeafPath(targetDir, filepath.Join(dir, originalName))
 			if err != nil {
 				return fmt.Errorf("failed to resolve whiteout path for %q: %w", header.Name, err)
 			}
@@ -284,6 +330,14 @@ func extractTar(ctx context.Context, r io.Reader, targetDir string) error {
 
 		switch header.Typeflag {
 		case tar.TypeDir:
+			// If a symlink from an earlier layer already occupies this path,
+			// remove it so MkdirAll creates a real directory rather than
+			// following the link.
+			if info, err := os.Lstat(target); err == nil && info.Mode()&os.ModeSymlink != 0 {
+				if err := os.Remove(target); err != nil {
+					return fmt.Errorf("failed to replace symlink with directory %s: %w", target, err)
+				}
+			}
 			if err := os.MkdirAll(target, 0755); err != nil {
 				return fmt.Errorf("failed to create directory %s: %w", target, err)
 			}
@@ -314,8 +368,15 @@ func extractTar(ctx context.Context, r io.Reader, targetDir string) error {
 				return fmt.Errorf("failed to create parent directory: %w", err)
 			}
 
-			// Create and write file with basic permissions first
-			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+			// Replace any existing entry (e.g. a symlink from an earlier layer)
+			// so the file is written at this leaf rather than through a symlink.
+			if err := removeExistingLeaf(target); err != nil {
+				return fmt.Errorf("failed to replace existing path %s: %w", target, err)
+			}
+
+			// Create and write file with basic permissions first. O_NOFOLLOW is
+			// defense-in-depth: never follow a symlink at the final component.
+			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC|syscall.O_NOFOLLOW, 0644)
 			if err != nil {
 				return fmt.Errorf("failed to create file %s: %w", target, err)
 			}
@@ -354,22 +415,9 @@ func extractTar(ctx context.Context, r io.Reader, targetDir string) error {
 			}
 
 		case tar.TypeSymlink:
-			// Remove existing file/link if it exists
-
-			// check to see if the target is a file or directory
-			info, err := os.Lstat(target)
-			if err == nil {
-				if info.IsDir() {
-					if err := os.RemoveAll(target); err != nil {
-						return fmt.Errorf("failed to remove existing directory %s: %w", target, err)
-					}
-				} else {
-					if err := os.Remove(target); err != nil {
-						return fmt.Errorf("failed to remove existing file %s: %w", target, err)
-					}
-				}
-			} else if !os.IsNotExist(err) {
-				return fmt.Errorf("failed to stat existing file %s: %w", target, err)
+			// Replace any existing entry at the leaf (without following it).
+			if err := removeExistingLeaf(target); err != nil {
+				return fmt.Errorf("failed to replace existing path %s: %w", target, err)
 			}
 
 			// Create symlink
@@ -386,6 +434,10 @@ func extractTar(ctx context.Context, r io.Reader, targetDir string) error {
 			linkTarget, err := securejoin.SecureJoin(targetDir, header.Linkname)
 			if err != nil {
 				return fmt.Errorf("failed to resolve safe hard link source for %q: %w", header.Linkname, err)
+			}
+			// Replace any existing entry at the destination leaf.
+			if err := removeExistingLeaf(target); err != nil {
+				return fmt.Errorf("failed to replace existing path %s: %w", target, err)
 			}
 			if err := os.Link(linkTarget, target); err != nil {
 				// If hard link fails, try copying the file

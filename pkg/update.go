@@ -597,9 +597,7 @@ func (u *SystemUpdater) Update() error {
 
 			// Fall back to passphrase if TPM2 not enabled or failed
 			if !opened {
-				fmt.Print("Enter LUKS passphrase: ")
-				var passphrase string
-				_, err := fmt.Scanln(&passphrase)
+				passphrase, err := readPassphrase("Enter LUKS passphrase: ")
 				if err != nil {
 					return fmt.Errorf("failed to read passphrase: %w", err)
 				}
@@ -675,7 +673,6 @@ func (u *SystemUpdater) Update() error {
 	// The var partition is shared between A/B roots - same partition mounted at /var on running system
 	varMountPoint := filepath.Join(u.Config.MountPoint, "var")
 	varDevice := u.Scheme.VarPartition
-	varLUKSOpened := false // Track if we opened var LUKS (need to close it on cleanup)
 
 	// For encrypted systems, open var LUKS container if not already open
 	if u.Encryption != nil && u.Encryption.Enabled {
@@ -707,9 +704,7 @@ func (u *SystemUpdater) Update() error {
 
 			// Fall back to passphrase if TPM2 not enabled or failed
 			if !opened {
-				fmt.Print("Enter LUKS passphrase for var partition: ")
-				var passphrase string
-				_, err := fmt.Scanln(&passphrase)
+				passphrase, err := readPassphrase("Enter LUKS passphrase for var partition: ")
 				if err != nil {
 					return fmt.Errorf("failed to read passphrase: %w", err)
 				}
@@ -719,7 +714,13 @@ func (u *SystemUpdater) Update() error {
 					return fmt.Errorf("failed to open var LUKS container: %w", err)
 				}
 			}
-			varLUKSOpened = true
+
+			// Register the LUKS-close cleanup immediately after opening, BEFORE
+			// the mount below. Otherwise a mount failure returns before this
+			// defer is registered and leaks the /dev/mapper/var dm-crypt mapping.
+			defer func() {
+				_ = CloseLUKS(context.Background(), "var", nil)
+			}()
 		} else {
 			p.Message("Var LUKS container already open at %s", varMapperPath)
 		}
@@ -733,10 +734,6 @@ func (u *SystemUpdater) Update() error {
 	}
 	defer func() {
 		_ = exec.Command("umount", varMountPoint).Run()
-		// Close var LUKS if we opened it
-		if varLUKSOpened {
-			_ = CloseLUKS(context.Background(), "var", nil)
-		}
 	}()
 
 	// Step 5: Setup target system (dracut, directories, machine-id, etc.lower, tmpfiles)

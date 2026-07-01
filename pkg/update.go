@@ -1264,11 +1264,14 @@ func (u *SystemUpdater) updateGRUBBootloader() error {
 
 	previousKernelVersion, err := u.getActiveRootKernelVersion()
 	if err != nil {
-		return fmt.Errorf("failed to get previous kernel version: %w", err)
+		u.Progress.Warning("failed to get previous kernel version, falling back to current kernel for rollback entry: %v", err)
+		previousKernelVersion = kernelVersion
 	}
 	previousInitrd, err := getBootInitramfsName(u.Config.BootMountPoint, previousKernelVersion)
 	if err != nil {
-		return err
+		u.Progress.Warning("failed to find initramfs for previous kernel %s, falling back to current initramfs for rollback entry: %v", previousKernelVersion, err)
+		previousKernelVersion = kernelVersion
+		previousInitrd = initrd
 	}
 
 	grubCfg := buildGRUBConfig(osName, kernelVersion, initrd, kernelCmdline, previousKernelVersion, previousInitrd, previousCmdline)

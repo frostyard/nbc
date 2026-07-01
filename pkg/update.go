@@ -960,6 +960,8 @@ func (u *SystemUpdater) InstallKernelAndInitramfs() error {
 	previousKernelVersion, err := u.getActiveRootKernelVersion()
 	if err != nil {
 		p.Warning("failed to determine previous kernel version: %v", err)
+		p.Warning("skipping /boot kernel pruning to avoid removing the currently booted kernel")
+		return nil
 	}
 
 	if err := pruneBootKernelPairs(kernelDestDir, currentKernelVersion, previousKernelVersion, p); err != nil {

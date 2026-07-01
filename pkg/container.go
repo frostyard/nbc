@@ -220,15 +220,46 @@ func secureLeafPath(root, name string) (string, error) {
 	// well defined.
 	cleaned := filepath.Clean("/" + name)
 	base := filepath.Base(cleaned)
-	if base == "/" || base == "." {
-		// name refers to the root itself; there is no distinct leaf.
-		return securejoin.SecureJoin(root, name)
-	}
-	parent, err := securejoin.SecureJoin(root, filepath.Dir(cleaned))
+
+	realRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(parent, base), nil
+
+	if base == "/" || base == "." {
+		// name refers to the root itself; there is no distinct leaf.
+		target, err := securejoin.SecureJoin(realRoot, name)
+		if err != nil {
+			return "", err
+		}
+		rel, err := filepath.Rel(realRoot, target)
+		if err != nil || strings.HasPrefix(filepath.Clean(rel), "..") {
+			return "", fmt.Errorf("path escapes extraction root: %q", name)
+		}
+		return target, nil
+	}
+
+	parent, err := securejoin.SecureJoin(realRoot, filepath.Dir(cleaned))
+	if err != nil {
+		return "", err
+	}
+
+	// Resolve pre-existing symlinks in the parent chain when possible.
+	realParent, err := filepath.EvalSymlinks(parent)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		realParent = filepath.Clean(parent)
+	}
+
+	target := filepath.Join(realParent, base)
+	rel, err := filepath.Rel(realRoot, target)
+	if err != nil || strings.HasPrefix(filepath.Clean(rel), "..") {
+		return "", fmt.Errorf("path escapes extraction root: %q", name)
+	}
+
+	return target, nil
 }
 
 // removeExistingLeaf removes whatever currently exists at path without following

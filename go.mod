@@ -5,6 +5,7 @@ go 1.26
 require (
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/cyphar/filepath-securejoin v0.6.1
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/frostyard/clix v0.2.0
 	github.com/frostyard/std v0.1.0
@@ -47,7 +48,6 @@ require (
 	github.com/containerd/platforms v0.2.1 // indirect
 	github.com/containerd/stargz-snapshotter/estargz v0.18.1 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
-	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/cli v29.0.3+incompatible // indirect
 	github.com/docker/distribution v2.8.3+incompatible // indirect

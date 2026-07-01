@@ -528,7 +528,7 @@ menuentry '%s' {
 	}
 
 	grubCfgPath := filepath.Join(grubDir, "grub.cfg")
-	if err := os.WriteFile(grubCfgPath, []byte(grubCfg), 0644); err != nil {
+	if err := atomicWriteFile(grubCfgPath, []byte(grubCfg), 0644); err != nil {
 		return fmt.Errorf("failed to write grub.cfg: %w", err)
 	}
 
@@ -699,7 +699,7 @@ console-mode max
 editor yes
 `
 	loaderConfPath := filepath.Join(loaderDir, "loader.conf")
-	if err := os.WriteFile(loaderConfPath, []byte(loaderConf), 0644); err != nil {
+	if err := atomicWriteFile(loaderConfPath, []byte(loaderConf), 0644); err != nil {
 		return fmt.Errorf("failed to write loader.conf: %w", err)
 	}
 
@@ -721,7 +721,7 @@ options %s
 `, b.OSName, kernelVersion, initrd, strings.Join(kernelCmdline, " "))
 
 	entryPath := filepath.Join(entriesDir, "bootc.conf")
-	if err := os.WriteFile(entryPath, []byte(entry), 0644); err != nil {
+	if err := atomicWriteFile(entryPath, []byte(entry), 0644); err != nil {
 		return fmt.Errorf("failed to write boot entry: %w", err)
 	}
 

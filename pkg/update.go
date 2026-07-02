@@ -995,35 +995,6 @@ func readRunningKernelVersion(path string) (string, error) {
 	return trimmed, nil
 }
 
-type bootKernelPair struct {
-	version string
-	kernel  string
-	initrd  string
-}
-
-func findBootKernelPairs(bootDir string) ([]bootKernelPair, error) {
-	kernels, err := filepath.Glob(filepath.Join(bootDir, "vmlinuz-*"))
-	if err != nil {
-		return nil, err
-	}
-
-	pairs := make([]bootKernelPair, 0, len(kernels))
-	for _, kernel := range kernels {
-		version := strings.TrimPrefix(filepath.Base(kernel), "vmlinuz-")
-		initrd, ok := findBootInitramfs(bootDir, version)
-		if !ok {
-			continue
-		}
-		pairs = append(pairs, bootKernelPair{
-			version: version,
-			kernel:  kernel,
-			initrd:  initrd,
-		})
-	}
-
-	return pairs, nil
-}
-
 func findBootInitramfs(bootDir, version string) (string, bool) {
 	patterns := []string{
 		filepath.Join(bootDir, "initramfs-"+version+".img"),
@@ -1038,34 +1009,98 @@ func findBootInitramfs(bootDir, version string) (string, bool) {
 	return "", false
 }
 
-func pruneBootKernelPairs(bootDir, currentVersion, previousVersion string, progress reporter.Reporter) error {
-	pairs, err := findBootKernelPairs(bootDir)
-	if err != nil {
-		return fmt.Errorf("failed to find boot kernel pairs: %w", err)
+// bootInitramfsVersion extracts the kernel version from an initramfs filename,
+// reversing the naming patterns findBootInitramfs looks for. Returns "" if the
+// name is not a recognized initramfs.
+func bootInitramfsVersion(base string) string {
+	switch {
+	case strings.HasPrefix(base, "initramfs-") && strings.HasSuffix(base, ".img"):
+		return strings.TrimSuffix(strings.TrimPrefix(base, "initramfs-"), ".img")
+	case strings.HasPrefix(base, "initrd.img-"):
+		return strings.TrimPrefix(base, "initrd.img-")
+	case strings.HasPrefix(base, "initramfs-"):
+		return strings.TrimPrefix(base, "initramfs-")
 	}
+	return ""
+}
 
-	keep := map[string]bool{
-		currentVersion: true,
+// listBootInitramfs returns every initramfs file in bootDir (de-duplicated
+// across the overlapping glob patterns).
+func listBootInitramfs(bootDir string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, pattern := range []string{"initramfs-*.img", "initrd.img-*", "initramfs-*"} {
+		matches, _ := filepath.Glob(filepath.Join(bootDir, pattern))
+		for _, m := range matches {
+			if !seen[m] {
+				seen[m] = true
+				out = append(out, m)
+			}
+		}
 	}
+	return out
+}
+
+// pruneBootKernelPairs removes kernel and initramfs files whose version is
+// neither the current nor the previous kernel. It also removes orphans -- a
+// kernel with no initramfs, or an initramfs with no kernel, is not bootable and
+// is only cruft (this is what leaves stale vmlinuz-* accumulating over update
+// cycles). A version's kernel and initramfs are removed independently so a
+// failure on one does not leave the other behind; the first error is returned
+// after attempting all removals. Non-kernel files (e.g. loader.conf) are never
+// touched.
+func pruneBootKernelPairs(bootDir, currentVersion, previousVersion string, progress reporter.Reporter) error {
+	keep := map[string]bool{currentVersion: true}
 	if previousVersion != "" {
 		keep[previousVersion] = true
 	}
 
-	for _, pair := range pairs {
-		if keep[pair.version] {
-			continue
+	var firstErr error
+	note := func(context string, err error) {
+		if err != nil && !os.IsNotExist(err) && firstErr == nil {
+			firstErr = fmt.Errorf("%s: %w", context, err)
 		}
-
-		if err := os.Remove(pair.kernel); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("failed to remove old kernel %s: %w", filepath.Base(pair.kernel), err)
-		}
-		if err := os.Remove(pair.initrd); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("failed to remove old initramfs %s: %w", filepath.Base(pair.initrd), err)
-		}
-		progress.Message("Pruned old boot kernel pair: %s", pair.version)
 	}
 
-	return nil
+	pruned := map[string]bool{}
+
+	// Remove non-kept kernels, including orphans with no initramfs.
+	kernels, err := filepath.Glob(filepath.Join(bootDir, "vmlinuz-*"))
+	if err != nil {
+		return fmt.Errorf("failed to list boot kernels: %w", err)
+	}
+	for _, kernel := range kernels {
+		version := strings.TrimPrefix(filepath.Base(kernel), "vmlinuz-")
+		if keep[version] {
+			continue
+		}
+		note("remove old kernel "+filepath.Base(kernel), os.Remove(kernel))
+		if initrd, ok := findBootInitramfs(bootDir, version); ok {
+			note("remove old initramfs "+filepath.Base(initrd), os.Remove(initrd))
+		}
+		pruned[version] = true
+	}
+
+	// Remove any remaining orphan initramfs files whose kernel is absent. Verify
+	// the kernel is actually gone: if a non-kept kernel's removal failed above,
+	// its vmlinuz still exists, and removing the initramfs here would turn it into
+	// an orphan kernel rather than cleaning one up.
+	for _, initrd := range listBootInitramfs(bootDir) {
+		version := bootInitramfsVersion(filepath.Base(initrd))
+		if version == "" || keep[version] {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(bootDir, "vmlinuz-"+version)); err == nil {
+			continue // kernel still present; leave the pair alone
+		}
+		note("remove orphan initramfs "+filepath.Base(initrd), os.Remove(initrd))
+		pruned[version] = true
+	}
+
+	for version := range pruned {
+		progress.Message("Pruned old boot kernel: %s", version)
+	}
+	return firstErr
 }
 
 func getBootInitramfsName(bootDir, version string) (string, error) {

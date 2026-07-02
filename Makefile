@@ -1,4 +1,4 @@
-.PHONY: build clean install test run help
+.PHONY: build clean install test run help fmt fmt-check lint
 
 BINARY_NAME=nbc
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -118,9 +118,19 @@ _test-coverage: ## Internal target for coverage tests
 	@go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
 
-fmt: ## Format code
+fmt: ## Format code (gofmt -w, matches the CI formatting gate)
 	@echo "Formatting code..."
-	@go fmt ./...
+	@gofmt -w .
+
+fmt-check: ## Check formatting without modifying files (same command CI runs)
+	@echo "Checking formatting..."
+	@unformatted="$$(gofmt -l .)"; \
+	if [ -n "$$unformatted" ]; then \
+		echo "The following files are not gofmt-formatted:"; \
+		echo "$$unformatted"; \
+		echo "Run 'make fmt' to fix."; \
+		exit 1; \
+	fi
 
 lint: ## Run linter
 	@echo "Running linter..."

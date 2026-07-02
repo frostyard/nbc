@@ -797,6 +797,13 @@ func (u *SystemUpdater) Update() error {
 		return fmt.Errorf("failed to update bootloader: %w", err)
 	}
 
+	// Prune old kernels only after the bootloader entries reference the current
+	// and previous kernels, so a crash mid-update never leaves the rollback entry
+	// pointing at a deleted kernel.
+	if err := u.PruneOldBootKernels(); err != nil {
+		return fmt.Errorf("failed to prune old boot kernels: %w", err)
+	}
+
 	// Write reboot-required marker to /run (automatically cleared on reboot)
 	if !u.Config.DryRun {
 		rebootInfo := &types.RebootPendingInfo{
@@ -951,6 +958,22 @@ func (u *SystemUpdater) InstallKernelAndInitramfs() error {
 		p.Message("Kernel and initramfs are up to date")
 	}
 
+	// Pruning of old kernels is intentionally NOT done here. It must run only
+	// after the bootloader entries have been rewritten (see PruneOldBootKernels,
+	// called after UpdateBootloader), so we never delete a kernel that the
+	// current on-disk rollback entry still references.
+	return nil
+}
+
+// PruneOldBootKernels removes kernel/initramfs pairs from the boot partition
+// that are no longer referenced, keeping the newly-installed (current) and the
+// previously-active kernels. It MUST be called after the bootloader entries have
+// been updated: pruning before the rollback (previous) entry is rewritten could
+// delete a kernel that entry still points at, leaving a dangling, unbootable
+// rollback entry if the update is interrupted.
+func (u *SystemUpdater) PruneOldBootKernels() error {
+	p := u.Progress
+
 	currentKernelVersion, err := u.getUpdatedRootKernelVersion()
 	if err != nil {
 		return fmt.Errorf("failed to get current kernel version: %w", err)
@@ -963,10 +986,22 @@ func (u *SystemUpdater) InstallKernelAndInitramfs() error {
 		return nil
 	}
 
-	if err := pruneBootKernelPairs(kernelDestDir, currentKernelVersion, previousKernelVersion, p); err != nil {
+	// Mount the boot partition to prune kernels stored on it.
+	bootMountPoint, err := os.MkdirTemp("", "nbc-boot-prune-*")
+	if err != nil {
+		return fmt.Errorf("failed to create boot mount point: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(bootMountPoint) }()
+
+	cmd := exec.Command("mount", u.Scheme.BootPartition, bootMountPoint)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to mount boot partition: %w\nOutput: %s", err, string(output))
+	}
+	defer func() { _ = exec.Command("umount", bootMountPoint).Run() }()
+
+	if err := pruneBootKernelPairs(bootMountPoint, currentKernelVersion, previousKernelVersion, p); err != nil {
 		return fmt.Errorf("failed to prune old boot kernels: %w", err)
 	}
-
 	return nil
 }
 

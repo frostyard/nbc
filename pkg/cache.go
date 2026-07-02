@@ -17,7 +17,6 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/layout"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"golang.org/x/term"
 )
 
 const (
@@ -78,9 +77,7 @@ func (c *ImageCache) GetLayoutPath(digest string) string {
 	return filepath.Join(c.CacheDir, digestToDir(digest))
 }
 
-// Download pulls a container image and saves it to the cache in OCI layout format
 // Download pulls a container image and saves it to the cache in OCI layout format.
-// If progress is non-nil and set to JSON mode, interactive spinners are skipped.
 func (c *ImageCache) Download(ctx context.Context, imageRef string, progress reporter.Reporter) (*CachedImageMetadata, error) {
 	// Acquire exclusive lock for cache write operation
 	lock, err := AcquireCacheLock()
@@ -95,56 +92,22 @@ func (c *ImageCache) Download(ctx context.Context, imageRef string, progress rep
 		return nil, fmt.Errorf("failed to parse image reference: %w", err)
 	}
 
-	// Check if we should use interactive mode (no progress reporter or non-JSON progress)
-	useInteractive := progress == nil || !progress.IsJSON()
-
-	// Check if TTY is attached for spinner
-	isTTY := term.IsTerminal(int(os.Stdout.Fd()))
-
-	// Start spinner if TTY and interactive mode
-	var stopSpinner chan struct{}
-	if useInteractive && isTTY {
-		stopSpinner = make(chan struct{})
-		go func() {
-			spinChars := []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'}
-			i := 0
-			for {
-				select {
-				case <-stopSpinner:
-					fmt.Print("\r\033[K") // Clear line
-					return
-				default:
-					fmt.Printf("\r%c Downloading image...", spinChars[i%len(spinChars)])
-					i++
-					time.Sleep(100 * time.Millisecond)
-				}
-			}
-		}()
-	} else {
-		progress.Message("Downloading image...")
+	if progress == nil {
+		progress = reporter.NoopReporter{}
 	}
+
+	progress.Message("Downloading image...")
 
 	// Pull image from registry
 	img, err := remote.Image(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain))
 	if err != nil {
-		if stopSpinner != nil {
-			close(stopSpinner)
-		}
 		return nil, fmt.Errorf("failed to pull image: %w", err)
 	}
 
 	// Get image digest
 	digest, err := img.Digest()
 	if err != nil {
-		if stopSpinner != nil {
-			close(stopSpinner)
-		}
 		return nil, fmt.Errorf("failed to get image digest: %w", err)
-	}
-
-	// Stop spinner
-	if stopSpinner != nil {
-		close(stopSpinner)
 	}
 
 	digestStr := digest.String()

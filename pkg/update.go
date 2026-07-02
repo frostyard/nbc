@@ -987,8 +987,8 @@ func (u *SystemUpdater) PruneOldBootKernels() error {
 	}
 
 	// Mount the boot partition to prune kernels stored on it.
-	bootMountPoint := filepath.Join(os.TempDir(), "nbc-boot-prune")
-	if err := os.MkdirAll(bootMountPoint, 0755); err != nil {
+	bootMountPoint, err := os.MkdirTemp("", "nbc-boot-prune-*")
+	if err != nil {
 		return fmt.Errorf("failed to create boot mount point: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(bootMountPoint) }()

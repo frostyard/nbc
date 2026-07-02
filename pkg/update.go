@@ -1045,11 +1045,17 @@ func pruneBootKernelPairs(bootDir, currentVersion, previousVersion string, progr
 		pruned[version] = true
 	}
 
-	// Remove any remaining orphan initramfs files (kernel already gone/absent).
+	// Remove any remaining orphan initramfs files whose kernel is absent. Verify
+	// the kernel is actually gone: if a non-kept kernel's removal failed above,
+	// its vmlinuz still exists, and removing the initramfs here would turn it into
+	// an orphan kernel rather than cleaning one up.
 	for _, initrd := range listBootInitramfs(bootDir) {
 		version := bootInitramfsVersion(filepath.Base(initrd))
 		if version == "" || keep[version] {
 			continue
+		}
+		if _, err := os.Stat(filepath.Join(bootDir, "vmlinuz-"+version)); err == nil {
+			continue // kernel still present; leave the pair alone
 		}
 		note("remove orphan initramfs "+filepath.Base(initrd), os.Remove(initrd))
 		pruned[version] = true

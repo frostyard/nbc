@@ -1037,9 +1037,9 @@ func TestPruneBootKernelPairsRemovesOrphans(t *testing.T) {
 	}
 }
 
-// TestPruneBootKernelPairsRemovesBothOnError ensures a version's kernel and
-// initramfs are both attempted even if one removal is a no-op, so no orphan is
-// left behind (#109).
+// TestPruneBootKernelPairsRemovesBothOfAPair ensures both the kernel and the
+// initramfs of a pruned old version are removed, so a pair is never left
+// half-removed (#109).
 func TestPruneBootKernelPairsRemovesBothOfAPair(t *testing.T) {
 	bootDir := t.TempDir()
 	// One old complete pair to prune.

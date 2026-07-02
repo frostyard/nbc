@@ -3,10 +3,68 @@ package pkg
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/frostyard/std/reporter"
 )
+
+func testCachedImageMetadata(imageRef, digest string) *CachedImageMetadata {
+	return &CachedImageMetadata{
+		ImageRef:            imageRef,
+		ImageDigest:         digest,
+		DownloadDate:        "2024-01-01T00:00:00Z",
+		Architecture:        "amd64",
+		Labels:              map[string]string{"version": "1.0"},
+		OSReleasePrettyName: "Test OS",
+		OSReleaseVersionID:  "1.0",
+		OSReleaseID:         "testos",
+		SizeBytes:           1024 * 1024,
+	}
+}
+
+func makeStagingDir(t *testing.T, cache *ImageCache, metadata *CachedImageMetadata) string {
+	t.Helper()
+
+	stagingDir, err := os.MkdirTemp(cache.CacheDir, ".download-*")
+	if err != nil {
+		t.Fatalf("failed to create staging dir: %v", err)
+	}
+
+	if err := cache.writeMetadata(stagingDir, metadata); err != nil {
+		t.Fatalf("failed to write staging metadata: %v", err)
+	}
+
+	return stagingDir
+}
+
+func assertMetadataEqual(t *testing.T, got, want *CachedImageMetadata) {
+	t.Helper()
+
+	if got.ImageRef != want.ImageRef {
+		t.Errorf("ImageRef = %q, want %q", got.ImageRef, want.ImageRef)
+	}
+	if got.ImageDigest != want.ImageDigest {
+		t.Errorf("ImageDigest = %q, want %q", got.ImageDigest, want.ImageDigest)
+	}
+	if got.Architecture != want.Architecture {
+		t.Errorf("Architecture = %q, want %q", got.Architecture, want.Architecture)
+	}
+	if got.SizeBytes != want.SizeBytes {
+		t.Errorf("SizeBytes = %d, want %d", got.SizeBytes, want.SizeBytes)
+	}
+}
+
+func skipIfNoCacheLockPermission(t *testing.T) {
+	t.Helper()
+
+	if err := ensureLockDir(); err != nil {
+		if os.IsPermission(err) || strings.Contains(err.Error(), "permission denied") {
+			t.Skip("Skipping test: no permission to create /var/run/nbc")
+		}
+		t.Fatalf("ensureLockDir failed: %v", err)
+	}
+}
 
 func TestNewImageCache(t *testing.T) {
 	cache := NewImageCache("/test/path")
@@ -88,6 +146,163 @@ func TestImageCache_List_NonExistentDirectory(t *testing.T) {
 	}
 	if len(images) != 0 {
 		t.Errorf("List() returned %d images, want 0", len(images))
+	}
+}
+
+func TestCacheCommitDownload_AtomicMove(t *testing.T) {
+	skipIfNoCacheLockPermission(t)
+
+	tmpDir := t.TempDir()
+	cache := NewImageCache(tmpDir)
+	metadata := testCachedImageMetadata("quay.io/test/image:v1", "sha256:abc123")
+	stagingDir := makeStagingDir(t, cache, metadata)
+
+	sharedLock, err := AcquireCacheLockShared()
+	if err != nil {
+		t.Fatalf("AcquireCacheLockShared() during staging failed: %v", err)
+	}
+	if err := sharedLock.Release(); err != nil {
+		t.Fatalf("failed to release shared cache lock: %v", err)
+	}
+
+	got, committed, err := cache.commitDownload(stagingDir, metadata.ImageDigest, metadata, reporter.NoopReporter{})
+	if err != nil {
+		t.Fatalf("commitDownload() error = %v", err)
+	}
+	if !committed {
+		t.Fatal("commitDownload() committed = false, want true")
+	}
+	assertMetadataEqual(t, got, metadata)
+
+	finalDir := filepath.Join(tmpDir, "sha256-abc123")
+	if _, err := os.Stat(finalDir); err != nil {
+		t.Fatalf("final image dir does not exist: %v", err)
+	}
+	if _, err := os.Stat(stagingDir); !os.IsNotExist(err) {
+		t.Fatalf("staging dir should have been renamed away, stat err = %v", err)
+	}
+}
+
+func TestCacheCommitDownload_DedupWhenAlreadyCached(t *testing.T) {
+	skipIfNoCacheLockPermission(t)
+
+	tmpDir := t.TempDir()
+	cache := NewImageCache(tmpDir)
+	existing := testCachedImageMetadata("quay.io/test/existing:v1", "sha256:abc123")
+	staged := testCachedImageMetadata("quay.io/test/staged:v1", "sha256:abc123")
+
+	finalDir := filepath.Join(tmpDir, "sha256-abc123")
+	if err := os.MkdirAll(finalDir, 0755); err != nil {
+		t.Fatalf("failed to create final dir: %v", err)
+	}
+	if err := cache.writeMetadata(finalDir, existing); err != nil {
+		t.Fatalf("failed to write existing metadata: %v", err)
+	}
+	stagingDir := makeStagingDir(t, cache, staged)
+
+	got, committed, err := cache.commitDownload(stagingDir, staged.ImageDigest, staged, reporter.NoopReporter{})
+	if err != nil {
+		t.Fatalf("commitDownload() error = %v", err)
+	}
+	if committed {
+		t.Fatal("commitDownload() committed = true, want false")
+	}
+	assertMetadataEqual(t, got, existing)
+	if _, err := os.Stat(stagingDir); err != nil {
+		t.Fatalf("staging dir should be left for caller cleanup: %v", err)
+	}
+}
+
+func TestCacheCommitDownload_ReplacesIncompleteEntry(t *testing.T) {
+	skipIfNoCacheLockPermission(t)
+
+	tmpDir := t.TempDir()
+	cache := NewImageCache(tmpDir)
+	metadata := testCachedImageMetadata("quay.io/test/image:v1", "sha256:abc123")
+
+	finalDir := filepath.Join(tmpDir, "sha256-abc123")
+	if err := os.MkdirAll(finalDir, 0755); err != nil {
+		t.Fatalf("failed to create incomplete final dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(finalDir, "partial"), []byte("incomplete"), 0644); err != nil {
+		t.Fatalf("failed to write incomplete marker: %v", err)
+	}
+	stagingDir := makeStagingDir(t, cache, metadata)
+
+	got, committed, err := cache.commitDownload(stagingDir, metadata.ImageDigest, metadata, reporter.NoopReporter{})
+	if err != nil {
+		t.Fatalf("commitDownload() error = %v", err)
+	}
+	if !committed {
+		t.Fatal("commitDownload() committed = false, want true")
+	}
+	assertMetadataEqual(t, got, metadata)
+
+	if _, err := os.Stat(filepath.Join(finalDir, "partial")); !os.IsNotExist(err) {
+		t.Fatalf("incomplete entry should have been replaced, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(finalDir, MetadataFileName)); err != nil {
+		t.Fatalf("replacement metadata missing: %v", err)
+	}
+}
+
+func TestCacheListUnlocked_SkipsStagingDirs(t *testing.T) {
+	skipIfNoCacheLockPermission(t)
+
+	tmpDir := t.TempDir()
+	cache := NewImageCache(tmpDir)
+
+	valid := testCachedImageMetadata("quay.io/test/image:v1", "sha256:abc123")
+	validDir := filepath.Join(tmpDir, "sha256-abc123")
+	if err := os.MkdirAll(validDir, 0755); err != nil {
+		t.Fatalf("failed to create valid image dir: %v", err)
+	}
+	if err := cache.writeMetadata(validDir, valid); err != nil {
+		t.Fatalf("failed to write valid metadata: %v", err)
+	}
+
+	stagingDir := filepath.Join(tmpDir, ".download-abc123")
+	if err := os.MkdirAll(stagingDir, 0755); err != nil {
+		t.Fatalf("failed to create staging dir: %v", err)
+	}
+	if err := cache.writeMetadata(stagingDir, testCachedImageMetadata("quay.io/test/staged:v1", "sha256:def456")); err != nil {
+		t.Fatalf("failed to write staging metadata: %v", err)
+	}
+
+	images, err := cache.List()
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(images) != 1 {
+		t.Fatalf("List() returned %d images, want 1", len(images))
+	}
+	if images[0].ImageDigest != valid.ImageDigest {
+		t.Errorf("List()[0].ImageDigest = %q, want %q", images[0].ImageDigest, valid.ImageDigest)
+	}
+}
+
+func TestCacheGetImage_IgnoresStagingDirs(t *testing.T) {
+	skipIfNoCacheLockPermission(t)
+
+	tmpDir := t.TempDir()
+	cache := NewImageCache(tmpDir)
+
+	stagingDir := filepath.Join(tmpDir, ".download-sha256-abc123")
+	if err := os.MkdirAll(stagingDir, 0755); err != nil {
+		t.Fatalf("failed to create staging dir: %v", err)
+	}
+	staged := testCachedImageMetadata("quay.io/test/staged:v1", "sha256:abc123")
+	if err := cache.writeMetadata(stagingDir, staged); err != nil {
+		t.Fatalf("failed to write staging metadata: %v", err)
+	}
+
+	_, _, err := cache.GetImage(staged.ImageRef)
+	if err == nil {
+		t.Fatal("GetImage() should ignore staging dir and report not found")
+	}
+	expected := "image not found in cache: " + staged.ImageRef
+	if err.Error() != expected {
+		t.Fatalf("GetImage() error = %q, want %q", err.Error(), expected)
 	}
 }
 

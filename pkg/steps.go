@@ -62,7 +62,7 @@ func SetupTargetSystem(ctx context.Context, mountPoint string, dryRun, verbose b
 
 // ExtractAndVerifyContainer creates and runs a container extractor, then verifies
 // the extraction succeeded. Used by both install and update flows.
-func ExtractAndVerifyContainer(ctx context.Context, imageRef, localLayoutPath, mountPoint string, verbose bool, progress reporter.Reporter) error {
+func ExtractAndVerifyContainer(ctx context.Context, imageRef, localLayoutPath, mountPoint string, verbose, skipVerify bool, cosignKeyPath string, progress reporter.Reporter) error {
 	var extractor *ContainerExtractor
 	if localLayoutPath != "" {
 		extractor = NewContainerExtractorFromLocal(localLayoutPath, mountPoint)
@@ -71,6 +71,8 @@ func ExtractAndVerifyContainer(ctx context.Context, imageRef, localLayoutPath, m
 	}
 	extractor.SetVerbose(verbose)
 	extractor.SetProgress(progress)
+	extractor.SkipVerify = skipVerify
+	extractor.CosignKeyPath = cosignKeyPath
 
 	if err := extractor.Extract(ctx); err != nil {
 		return fmt.Errorf("failed to extract container: %w", err)

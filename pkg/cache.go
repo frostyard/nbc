@@ -35,9 +35,11 @@ type CachedImageMetadata = types.CachedImageMetadata
 
 // ImageCache manages cached container images in OCI layout format
 type ImageCache struct {
-	CacheDir string
-	Verbose  bool
-	Progress reporter.Reporter
+	CacheDir      string
+	Verbose       bool
+	Progress      reporter.Reporter
+	SkipVerify    bool   // Skip cosign signature verification of downloaded images
+	CosignKeyPath string // Override trusted cosign public key (empty = embedded)
 }
 
 // NewImageCache creates a new ImageCache for the specified directory
@@ -107,6 +109,13 @@ func (c *ImageCache) Download(ctx context.Context, imageRef string, progress rep
 	digest, err := img.Digest()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get image digest: %w", err)
+	}
+
+	// Verify the image's cosign signature at download time -- this is the
+	// registry-pull boundary for the staged-update flow, which later applies the
+	// image from a local OCI layout where the signature is no longer available.
+	if err := verifyPulledImage(ctx, ref, img, c.SkipVerify, c.CosignKeyPath, c.Progress); err != nil {
+		return nil, err
 	}
 
 	digestStr := digest.String()

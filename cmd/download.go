@@ -13,6 +13,8 @@ type downloadFlags struct {
 	image      string
 	forInstall bool
 	forUpdate  bool
+	skipVerify bool
+	cosignKey  string
 }
 
 var dlFlags downloadFlags
@@ -56,6 +58,8 @@ func init() {
 	downloadCmd.Flags().StringVarP(&dlFlags.image, "image", "i", "", "Container image reference (required for --for-install, uses system config for --for-update)")
 	downloadCmd.Flags().BoolVar(&dlFlags.forInstall, "for-install", false, "Save to staged-install cache (for ISO embedding)")
 	downloadCmd.Flags().BoolVar(&dlFlags.forUpdate, "for-update", false, "Save to staged-update cache (for offline updates)")
+	downloadCmd.Flags().BoolVar(&dlFlags.skipVerify, "insecure-skip-verify", false, "Skip cosign signature verification of the image (not recommended)")
+	downloadCmd.Flags().StringVar(&dlFlags.cosignKey, "cosign-key", "", "Path to a cosign public key to verify the image against (default: embedded frostyard key)")
 }
 
 func runDownload(cmd *cobra.Command, args []string) error {
@@ -150,6 +154,8 @@ func runDownload(cmd *cobra.Command, args []string) error {
 	// Create cache and download
 	cache := pkg.NewImageCache(cacheDir)
 	cache.SetVerbose(clix.Verbose)
+	cache.SkipVerify = dlFlags.skipVerify
+	cache.CosignKeyPath = dlFlags.cosignKey
 
 	if !clix.JSONOutput {
 		if dlFlags.forInstall {

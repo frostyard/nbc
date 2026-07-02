@@ -209,10 +209,12 @@ func (l *Linter) LintContainerImage(imageRef string) (*LintResult, error) {
 		l.progress.Message("Extracting image to %s...", tmpDir)
 	}
 
-	// Extract the container image
+	// Extract the container image. Linting inspects arbitrary images for
+	// structural issues, so signature verification does not apply here.
 	extractor := NewContainerExtractor(imageRef, tmpDir)
 	extractor.SetVerbose(l.verbose && !l.quiet)
 	extractor.SetProgress(l.progress)
+	extractor.SkipVerify = true
 	if err := extractor.Extract(context.Background()); err != nil {
 		return nil, fmt.Errorf("failed to extract container image: %w", err)
 	}

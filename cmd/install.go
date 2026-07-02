@@ -26,6 +26,8 @@ type installFlags struct {
 	viaLoopback      string
 	imageSize        int
 	force            bool
+	skipVerify       bool
+	cosignKey        string
 }
 
 var instFlags installFlags
@@ -78,6 +80,8 @@ func init() {
 	installCmd.Flags().StringVarP(&instFlags.image, "image", "i", "", "Container image reference (required unless --local-image or staged image exists)")
 	installCmd.Flags().StringVarP(&instFlags.device, "device", "d", "", "Target disk device (required)")
 	installCmd.Flags().BoolVar(&instFlags.skipPull, "skip-pull", false, "Skip pulling the image (use already pulled image)")
+	installCmd.Flags().BoolVar(&instFlags.skipVerify, "insecure-skip-verify", false, "Skip cosign signature verification of the image (not recommended)")
+	installCmd.Flags().StringVar(&instFlags.cosignKey, "cosign-key", "", "Path to a cosign public key to verify the image against (default: embedded frostyard key)")
 	installCmd.Flags().StringArrayVarP(&instFlags.kernelArgs, "karg", "k", []string{}, "Kernel argument to pass (can be specified multiple times)")
 	installCmd.Flags().StringVarP(&instFlags.filesystem, "filesystem", "f", "btrfs", "Filesystem type for root and var partitions (ext4, btrfs)")
 	installCmd.Flags().BoolVar(&instFlags.encrypt, "encrypt", false, "Enable LUKS full disk encryption for root and var partitions")
@@ -189,6 +193,8 @@ func buildInstallConfig(ctx context.Context) (*pkg.InstallConfig, error) {
 		DryRun:         clix.DryRun,
 		JSONOutput:     clix.JSONOutput,
 		SkipPull:       instFlags.skipPull,
+		SkipVerify:     instFlags.skipVerify,
+		CosignKeyPath:  instFlags.cosignKey,
 	}
 
 	// Resolve image source: --image, --local-image, or auto-detect from staged-install

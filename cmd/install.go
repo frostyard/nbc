@@ -134,6 +134,18 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// A staged-install image consumed by a real-disk install has served its
+	// purpose; evict it so it doesn't accumulate in /var/cache indefinitely.
+	// Loopback builds are skipped since they are commonly repeated from the same
+	// staged image. Best-effort: never fail the install over cleanup (e.g. the
+	// staged image may live on read-only install media).
+	if result != nil && result.LoopbackPath == "" && cfg.LocalImage != nil &&
+		strings.HasPrefix(cfg.LocalImage.LayoutPath, pkg.StagedInstallDir) {
+		if clearErr := pkg.NewStagedInstallCache().Clear(cmd.Context(), clix.NewReporter()); clearErr != nil && !clix.JSONOutput {
+			fmt.Fprintf(os.Stderr, "Note: could not clear staged-install cache: %v\n", clearErr)
+		}
+	}
+
 	// Print loopback usage instructions
 	if result.LoopbackPath != "" && !clix.JSONOutput {
 		fmt.Println()

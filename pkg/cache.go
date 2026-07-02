@@ -26,6 +26,8 @@ const (
 	StagedUpdateDir = "/var/cache/nbc/staged-update"
 	// MetadataFileName is the name of the metadata file in each cached image directory
 	MetadataFileName = "metadata.json"
+
+	downloadStagingPrefix = ".download-"
 )
 
 // Type alias for backward compatibility
@@ -77,15 +79,12 @@ func (c *ImageCache) GetLayoutPath(digest string) string {
 	return filepath.Join(c.CacheDir, digestToDir(digest))
 }
 
+func isCacheEntry(entry os.DirEntry) bool {
+	return entry.IsDir() && !strings.HasPrefix(entry.Name(), ".")
+}
+
 // Download pulls a container image and saves it to the cache in OCI layout format.
 func (c *ImageCache) Download(ctx context.Context, imageRef string, progress reporter.Reporter) (*CachedImageMetadata, error) {
-	// Acquire exclusive lock for cache write operation
-	lock, err := AcquireCacheLock()
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = lock.Release() }()
-
 	// Parse image reference
 	ref, err := name.ParseReference(imageRef)
 	if err != nil {
@@ -111,55 +110,83 @@ func (c *ImageCache) Download(ctx context.Context, imageRef string, progress rep
 	}
 
 	digestStr := digest.String()
-	imageDir := filepath.Join(c.CacheDir, digestToDir(digestStr))
-
-	// Check if already cached (with valid metadata)
-	if _, err := os.Stat(imageDir); err == nil {
-		metadata, err := c.readMetadata(imageDir)
-		if err == nil {
-			progress.Message("Image already cached: %s", digestStr)
-			return metadata, nil
-		}
-		// Directory exists but metadata is missing/invalid - cleanup and re-download
-		progress.Message("Cleaning up incomplete cache entry: %s", digestStr)
-		_ = os.RemoveAll(imageDir)
-	}
 
 	progress.Message("Saving image to cache: %s", digestStr)
 
 	// Create cache directory
-	if err := os.MkdirAll(imageDir, 0755); err != nil {
+	if err := os.MkdirAll(c.CacheDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create cache directory: %w", err)
 	}
 
-	// Write OCI layout
-	layoutPath, err := layout.Write(imageDir, empty.Index)
+	stagingDir, err := os.MkdirTemp(c.CacheDir, downloadStagingPrefix+"*")
 	if err != nil {
-		_ = os.RemoveAll(imageDir)
+		return nil, fmt.Errorf("failed to create staging directory: %w", err)
+	}
+
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.RemoveAll(stagingDir)
+		}
+	}()
+
+	// Write OCI layout
+	layoutPath, err := layout.Write(stagingDir, empty.Index)
+	if err != nil {
 		return nil, fmt.Errorf("failed to create OCI layout: %w", err)
 	}
 
 	// Append image to layout
 	if err := layoutPath.AppendImage(img); err != nil {
-		_ = os.RemoveAll(imageDir)
 		return nil, fmt.Errorf("failed to write image to layout: %w", err)
 	}
 
 	// Extract metadata from image
 	metadata, err := c.extractMetadata(img, imageRef, digestStr)
 	if err != nil {
-		_ = os.RemoveAll(imageDir)
 		return nil, fmt.Errorf("failed to extract metadata: %w", err)
 	}
 
 	// Write metadata file
-	if err := c.writeMetadata(imageDir, metadata); err != nil {
-		_ = os.RemoveAll(imageDir)
+	if err := c.writeMetadata(stagingDir, metadata); err != nil {
 		return nil, fmt.Errorf("failed to write metadata: %w", err)
 	}
 
-	progress.Message("Image cached successfully: %s", digestStr)
+	metadata, committed, err = c.commitDownload(stagingDir, digestStr, metadata, progress)
+	if err != nil {
+		return nil, err
+	}
 	return metadata, nil
+}
+
+// commitDownload atomically publishes a staged OCI layout directory into the cache.
+func (c *ImageCache) commitDownload(stagingDir, digestStr string, metadata *CachedImageMetadata, progress reporter.Reporter) (*CachedImageMetadata, bool, error) {
+	lock, err := AcquireCacheLock()
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = lock.Release() }()
+
+	imageDir := c.GetLayoutPath(digestStr)
+
+	// Another process may have committed this digest while the image was being staged.
+	if _, err := os.Stat(imageDir); err == nil {
+		existing, readErr := c.readMetadata(imageDir)
+		if readErr == nil {
+			progress.Message("Image already cached: %s", digestStr)
+			return existing, false, nil
+		}
+
+		progress.Message("Cleaning up incomplete cache entry: %s", digestStr)
+		_ = os.RemoveAll(imageDir)
+	}
+
+	if err := os.Rename(stagingDir, imageDir); err != nil {
+		return nil, false, fmt.Errorf("failed to commit image to cache: %w", err)
+	}
+
+	progress.Message("Image cached successfully: %s", digestStr)
+	return metadata, true, nil
 }
 
 // extractMetadata extracts metadata from a container image
@@ -250,7 +277,7 @@ func (c *ImageCache) GetImage(digestOrRef string) (v1.Image, *CachedImageMetadat
 
 	var matches []string
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !isCacheEntry(entry) {
 			continue
 		}
 		// Check if this entry matches the digest prefix
@@ -330,7 +357,7 @@ func (c *ImageCache) listUnlocked() ([]CachedImageMetadata, error) {
 	}
 
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !isCacheEntry(entry) {
 			continue
 		}
 

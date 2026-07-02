@@ -188,22 +188,14 @@ func EnrollTPM2(ctx context.Context, partition string, config *LUKSConfig, progr
 		keyFilePath = config.Keyfile
 		cleanup = func() {} // No cleanup needed
 	} else {
-		// Write passphrase to a temporary file (systemd-cryptenroll doesn't reliably read from stdin)
-		keyFile, err := os.CreateTemp("", "luks-key-*")
+		// systemd-cryptenroll doesn't reliably read the unlock key from stdin,
+		// so write the passphrase to a transient key file. Use a tmpfs-backed
+		// directory so the secret never touches persistent storage, and shred it
+		// on cleanup.
+		var err error
+		keyFilePath, cleanup, err = writeEphemeralKeyFile(config.Passphrase)
 		if err != nil {
-			return fmt.Errorf("failed to create temporary key file: %w", err)
-		}
-		keyFilePath = keyFile.Name()
-		cleanup = func() { _ = os.Remove(keyFilePath) }
-
-		if _, err := keyFile.WriteString(config.Passphrase); err != nil {
-			_ = keyFile.Close()
-			cleanup()
-			return fmt.Errorf("failed to write to temporary key file: %w", err)
-		}
-		if err := keyFile.Close(); err != nil {
-			cleanup()
-			return fmt.Errorf("failed to close temporary key file: %w", err)
+			return err
 		}
 	}
 	defer cleanup()

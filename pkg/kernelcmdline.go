@@ -23,6 +23,19 @@ type kernelCmdlineParams struct {
 	ExtraArgs []string // user-supplied kernel arguments, appended last
 }
 
+// updateRootSlot picks which root slot a cmdline is being built for during an
+// A/B update. The target (new) root is the currently-inactive slot; the
+// non-target case is the active/previous slot. root1Active reports whether root1
+// is the currently-active slot. It returns the mapper name ("root1"/"root2") and
+// whether the second slot was chosen.
+func updateRootSlot(isTarget, root1Active bool) (mapperName string, useRoot2 bool) {
+	useRoot2 = (isTarget && root1Active) || (!isTarget && !root1Active)
+	if useRoot2 {
+		return "root2", true
+	}
+	return "root1", false
+}
+
 // assembleKernelCmdline builds the ordered kernel command line from params. It is
 // pure (no I/O) so both flows share one authoritative definition of the cmdline
 // format.

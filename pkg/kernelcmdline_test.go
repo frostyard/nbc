@@ -80,23 +80,55 @@ func TestAssembleKernelCmdline_DefaultsFilesystemToExt4(t *testing.T) {
 	}
 }
 
-// TestAssembleKernelCmdline_InstallUpdateParity documents the whole point of the
-// refactor: install and update build the cmdline through the same function, so
-// equivalent inputs yield byte-identical output. Here the install case (root1,
-// hardcoded) and the update case targeting root1 produce the same result.
-func TestAssembleKernelCmdline_InstallUpdateParity(t *testing.T) {
-	base := kernelCmdlineParams{
-		Encrypted:      true,
-		TPM2:           true,
-		FilesystemType: "btrfs",
-		RootMapperName: "root1",
-		RootLUKSUUID:   "RL",
-		VarLUKSUUID:    "VL",
-		BootUUID:       "BOOT",
-		ExtraArgs:      []string{"quiet", "splash"},
+func TestUpdateRootSlot(t *testing.T) {
+	tests := []struct {
+		isTarget, root1Active bool
+		wantMapper            string
+		wantUseRoot2          bool
+	}{
+		// target = inactive slot
+		{isTarget: true, root1Active: true, wantMapper: "root2", wantUseRoot2: true},
+		{isTarget: true, root1Active: false, wantMapper: "root1", wantUseRoot2: false},
+		// non-target = active slot
+		{isTarget: false, root1Active: true, wantMapper: "root1", wantUseRoot2: false},
+		{isTarget: false, root1Active: false, wantMapper: "root2", wantUseRoot2: true},
 	}
-	installCmdline := assembleKernelCmdline(base)
-	updateCmdline := assembleKernelCmdline(base)
+	for _, tt := range tests {
+		gotMapper, gotUseRoot2 := updateRootSlot(tt.isTarget, tt.root1Active)
+		if gotMapper != tt.wantMapper || gotUseRoot2 != tt.wantUseRoot2 {
+			t.Errorf("updateRootSlot(isTarget=%v, root1Active=%v) = (%q, %v), want (%q, %v)",
+				tt.isTarget, tt.root1Active, gotMapper, gotUseRoot2, tt.wantMapper, tt.wantUseRoot2)
+		}
+	}
+}
+
+// TestAssembleKernelCmdline_InstallUpdateParity documents the whole point of the
+// refactor: install (which hardcodes root1) and an update that targets root1
+// must produce byte-identical cmdlines. The update side derives its root slot
+// via updateRootSlot rather than hardcoding it, so this exercises that logic
+// landing on root1 and matching the install output.
+func TestAssembleKernelCmdline_InstallUpdateParity(t *testing.T) {
+	const rootLUKS, varLUKS, boot = "R1LUKS", "VLUKS", "BOOT"
+	extra := []string{"quiet", "splash"}
+
+	// Install always targets root1.
+	installCmdline := assembleKernelCmdline(kernelCmdlineParams{
+		Encrypted: true, TPM2: true, FilesystemType: "btrfs",
+		RootMapperName: "root1", RootLUKSUUID: rootLUKS, VarLUKSUUID: varLUKS,
+		BootUUID: boot, ExtraArgs: extra,
+	})
+
+	// Update targeting the new root while root2 is currently active -> root1.
+	mapper, useRoot2 := updateRootSlot(true /*isTarget*/, false /*root1Active*/)
+	if useRoot2 || mapper != "root1" {
+		t.Fatalf("precondition: expected update to target root1, got %q", mapper)
+	}
+	updateCmdline := assembleKernelCmdline(kernelCmdlineParams{
+		Encrypted: true, TPM2: true, FilesystemType: "btrfs",
+		RootMapperName: mapper, RootLUKSUUID: rootLUKS, VarLUKSUUID: varLUKS,
+		BootUUID: boot, ExtraArgs: extra,
+	})
+
 	if !reflect.DeepEqual(installCmdline, updateCmdline) {
 		t.Errorf("install and update cmdlines diverged:\ninstall %v\nupdate  %v", installCmdline, updateCmdline)
 	}

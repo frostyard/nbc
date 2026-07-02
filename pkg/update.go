@@ -298,17 +298,15 @@ func (u *SystemUpdater) buildKernelCmdline(rootUUID, varUUID, fsType string, isT
 	}
 
 	if u.Encryption != nil && u.Encryption.Enabled {
-		// Pick the root LUKS UUID/mapper for the slot we're building for: the
-		// target (new) root is the inactive slot; otherwise the active one.
-		useRoot2 := (isTarget && u.Active) || (!isTarget && !u.Active)
+		// Pick the root slot the cmdline is being built for (target = inactive).
+		mapperName, useRoot2 := updateRootSlot(isTarget, u.Active)
 		params.Encrypted = true
 		params.TPM2 = u.Encryption.TPM2
 		params.VarLUKSUUID = u.Encryption.VarLUKSUUID
+		params.RootMapperName = mapperName
 		if useRoot2 {
-			params.RootMapperName = "root2"
 			params.RootLUKSUUID = u.Encryption.Root2LUKSUUID
 		} else {
-			params.RootMapperName = "root1"
 			params.RootLUKSUUID = u.Encryption.Root1LUKSUUID
 		}
 	} else {

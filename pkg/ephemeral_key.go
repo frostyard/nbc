@@ -54,10 +54,21 @@ func writeEphemeralKeyFile(secret string) (string, func(), error) {
 // this zeroes the backing RAM pages before they are freed; on other filesystems
 // it is best-effort (copy-on-write / wear-leveling may relocate blocks).
 func shredFile(path string) {
-	if info, err := os.Stat(path); err == nil && info.Size() > 0 {
-		if f, err := os.OpenFile(path, os.O_WRONLY, 0o600); err == nil {
-			zeros := make([]byte, info.Size())
-			_, _ = f.Write(zeros)
+	info, err := os.Stat(path)
+	if err == nil && info.Size() > 0 {
+		if f, err := os.OpenFile(path, os.O_WRONLY, 0); err == nil {
+			buf := make([]byte, 32*1024)
+			remaining := info.Size()
+			for remaining > 0 {
+				n := len(buf)
+				if remaining < int64(n) {
+					n = int(remaining)
+				}
+				if _, err := f.Write(buf[:n]); err != nil {
+					break
+				}
+				remaining -= int64(n)
+			}
 			_ = f.Sync()
 			_ = f.Close()
 		}

@@ -282,101 +282,41 @@ func (u *SystemUpdater) SetLocalImage(layoutPath string, metadata *CachedImageMe
 
 // buildKernelCmdline builds the kernel command line with proper LUKS support if encrypted
 // isTarget indicates if this is for the target (new) root or the active (previous) root
+// buildKernelCmdline gathers the update-specific inputs (which root slot is the
+// target vs the active/previous one) and delegates assembly to
+// assembleKernelCmdline, shared with the install flow so the two never diverge.
 func (u *SystemUpdater) buildKernelCmdline(rootUUID, varUUID, fsType string, isTarget bool) ([]string, error) {
-	var kernelCmdline []string
-
-	if u.Encryption != nil && u.Encryption.Enabled {
-		// LUKS encrypted system - determine which root LUKS UUID to use
-		var rootLUKSUUID string
-		var rootMapperName string
-
-		if isTarget {
-			// Building cmdline for the target (new) root
-			if u.Active {
-				// root1 is active, so target is root2
-				rootLUKSUUID = u.Encryption.Root2LUKSUUID
-				rootMapperName = "root2"
-			} else {
-				// root2 is active, so target is root1
-				rootLUKSUUID = u.Encryption.Root1LUKSUUID
-				rootMapperName = "root1"
-			}
-		} else {
-			// Building cmdline for the active (previous) root
-			if u.Active {
-				// root1 is active
-				rootLUKSUUID = u.Encryption.Root1LUKSUUID
-				rootMapperName = "root1"
-			} else {
-				// root2 is active
-				rootLUKSUUID = u.Encryption.Root2LUKSUUID
-				rootMapperName = "root2"
-			}
-		}
-
-		// Root via device mapper
-		kernelCmdline = append(kernelCmdline, "root=/dev/mapper/"+rootMapperName)
-		kernelCmdline = append(kernelCmdline, "ro")
-
-		// LUKS UUIDs for initramfs to discover and unlock
-		kernelCmdline = append(kernelCmdline, "rd.luks.uuid="+rootLUKSUUID)
-		kernelCmdline = append(kernelCmdline, "rd.luks.name="+rootLUKSUUID+"="+rootMapperName)
-
-		// Var partition via device mapper
-		kernelCmdline = append(kernelCmdline, "rd.luks.uuid="+u.Encryption.VarLUKSUUID)
-		kernelCmdline = append(kernelCmdline, "rd.luks.name="+u.Encryption.VarLUKSUUID+"=var")
-
-		// TPM2 auto-unlock if enabled
-		if u.Encryption.TPM2 {
-			kernelCmdline = append(kernelCmdline, "rd.luks.options="+rootLUKSUUID+"=tpm2-device=auto")
-			kernelCmdline = append(kernelCmdline, "rd.luks.options="+u.Encryption.VarLUKSUUID+"=tpm2-device=auto")
-		}
-
-		// Get boot partition UUID (always FAT32, never encrypted)
-		bootUUID, err := GetPartitionUUID(context.Background(), u.Scheme.BootPartition)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get boot UUID: %w", err)
-		}
-		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=UUID="+bootUUID+":/boot:vfat:defaults")
-
-		// Mount /var via systemd.mount-extra using mapper device
-		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=/dev/mapper/var:/var:"+fsType+":defaults")
-
-		// Enable /etc overlay persistence
-		// The dracut module 95etc-overlay will mount an overlayfs for /etc
-		kernelCmdline = append(kernelCmdline, "rd.etc.overlay=1")
-		kernelCmdline = append(kernelCmdline, "rd.etc.overlay.var=/dev/mapper/var")
-	} else {
-		// Non-encrypted system - use UUID
-		// Get boot partition UUID (always FAT32, never encrypted)
-		bootUUID, err := GetPartitionUUID(context.Background(), u.Scheme.BootPartition)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get boot UUID: %w", err)
-		}
-		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=UUID="+bootUUID+":/boot:vfat:defaults")
-
-		kernelCmdline = append(kernelCmdline, "root=UUID="+rootUUID)
-		kernelCmdline = append(kernelCmdline, "ro")
-		kernelCmdline = append(kernelCmdline, "systemd.mount-extra=UUID="+varUUID+":/var:"+fsType+":defaults")
-
-		// Enable /etc overlay persistence
-		// The dracut module 95etc-overlay will mount an overlayfs for /etc
-		kernelCmdline = append(kernelCmdline, "rd.etc.overlay=1")
-		kernelCmdline = append(kernelCmdline, "rd.etc.overlay.var=UUID="+varUUID)
+	bootUUID, err := GetPartitionUUID(context.Background(), u.Scheme.BootPartition)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get boot UUID: %w", err)
 	}
 
-	// HACK: Disable NVMe multipath to ensure stable device naming across reboots
-	// Modern kernels have CONFIG_NVME_MULTIPATH=y by default, causing nvme0/nvme1
-	// to swap between boots due to non-deterministic controller enumeration order.
-	// This is a workaround - ideally we should always use /dev/disk/by-id/* or UUIDs
-	// everywhere and not rely on /dev/nvmeXnY naming at all.
-	// TODO: Audit all code for hardcoded /dev/nvme* paths and migrate to stable identifiers
-	kernelCmdline = append(kernelCmdline, "nvme_core.multipath=N")
+	params := kernelCmdlineParams{
+		FilesystemType: fsType,
+		BootUUID:       bootUUID,
+		ExtraArgs:      u.Config.KernelArgs,
+	}
 
-	// Add user-specified kernel arguments
-	kernelCmdline = append(kernelCmdline, u.Config.KernelArgs...)
+	if u.Encryption != nil && u.Encryption.Enabled {
+		// Pick the root LUKS UUID/mapper for the slot we're building for: the
+		// target (new) root is the inactive slot; otherwise the active one.
+		useRoot2 := (isTarget && u.Active) || (!isTarget && !u.Active)
+		params.Encrypted = true
+		params.TPM2 = u.Encryption.TPM2
+		params.VarLUKSUUID = u.Encryption.VarLUKSUUID
+		if useRoot2 {
+			params.RootMapperName = "root2"
+			params.RootLUKSUUID = u.Encryption.Root2LUKSUUID
+		} else {
+			params.RootMapperName = "root1"
+			params.RootLUKSUUID = u.Encryption.Root1LUKSUUID
+		}
+	} else {
+		params.RootUUID = rootUUID
+		params.VarUUID = varUUID
+	}
 
-	return kernelCmdline, nil
+	return assembleKernelCmdline(params), nil
 }
 
 // PrepareUpdate prepares for an update by detecting partitions and determining target

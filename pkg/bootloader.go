@@ -468,9 +468,13 @@ func (b *BootloaderInstaller) installGRUB2(ctx context.Context) error {
 // it forces read-only boot (root=..., ro, console=tty0) and then appends the
 // remaining args with any "ro"/"rw" tokens removed, so "ro" is not duplicated
 // (buildKernelCmdline already places "ro" right after root=...).
+//
+// The first element of kernelCmdline is expected to be the root= device. If
+// kernelCmdline is empty it returns nil rather than fabricating a rootless
+// (unbootable) command line; callers must validate the base cmdline first.
 func buildGRUBCmdline(kernelCmdline []string) []string {
 	if len(kernelCmdline) == 0 {
-		return []string{"ro", "console=tty0"}
+		return nil
 	}
 	final := []string{kernelCmdline[0], "ro", "console=tty0"}
 	for _, arg := range kernelCmdline[1:] {
@@ -513,6 +517,11 @@ func (b *BootloaderInstaller) generateGRUBConfig(ctx context.Context) error {
 	kernelCmdline, err := b.buildKernelCmdline(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to build kernel command line: %w", err)
+	}
+	// Fail fast rather than write a grub.cfg missing the root device (which would
+	// look valid but be unbootable).
+	if len(kernelCmdline) == 0 || !strings.HasPrefix(kernelCmdline[0], "root=") {
+		return fmt.Errorf("refusing to generate grub.cfg: kernel command line is missing the root= device")
 	}
 
 	// Build final command line: root=..., ro, console=tty0, then rest of args

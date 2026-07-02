@@ -44,3 +44,15 @@ func TestBuildGRUBCmdline_DropsRW(t *testing.T) {
 		t.Errorf("expected exactly one 'ro', got %v", got)
 	}
 }
+
+// TestBuildGRUBCmdline_EmptyReturnsNil ensures an empty base cmdline does not
+// produce a rootless (unbootable) command line; the caller is expected to reject
+// it before writing grub.cfg.
+func TestBuildGRUBCmdline_EmptyReturnsNil(t *testing.T) {
+	if got := buildGRUBCmdline(nil); got != nil {
+		t.Errorf("empty input must return nil, got %v", got)
+	}
+	if got := buildGRUBCmdline([]string{}); got != nil {
+		t.Errorf("empty slice must return nil, got %v", got)
+	}
+}

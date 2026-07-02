@@ -393,7 +393,11 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 			i.progress.Error(err, "Encryption setup failed")
 			return result, err
 		}
-		// Ensure LUKS devices are always cleaned up
+		// Ensure LUKS devices are always cleaned up. This is the single
+		// close path: it also covers a failure before the mount-cleanup defer
+		// below is registered (e.g. FormatPartitions/MountPartitions failing).
+		// Because defers run LIFO, this runs after the mount-cleanup defer, so
+		// partitions are unmounted before the LUKS mappings are closed.
 		defer scheme.CloseLUKSDevices(ctx)
 	}
 
@@ -413,13 +417,13 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 		return result, err
 	}
 
-	// Ensure cleanup on error
+	// Ensure cleanup on error. LUKS devices are closed by the dedicated defer
+	// registered right after SetupLUKS (which runs after this one, LIFO), so we
+	// must not close them here too -- doing so double-closed on every encrypted
+	// install.
 	defer func() {
 		i.progress.Message("Cleaning up...")
 		_ = UnmountPartitions(ctx, i.config.MountPoint, i.config.DryRun, i.progress)
-		if scheme != nil && scheme.Encrypted {
-			scheme.CloseLUKSDevices(ctx)
-		}
 		_ = os.RemoveAll(i.config.MountPoint)
 	}()
 

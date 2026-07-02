@@ -393,12 +393,15 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 			i.progress.Error(err, "Encryption setup failed")
 			return result, err
 		}
-		// Ensure LUKS devices are always cleaned up. This is the single
-		// close path: it also covers a failure before the mount-cleanup defer
-		// below is registered (e.g. FormatPartitions/MountPartitions failing).
-		// Because defers run LIFO, this runs after the mount-cleanup defer, so
-		// partitions are unmounted before the LUKS mappings are closed.
-		defer scheme.CloseLUKSDevices(ctx)
+		// Ensure LUKS devices are always cleaned up. This is the single close
+		// path: it also covers a failure before the mount-cleanup defer below is
+		// registered (e.g. FormatPartitions/MountPartitions failing). Because
+		// defers run LIFO, this defer runs AFTER the mount-cleanup defer, so
+		// partitions are unmounted first and the LUKS mappings are closed second.
+		//
+		// Use context.Background(), not the request ctx: releasing the dm-crypt
+		// mappings must run even if the install was cancelled, or they leak.
+		defer scheme.CloseLUKSDevices(context.Background())
 	}
 
 	// Step 2: Format partitions
@@ -417,13 +420,16 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 		return result, err
 	}
 
-	// Ensure cleanup on error. LUKS devices are closed by the dedicated defer
-	// registered right after SetupLUKS (which runs after this one, LIFO), so we
-	// must not close them here too -- doing so double-closed on every encrypted
-	// install.
+	// Ensure cleanup on error. The dedicated LUKS-close defer registered after
+	// SetupLUKS runs after this one (LIFO), so partitions are unmounted here
+	// before those mappings are closed; we intentionally do not close LUKS here
+	// too (that double-closed on every encrypted install).
+	//
+	// Unmount uses context.Background() so a cancelled install still releases the
+	// mounts; otherwise a retried install would fail on the busy mountpoint.
 	defer func() {
 		i.progress.Message("Cleaning up...")
-		_ = UnmountPartitions(ctx, i.config.MountPoint, i.config.DryRun, i.progress)
+		_ = UnmountPartitions(context.Background(), i.config.MountPoint, i.config.DryRun, i.progress)
 		_ = os.RemoveAll(i.config.MountPoint)
 	}()
 

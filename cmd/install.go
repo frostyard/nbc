@@ -8,6 +8,7 @@ import (
 
 	"github.com/frostyard/clix"
 	"github.com/frostyard/nbc/pkg"
+	"github.com/frostyard/std/reporter"
 	"github.com/spf13/cobra"
 )
 
@@ -132,6 +133,20 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	if err != nil {
 		return err
+	}
+
+	// A staged-install image consumed by a real-disk install has served its
+	// purpose; evict it so it doesn't accumulate in /var/cache indefinitely.
+	// Skipped for dry-run (nothing was installed) and loopback builds (commonly
+	// repeated from the same staged image). Best-effort: never fail the install
+	// over cleanup (e.g. the staged image may live on read-only install media),
+	// and stay silent so it can't interfere with the JSON output stream.
+	usedStagedImage := cfg.LocalImage != nil &&
+		strings.HasPrefix(cfg.LocalImage.LayoutPath, pkg.StagedInstallDir+string(os.PathSeparator))
+	if result != nil && !clix.DryRun && result.LoopbackPath == "" && usedStagedImage {
+		if clearErr := pkg.NewStagedInstallCache().Clear(cmd.Context(), reporter.NoopReporter{}); clearErr != nil && !clix.JSONOutput {
+			fmt.Fprintf(os.Stderr, "Note: could not clear staged-install cache: %v\n", clearErr)
+		}
 	}
 
 	// Print loopback usage instructions

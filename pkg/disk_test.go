@@ -94,6 +94,46 @@ func TestValidateDisk(t *testing.T) {
 	}
 }
 
+func TestCheckNotBootDeviceResolved(t *testing.T) {
+	tests := []struct {
+		name       string
+		target     string
+		bootDevice string
+		wantErr    bool
+	}{
+		{
+			name:       "cannot determine boot device does not block",
+			target:     "/dev/sda",
+			bootDevice: "",
+			wantErr:    false,
+		},
+		{
+			name:       "different device does not block",
+			target:     "/dev/sda",
+			bootDevice: "/dev/sdb",
+			wantErr:    false,
+		},
+		{
+			name:       "same device blocks",
+			target:     "/dev/sda",
+			bootDevice: "/dev/sda",
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkNotBootDeviceResolved(tt.target, tt.bootDevice)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("checkNotBootDeviceResolved() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil && !strings.Contains(err.Error(), "currently running system disk") {
+				t.Errorf("checkNotBootDeviceResolved() error = %q, want running-system disk message", err)
+			}
+		})
+	}
+}
+
 func TestGetDiskByPath(t *testing.T) {
 	tests := []struct {
 		name    string

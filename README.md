@@ -256,6 +256,12 @@ nbc install \
   --device /dev/sda \
   --force
 
+# --yes is an alias for --force in automated install scripts
+nbc install \
+  --image quay.io/example/image:latest \
+  --device /dev/sda \
+  --yes
+
 # Dry run (test without making changes)
 nbc install \
   --image quay.io/example/image:latest \
@@ -505,7 +511,7 @@ The initial installation follows these steps:
 1. **Prerequisites Check**: Verifies required tools (sgdisk, mkfs, grub) are available
 2. **Disk Validation**: Ensures the target disk meets requirements (size, not mounted)
 3. **Image Pull**: Downloads the container image using built-in Go libraries (unless `--skip-pull` is used)
-4. **Confirmation**: Prompts user to confirm data destruction (unless `--force` is used)
+4. **Confirmation**: Prompts user to confirm data destruction (unless `--force` or `--yes` is used)
 5. **Disk Wipe**: Removes existing partition tables and filesystem signatures
 6. **Partitioning**: Creates the 5-partition GPT layout
 7. **Formatting**: Formats all partitions (FAT32 for EFI, ext4 for others)
@@ -613,8 +619,9 @@ See [.nbc.yaml.example](.nbc.yaml.example) for a complete example.
 ## Safety Features
 
 - **Unmounted Check**: Refuses to install if any partition is mounted
+- **Boot Disk Guard**: Refuses to install onto the currently running system disk when it can be detected
 - **Size Validation**: Ensures disk has minimum 50GB space
-- **Confirmation Prompt**: Requires typing "yes" before wiping disk (unless `--force`)
+- **Confirmation Prompt**: Requires typing "yes" before wiping disk (unless `--force` or `--yes`)
 - **Dry Run Mode**: Test operations without making changes
 - **Verbose Logging**: Track exactly what's happening
 - **A/B Rollback**: Previous system always available in boot menu

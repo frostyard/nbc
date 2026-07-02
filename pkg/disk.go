@@ -180,6 +180,49 @@ func ValidateDisk(device string, minSize uint64) error {
 	return nil
 }
 
+func checkNotBootDevice(device string, progress reporter.Reporter) error {
+	target, err := GetDiskByPath(device)
+	if err != nil {
+		if progress != nil {
+			progress.Warning("could not resolve target disk %s for boot-disk guard: %v", device, err)
+		}
+		return nil
+	}
+
+	bootDevice, err := GetCurrentBootDevice(progress)
+	if err != nil {
+		if progress != nil {
+			progress.Warning("could not determine current boot device; skipping boot-disk guard: %v", err)
+		}
+		return nil
+	}
+
+	return checkNotBootDeviceResolved(target, bootDevice)
+}
+
+func checkNotBootDeviceResolved(target, bootDevice string) error {
+	if target == "" || bootDevice == "" {
+		return nil
+	}
+
+	resolvedTarget := resolveDevicePath(target)
+	resolvedBoot := resolveDevicePath(bootDevice)
+
+	if resolvedTarget == resolvedBoot {
+		return fmt.Errorf("refusing to install to %s: it is the currently running system disk", target)
+	}
+
+	return nil
+}
+
+func resolveDevicePath(path string) string {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return path
+	}
+	return resolved
+}
+
 // WipeDisk securely wipes a disk's partition table
 func WipeDisk(ctx context.Context, device string, dryRun bool, progress reporter.Reporter) error {
 	if err := ctx.Err(); err != nil {

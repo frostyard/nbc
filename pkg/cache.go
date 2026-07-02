@@ -83,7 +83,6 @@ func isCacheEntry(entry os.DirEntry) bool {
 	return entry.IsDir() && !strings.HasPrefix(entry.Name(), ".")
 }
 
-
 // Download pulls a container image and saves it to the cache in OCI layout format.
 func (c *ImageCache) Download(ctx context.Context, imageRef string, progress reporter.Reporter) (*CachedImageMetadata, error) {
 	// Parse image reference

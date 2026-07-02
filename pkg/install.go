@@ -502,7 +502,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 	// Get image digest for tracking updates
 	if result.ImageDigest == "" {
 		// Fetch digest from remote if not already set from local metadata
-		digest, err := GetRemoteImageDigest(i.config.ImageRef)
+		digest, err := GetRemoteImageDigest(ctx, i.config.ImageRef)
 		if err != nil {
 			i.progress.Warning("could not get image digest: %v", err)
 		} else {

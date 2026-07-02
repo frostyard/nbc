@@ -20,14 +20,14 @@ import (
 
 // GetRemoteImageDigest fetches the digest of a remote container image without downloading layers.
 // Returns the digest in the format "sha256:..."
-func GetRemoteImageDigest(imageRef string) (string, error) {
+func GetRemoteImageDigest(ctx context.Context, imageRef string) (string, error) {
 	ref, err := name.ParseReference(imageRef)
 	if err != nil {
 		return "", fmt.Errorf("invalid image reference: %w", err)
 	}
 
 	// Get the image descriptor (manifest digest) without downloading layers
-	desc, err := remote.Head(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+	desc, err := remote.Head(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain), remote.WithContext(ctx))
 	if err != nil {
 		return "", fmt.Errorf("failed to get image descriptor: %w", err)
 	}
@@ -318,7 +318,11 @@ func (u *SystemUpdater) buildKernelCmdline(ctx context.Context, rootUUID, varUUI
 }
 
 // PrepareUpdate prepares for an update by detecting partitions and determining target
-func (u *SystemUpdater) PrepareUpdate() error {
+func (u *SystemUpdater) PrepareUpdate(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	p := u.Progress
 	p.MessagePlain("Preparing for system update...")
 
@@ -386,7 +390,7 @@ func (u *SystemUpdater) PrepareUpdate() error {
 
 // PullImage validates the image reference and checks if it's accessible
 // The actual image pull happens during Extract() to avoid duplicate work
-func (u *SystemUpdater) PullImage() error {
+func (u *SystemUpdater) PullImage(ctx context.Context) error {
 	p := u.Progress
 
 	if u.Config.DryRun {
@@ -407,7 +411,7 @@ func (u *SystemUpdater) PullImage() error {
 	}
 
 	// Try to get image descriptor to verify it exists and is accessible
-	_, err = remote.Head(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+	_, err = remote.Head(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain), remote.WithContext(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to access image: %w (check credentials if private registry)", err)
 	}
@@ -419,7 +423,7 @@ func (u *SystemUpdater) PullImage() error {
 // IsUpdateNeeded checks if the remote image differs from the currently installed image.
 // Returns true if an update is needed, false if the system is already up-to-date.
 // Also returns the remote digest for use during the update process.
-func (u *SystemUpdater) IsUpdateNeeded(short bool) (bool, string, error) {
+func (u *SystemUpdater) IsUpdateNeeded(ctx context.Context, short bool) (bool, string, error) {
 	p := u.Progress
 	if short {
 		u.Config.Verbose = false
@@ -437,7 +441,7 @@ func (u *SystemUpdater) IsUpdateNeeded(short bool) (bool, string, error) {
 			p.Message("Image digest (from cache): %s", remoteDigest)
 		}
 	} else {
-		remoteDigest, err = GetRemoteImageDigest(u.Config.ImageRef)
+		remoteDigest, err = GetRemoteImageDigest(ctx, u.Config.ImageRef)
 		if err != nil {
 			return false, "", fmt.Errorf("failed to get remote image digest: %w", err)
 		}
@@ -557,10 +561,12 @@ func (u *SystemUpdater) Update(ctx context.Context) error {
 
 		mountDevice = u.TargetMapperPath
 
-		// Ensure we close LUKS on cleanup
+		// Ensure we close LUKS on cleanup. Use a background context, not the
+		// update ctx: releasing the dm-crypt mapping must run even if the update
+		// was cancelled, or the mapping leaks.
 		defer func() {
 			if u.TargetMapperName != "" {
-				_ = CloseLUKS(ctx, u.TargetMapperName, nil)
+				_ = CloseLUKS(context.Background(), u.TargetMapperName, nil)
 			}
 		}()
 	}
@@ -674,8 +680,10 @@ func (u *SystemUpdater) Update(ctx context.Context) error {
 			// Register the LUKS-close cleanup immediately after opening, BEFORE
 			// the mount below. Otherwise a mount failure returns before this
 			// defer is registered and leaks the /dev/mapper/var dm-crypt mapping.
+			// Use a background context so the close runs even if the update ctx
+			// was cancelled.
 			defer func() {
-				_ = CloseLUKS(ctx, "var", nil)
+				_ = CloseLUKS(context.Background(), "var", nil)
 			}()
 		} else {
 			p.Message("Var LUKS container already open at %s", varMapperPath)
@@ -1254,7 +1262,10 @@ func (u *SystemUpdater) updateGRUBBootloader(ctx context.Context) error {
 		activeRoot = u.Scheme.Root2Partition
 	}
 
-	activeUUID, _ := GetPartitionUUID(ctx, activeRoot)
+	activeUUID, err := GetPartitionUUID(ctx, activeRoot)
+	if err != nil {
+		return fmt.Errorf("failed to get active root UUID for rollback boot entry: %w", err)
+	}
 
 	// Build previous kernel command line (for the currently active root)
 	previousCmdline, err := u.buildKernelCmdline(ctx, activeUUID, varUUID, fsType, false)
@@ -1319,7 +1330,10 @@ func (u *SystemUpdater) updateSystemdBootBootloader(ctx context.Context) error {
 	if !u.Active {
 		activeRoot = u.Scheme.Root2Partition
 	}
-	activeUUID, _ := GetPartitionUUID(ctx, activeRoot)
+	activeUUID, err := GetPartitionUUID(ctx, activeRoot)
+	if err != nil {
+		return fmt.Errorf("failed to get active root UUID for rollback boot entry: %w", err)
+	}
 
 	// Get kernel version from the updated root's modules directory
 	// This ensures we use the kernel from the newly extracted image, not a stale kernel
@@ -1425,19 +1439,19 @@ func (u *SystemUpdater) PerformUpdate(ctx context.Context, skipPull bool) error 
 	p := u.Progress
 
 	// Prepare update
-	if err := u.PrepareUpdate(); err != nil {
+	if err := u.PrepareUpdate(ctx); err != nil {
 		return err
 	}
 
 	// Pull image if not skipped
 	if !skipPull {
-		if err := u.PullImage(); err != nil {
+		if err := u.PullImage(ctx); err != nil {
 			return err
 		}
 	}
 
 	// Check if update is actually needed (compare digests)
-	needed, digest, err := u.IsUpdateNeeded(false)
+	needed, digest, err := u.IsUpdateNeeded(ctx, false)
 	if err != nil {
 		p.Warning("could not check if update needed: %v", err)
 		// Continue with update anyway

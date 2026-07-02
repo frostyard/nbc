@@ -97,7 +97,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		// Check for updates if verbose or always for JSON
 		if config.ImageRef != "" {
 			updateCheck := &types.UpdateCheck{}
-			remoteDigest, err := pkg.GetRemoteImageDigest(config.ImageRef)
+			remoteDigest, err := pkg.GetRemoteImageDigest(cmd.Context(), config.ImageRef)
 			if err != nil {
 				updateCheck.Error = err.Error()
 			} else {
@@ -202,7 +202,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	if clix.Verbose && config.ImageRef != "" {
 		fmt.Println()
 		fmt.Println("Checking for updates...")
-		remoteDigest, err := pkg.GetRemoteImageDigest(config.ImageRef)
+		remoteDigest, err := pkg.GetRemoteImageDigest(cmd.Context(), config.ImageRef)
 		if err != nil {
 			fmt.Printf("  Could not check for updates: %v\n", err)
 		} else if config.ImageDigest == "" {

@@ -390,7 +390,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	// Run update (skip pull if using local image)
 	skipPull := updFlags.skipPull || localLayoutPath != ""
-	if err := updater.PerformUpdate(skipPull); err != nil {
+	if err := updater.PerformUpdate(cmd.Context(), skipPull); err != nil {
 		if clix.JSONOutput {
 			progress.Error(err, "Update failed")
 		}

@@ -3,6 +3,7 @@ package pkg
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -122,8 +123,9 @@ func WriteSystemConfig(ctx context.Context, config *SystemConfig, dryRun bool, p
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	// Write to file (0644 = rw-r--r-- = world-readable, root-writable)
-	if err := os.WriteFile(SystemConfigFile, data, 0644); err != nil {
+	// Write atomically (temp file + rename) so a crash mid-write cannot corrupt
+	// the shared A/B config that status/update/download depend on.
+	if err := atomicWriteFile(SystemConfigFile, data, 0644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
@@ -169,31 +171,47 @@ func cleanupLegacyConfig() {
 }
 
 // ReadSystemConfig reads system configuration from /var/lib/nbc/state/config.json
-// Falls back to legacy location /etc/nbc/config.json for older installations
+// Falls back to legacy location /etc/nbc/config.json for older installations, or
+// if the primary config exists but is corrupt/unparseable.
 func ReadSystemConfig() (*SystemConfig, error) {
-	// Try new location first
-	data, err := os.ReadFile(SystemConfigFile)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// Try legacy location for older installations
-			data, err = os.ReadFile(LegacySystemConfigFile)
-			if err != nil {
-				if os.IsNotExist(err) {
-					return nil, fmt.Errorf("system configuration not found at %s or %s (system may not be installed with nbc)", SystemConfigFile, LegacySystemConfigFile)
-				}
-				return nil, fmt.Errorf("failed to read legacy config file: %w", err)
-			}
-			// Successfully read from legacy location - config will be migrated on next write
-		} else {
-			return nil, fmt.Errorf("failed to read config file: %w", err)
-		}
+	return loadSystemConfig(SystemConfigFile, LegacySystemConfigFile)
+}
+
+// loadSystemConfig loads config from primaryPath, falling back to legacyPath if
+// the primary is missing OR present-but-unparseable (e.g. a torn/corrupt write).
+// This avoids a hard failure of status/update/download when the shared config is
+// damaged but a valid legacy copy still exists.
+func loadSystemConfig(primaryPath, legacyPath string) (*SystemConfig, error) {
+	config, primaryErr := readAndParseConfig(primaryPath)
+	if primaryErr == nil {
+		return config, nil
 	}
 
+	// Primary missing or corrupt: try the legacy location.
+	legacyConfig, legacyErr := readAndParseConfig(legacyPath)
+	if legacyErr == nil {
+		return legacyConfig, nil
+	}
+
+	// Neither is usable. If both are simply absent, report "not installed";
+	// otherwise surface the primary error (corruption should not be masked).
+	if errors.Is(primaryErr, os.ErrNotExist) && errors.Is(legacyErr, os.ErrNotExist) {
+		return nil, fmt.Errorf("system configuration not found at %s or %s (system may not be installed with nbc)", primaryPath, legacyPath)
+	}
+	return nil, fmt.Errorf("failed to load system configuration from %s: %w", primaryPath, primaryErr)
+}
+
+// readAndParseConfig reads and unmarshals a single config file. A missing file
+// returns an error that satisfies errors.Is(err, os.ErrNotExist).
+func readAndParseConfig(path string) (*SystemConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
 	var config SystemConfig
 	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+		return nil, fmt.Errorf("failed to parse config file %s: %w", path, err)
 	}
-
 	return &config, nil
 }
 
@@ -221,8 +239,9 @@ func WriteSystemConfigToVar(ctx context.Context, varMountPoint string, config *S
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	// Write to file (0644 = rw-r--r-- = world-readable, root-writable)
-	if err := os.WriteFile(configFile, data, 0644); err != nil {
+	// Write atomically (temp file + rename) so a crash mid-write cannot corrupt
+	// the shared A/B config that status/update/download depend on.
+	if err := atomicWriteFile(configFile, data, 0644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 

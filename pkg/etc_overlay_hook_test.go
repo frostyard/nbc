@@ -71,6 +71,26 @@ func entryNames(t *testing.T, dir string) []string {
 	return names
 }
 
+func copyDirContents(t *testing.T, src, dst string) {
+	t.Helper()
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		t.Fatalf("read src dir %s: %v", src, err)
+	}
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() {
+			t.Fatalf("unexpected non-regular fixture entry %q in %s", entry.Name(), src)
+		}
+		data, err := os.ReadFile(filepath.Join(src, entry.Name()))
+		if err != nil {
+			t.Fatalf("read fixture file %s: %v", entry.Name(), err)
+		}
+		if err := os.WriteFile(filepath.Join(dst, entry.Name()), data, 0644); err != nil {
+			t.Fatalf("write fixture file %s: %v", entry.Name(), err)
+		}
+	}
+}
+
 // newOverlaySandbox creates a fake sysroot with a populated /etc and the
 // overlay upper/work directories, and returns the sysroot path.
 func newOverlaySandbox(t *testing.T) string {
@@ -113,9 +133,7 @@ func TestEtcOverlayHook_PopulatedLowerDoesNotPolluteUpper(t *testing.T) {
 	if err := os.MkdirAll(lower, 0755); err != nil {
 		t.Fatalf("mkdir lower: %v", err)
 	}
-	if out, err := exec.Command("cp", "-a", etc+"/.", lower+"/").CombinedOutput(); err != nil {
-		t.Fatalf("seed .etc.lower: %v: %s", err, out)
-	}
+	copyDirContents(t, etc, lower)
 
 	if got := countEntries(t, upper); got != 0 {
 		t.Fatalf("precondition: upper should start empty, has %d entries", got)

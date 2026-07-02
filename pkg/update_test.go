@@ -989,7 +989,7 @@ func TestPruneBootKernelPairsKeepsCurrentAndPrevious(t *testing.T) {
 	}
 }
 
-func TestPruneBootKernelPairsLeavesIncompletePairs(t *testing.T) {
+func TestPruneBootKernelPairsRemovesOrphans(t *testing.T) {
 	bootDir := t.TempDir()
 
 	completeVersions := []string{"6.18.2-previous", "6.18.3-current"}
@@ -1002,14 +1002,13 @@ func TestPruneBootKernelPairsLeavesIncompletePairs(t *testing.T) {
 		}
 	}
 
-	orphans := []string{
-		"vmlinuz-6.18.0-orphan",
-		"initramfs-6.18.1-orphan.img",
-		"loader.conf",
-	}
-	for _, orphan := range orphans {
-		if err := os.WriteFile(filepath.Join(bootDir, orphan), []byte("orphan"), 0644); err != nil {
-			t.Fatalf("Failed to write orphan file: %v", err)
+	// An orphan kernel (no initramfs) and an orphan initramfs (no kernel) are not
+	// bootable and must be pruned; unrelated files must be left alone.
+	orphans := []string{"vmlinuz-6.18.0-orphan", "initramfs-6.18.1-orphan.img"}
+	keepUnrelated := []string{"loader.conf"}
+	for _, f := range append(append([]string{}, orphans...), keepUnrelated...) {
+		if err := os.WriteFile(filepath.Join(bootDir, f), []byte("x"), 0644); err != nil {
+			t.Fatalf("Failed to write %s: %v", f, err)
 		}
 	}
 
@@ -1018,8 +1017,44 @@ func TestPruneBootKernelPairsLeavesIncompletePairs(t *testing.T) {
 	}
 
 	for _, orphan := range orphans {
-		if _, err := os.Stat(filepath.Join(bootDir, orphan)); err != nil {
-			t.Errorf("Expected incomplete/unrelated file %s to remain: %v", orphan, err)
+		if _, err := os.Stat(filepath.Join(bootDir, orphan)); !os.IsNotExist(err) {
+			t.Errorf("expected orphan %s to be pruned, stat err = %v", orphan, err)
+		}
+	}
+	for _, f := range keepUnrelated {
+		if _, err := os.Stat(filepath.Join(bootDir, f)); err != nil {
+			t.Errorf("expected unrelated file %s to remain: %v", f, err)
+		}
+	}
+	// Current and previous kernels/initramfs must remain.
+	for _, version := range completeVersions {
+		if _, err := os.Stat(filepath.Join(bootDir, "vmlinuz-"+version)); err != nil {
+			t.Errorf("expected kept kernel %s to remain: %v", version, err)
+		}
+		if _, err := os.Stat(filepath.Join(bootDir, "initrd.img-"+version)); err != nil {
+			t.Errorf("expected kept initramfs %s to remain: %v", version, err)
+		}
+	}
+}
+
+// TestPruneBootKernelPairsRemovesBothOnError ensures a version's kernel and
+// initramfs are both attempted even if one removal is a no-op, so no orphan is
+// left behind (#109).
+func TestPruneBootKernelPairsRemovesBothOfAPair(t *testing.T) {
+	bootDir := t.TempDir()
+	// One old complete pair to prune.
+	if err := os.WriteFile(filepath.Join(bootDir, "vmlinuz-6.0.0-old"), []byte("k"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bootDir, "initramfs-6.0.0-old.img"), []byte("i"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := pruneBootKernelPairs(bootDir, "7.0.0-current", "", reporter.NoopReporter{}); err != nil {
+		t.Fatalf("prune failed: %v", err)
+	}
+	for _, f := range []string{"vmlinuz-6.0.0-old", "initramfs-6.0.0-old.img"} {
+		if _, err := os.Stat(filepath.Join(bootDir, f)); !os.IsNotExist(err) {
+			t.Errorf("expected %s removed, stat err = %v", f, err)
 		}
 	}
 }

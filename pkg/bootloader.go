@@ -678,13 +678,7 @@ editor yes
 		return fmt.Errorf("failed to write loader.conf: %w", err)
 	}
 
-	// Remove any existing boot entries (from container image or bootctl install)
 	entriesDir := filepath.Join(loaderDir, "entries")
-	if entries, err := filepath.Glob(filepath.Join(entriesDir, "*.conf")); err == nil {
-		for _, entry := range entries {
-			_ = os.Remove(entry)
-		}
-	}
 	if err := os.MkdirAll(entriesDir, 0755); err != nil {
 		return fmt.Errorf("failed to create entries directory: %w", err)
 	}
@@ -695,9 +689,22 @@ initrd  /%s
 options %s
 `, b.OSName, kernelVersion, initrd, strings.Join(kernelCmdline, " "))
 
+	// Write our entry BEFORE removing any others, so the ESP is never left with
+	// zero boot entries (a crash in that window would leave nothing to boot).
 	entryPath := filepath.Join(entriesDir, "bootc.conf")
 	if err := atomicWriteFile(entryPath, []byte(entry), 0644); err != nil {
 		return fmt.Errorf("failed to write boot entry: %w", err)
+	}
+
+	// Now remove any other existing boot entries (from the container image or a
+	// bootctl install), keeping the one we just wrote.
+	if entries, err := filepath.Glob(filepath.Join(entriesDir, "*.conf")); err == nil {
+		for _, existing := range entries {
+			if filepath.Base(existing) == "bootc.conf" {
+				continue
+			}
+			_ = os.Remove(existing)
+		}
 	}
 
 	b.Progress.Message("Created boot entry: %s", b.OSName)

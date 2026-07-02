@@ -209,6 +209,8 @@ type UpdaterConfig struct {
 	KernelArgs     []string
 	MountPoint     string
 	BootMountPoint string
+	SkipVerify     bool   // Skip cosign signature verification of the pulled image
+	CosignKeyPath  string // Override trusted cosign public key (empty = embedded)
 }
 
 // SystemUpdater handles A/B system updates
@@ -646,7 +648,7 @@ func (u *SystemUpdater) Update() error {
 
 	// Step 3: Extract new container filesystem
 	p.Step(3, 7, "Extracting new container filesystem")
-	if err := ExtractAndVerifyContainer(context.Background(), u.Config.ImageRef, u.LocalLayoutPath, u.Config.MountPoint, u.Config.Verbose, p); err != nil {
+	if err := ExtractAndVerifyContainer(context.Background(), u.Config.ImageRef, u.LocalLayoutPath, u.Config.MountPoint, u.Config.Verbose, u.Config.SkipVerify, u.Config.CosignKeyPath, p); err != nil {
 		return fmt.Errorf("%w\n\nThe target partition may be in an inconsistent state.\nThe previous installation is still bootable - do NOT reboot.\nRe-run the update to try again", err)
 	}
 

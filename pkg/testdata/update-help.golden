@@ -39,18 +39,20 @@
          
   FLAGS  
          
-    --auto           Automatically use staged update if available, otherwise pull from registry
-    -c --check       Only check if an update is available (don't install)
-    -d --device      Target disk device (auto-detected if not specified)
-    --download-only  Download update to cache without applying
-    -n --dry-run     Dry run mode (no actual changes)
-    -f --force       Force reinstall even if system is up-to-date
-    -h --help        Help for update
-    -i --image       Container image reference (uses saved config if not specified)
-    --json           Output in JSON format
-    -k --karg        Kernel argument to pass (can be specified multiple times)
-    --local-image    Apply update from staged cache (/var/cache/nbc/staged-update/)
-    -s --silent      Suppress all progress output
-    --skip-pull      Skip pulling the image (use already pulled image)
-    -v --verbose     Verbose output
+    --auto                  Automatically use staged update if available, otherwise pull from registry
+    -c --check              Only check if an update is available (don't install)
+    --cosign-key            Path to a cosign public key to verify the image against (default: embedded frostyard key)
+    -d --device             Target disk device (auto-detected if not specified)
+    --download-only         Download update to cache without applying
+    -n --dry-run            Dry run mode (no actual changes)
+    -f --force              Force reinstall even if system is up-to-date
+    -h --help               Help for update
+    -i --image              Container image reference (uses saved config if not specified)
+    --insecure-skip-verify  Skip cosign signature verification of the image (not recommended)
+    --json                  Output in JSON format
+    -k --karg               Kernel argument to pass (can be specified multiple times)
+    --local-image           Apply update from staged cache (/var/cache/nbc/staged-update/)
+    -s --silent             Suppress all progress output
+    --skip-pull             Skip pulling the image (use already pulled image)
+    -v --verbose            Verbose output
 

@@ -29,6 +29,8 @@ type ContainerExtractor struct {
 	Verbose         bool
 	JSONOutput      bool
 	LocalLayoutPath string // Path to OCI layout directory for local image
+	SkipVerify      bool   // Skip cosign signature verification of registry pulls
+	CosignKeyPath   string // Override public key path (empty = embedded key)
 	Progress        reporter.Reporter
 }
 
@@ -160,6 +162,13 @@ func (c *ContainerExtractor) Extract(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("failed to pull image: %w", err)
 			}
+
+			// Verify the image's cosign signature before extracting it as root.
+			// Only registry pulls are verified: signatures live in the registry,
+			// not in a local OCI layout or a locally-built daemon image.
+			if err := c.verifyRegistryImage(ctx, ref, img); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -205,6 +214,12 @@ func (c *ContainerExtractor) Extract(ctx context.Context) error {
 
 	c.Progress.MessagePlain("Container filesystem extracted successfully")
 	return nil
+}
+
+// verifyRegistryImage verifies the cosign signature of a registry-pulled image
+// before it is extracted, unless verification is disabled.
+func (c *ContainerExtractor) verifyRegistryImage(ctx context.Context, ref name.Reference, img v1.Image) error {
+	return verifyPulledImage(ctx, ref, img, c.SkipVerify, c.CosignKeyPath, c.Progress)
 }
 
 // secureLeafPath resolves name's PARENT within root using SecureJoin (so a

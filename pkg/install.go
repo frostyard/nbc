@@ -87,6 +87,13 @@ type InstallConfig struct {
 
 	// SkipPull skips pulling the image (assumes it's already available).
 	SkipPull bool
+
+	// SkipVerify disables cosign signature verification of the pulled image.
+	SkipVerify bool
+
+	// CosignKeyPath overrides the trusted cosign public key used for
+	// verification. Empty means use the key embedded in the binary.
+	CosignKeyPath string
 }
 
 // EncryptionOptions configures LUKS encryption for the installation.
@@ -422,7 +429,7 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 	if i.config.LocalImage != nil {
 		localLayoutPath = i.config.LocalImage.LayoutPath
 	}
-	if err := ExtractAndVerifyContainer(ctx, i.config.ImageRef, localLayoutPath, i.config.MountPoint, i.config.Verbose, i.progress); err != nil {
+	if err := ExtractAndVerifyContainer(ctx, i.config.ImageRef, localLayoutPath, i.config.MountPoint, i.config.Verbose, i.config.SkipVerify, i.config.CosignKeyPath, i.progress); err != nil {
 		i.progress.Error(err, "Container extraction failed")
 		return result, err
 	}

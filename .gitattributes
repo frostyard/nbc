@@ -1,0 +1,2 @@
+pkg/testdata/cosign/snowloaded.payload.json -text
+pkg/testdata/cosign/snowloaded.sig.b64 -text

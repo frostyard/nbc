@@ -19,6 +19,8 @@ type updateFlags struct {
 	downloadOnly bool
 	localImage   bool
 	auto         bool
+	skipVerify   bool
+	cosignKey    string
 }
 
 var updFlags updateFlags
@@ -69,6 +71,8 @@ func init() {
 	updateCmd.Flags().StringVarP(&updFlags.image, "image", "i", "", "Container image reference (uses saved config if not specified)")
 	updateCmd.Flags().StringVarP(&updFlags.device, "device", "d", "", "Target disk device (auto-detected if not specified)")
 	updateCmd.Flags().BoolVar(&updFlags.skipPull, "skip-pull", false, "Skip pulling the image (use already pulled image)")
+	updateCmd.Flags().BoolVar(&updFlags.skipVerify, "insecure-skip-verify", false, "Skip cosign signature verification of the image (not recommended)")
+	updateCmd.Flags().StringVar(&updFlags.cosignKey, "cosign-key", "", "Path to a cosign public key to verify the image against (default: embedded frostyard key)")
 	updateCmd.Flags().BoolVarP(&updFlags.checkOnly, "check", "c", false, "Only check if an update is available (don't install)")
 	updateCmd.Flags().StringArrayVarP(&updFlags.kernelArgs, "karg", "k", []string{}, "Kernel argument to pass (can be specified multiple times)")
 	updateCmd.Flags().BoolP("force", "f", false, "Force reinstall even if system is up-to-date")
@@ -230,6 +234,8 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 		// Download to staged-update cache
 		updateCache.SetVerbose(clix.Verbose)
+		updateCache.SkipVerify = updFlags.skipVerify
+		updateCache.CosignKeyPath = updFlags.cosignKey
 		metadata, err := updateCache.Download(cmd.Context(), imageRef, progress)
 		if err != nil {
 			if clix.JSONOutput {
@@ -319,6 +325,8 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	updater.SetDryRun(clix.DryRun)
 	updater.SetForce(force)
 	updater.SetJSONOutput(clix.JSONOutput)
+	updater.Config.SkipVerify = updFlags.skipVerify
+	updater.Config.CosignKeyPath = updFlags.cosignKey
 
 	// For --check --json, override the updater's reporter with NoopReporter
 	// so IsUpdateNeeded doesn't emit streaming JSON — only the final

@@ -1,0 +1,1 @@
+{"critical":{"identity":{"docker-reference":"ghcr.io/frostyard/snowloaded"},"image":{"docker-manifest-digest":"sha256:3a50babd974dbf401aa3a5eece41d98d856ebc4b248917427b6645b2f4606ead"},"type":"cosign container image signature"},"optional":null}

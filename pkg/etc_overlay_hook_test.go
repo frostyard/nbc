@@ -55,11 +55,20 @@ prepare_etc_lower
 
 func countEntries(t *testing.T, dir string) int {
 	t.Helper()
+	return len(entryNames(t, dir))
+}
+
+func entryNames(t *testing.T, dir string) []string {
+	t.Helper()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("failed to read %s: %v", dir, err)
 	}
-	return len(entries)
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	return names
 }
 
 // newOverlaySandbox creates a fake sysroot with a populated /etc and the
@@ -118,15 +127,8 @@ func TestEtcOverlayHook_PopulatedLowerDoesNotPolluteUpper(t *testing.T) {
 
 	// The core assertion: upper must remain empty. On the buggy hook it gets the
 	// entire /etc copied into it.
-	if got := countEntries(t, upper); got != 0 {
-		names, err := os.ReadDir(upper)
-		if err != nil {
-			t.Fatalf("failed to read upper dir: %v", err)
-		}
-		var polluted []string
-		for _, n := range names {
-			polluted = append(polluted, n.Name())
-		}
+	polluted := entryNames(t, upper)
+	if got := len(polluted); got != 0 {
 		t.Errorf("upper layer was polluted with %d entries from /etc: %v", got, polluted)
 	}
 

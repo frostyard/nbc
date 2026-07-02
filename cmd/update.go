@@ -189,7 +189,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		}
 
 		// Get remote digest of new image
-		remoteDigest, err := pkg.GetRemoteImageDigest(imageRef)
+		remoteDigest, err := pkg.GetRemoteImageDigest(cmd.Context(), imageRef)
 		if err != nil {
 			if clix.JSONOutput {
 				progress.Error(err, "Failed to get remote image digest")
@@ -342,7 +342,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	// If --check flag, only check if update is needed
 	if updFlags.checkOnly {
-		needed, digest, err := updater.IsUpdateNeeded(true)
+		needed, digest, err := updater.IsUpdateNeeded(cmd.Context(), true)
 		if err != nil {
 			if clix.JSONOutput {
 				progress.Error(err, "Failed to check for updates")
@@ -390,7 +390,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	// Run update (skip pull if using local image)
 	skipPull := updFlags.skipPull || localLayoutPath != ""
-	if err := updater.PerformUpdate(skipPull); err != nil {
+	if err := updater.PerformUpdate(cmd.Context(), skipPull); err != nil {
 		if clix.JSONOutput {
 			progress.Error(err, "Update failed")
 		}

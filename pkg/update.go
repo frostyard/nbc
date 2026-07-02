@@ -20,14 +20,14 @@ import (
 
 // GetRemoteImageDigest fetches the digest of a remote container image without downloading layers.
 // Returns the digest in the format "sha256:..."
-func GetRemoteImageDigest(imageRef string) (string, error) {
+func GetRemoteImageDigest(ctx context.Context, imageRef string) (string, error) {
 	ref, err := name.ParseReference(imageRef)
 	if err != nil {
 		return "", fmt.Errorf("invalid image reference: %w", err)
 	}
 
 	// Get the image descriptor (manifest digest) without downloading layers
-	desc, err := remote.Head(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+	desc, err := remote.Head(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain), remote.WithContext(ctx))
 	if err != nil {
 		return "", fmt.Errorf("failed to get image descriptor: %w", err)
 	}
@@ -285,8 +285,8 @@ func (u *SystemUpdater) SetLocalImage(layoutPath string, metadata *CachedImageMe
 // buildKernelCmdline gathers the update-specific inputs (which root slot is the
 // target vs the active/previous one) and delegates assembly to
 // assembleKernelCmdline, shared with the install flow so the two never diverge.
-func (u *SystemUpdater) buildKernelCmdline(rootUUID, varUUID, fsType string, isTarget bool) ([]string, error) {
-	bootUUID, err := GetPartitionUUID(context.Background(), u.Scheme.BootPartition)
+func (u *SystemUpdater) buildKernelCmdline(ctx context.Context, rootUUID, varUUID, fsType string, isTarget bool) ([]string, error) {
+	bootUUID, err := GetPartitionUUID(ctx, u.Scheme.BootPartition)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get boot UUID: %w", err)
 	}
@@ -318,7 +318,11 @@ func (u *SystemUpdater) buildKernelCmdline(rootUUID, varUUID, fsType string, isT
 }
 
 // PrepareUpdate prepares for an update by detecting partitions and determining target
-func (u *SystemUpdater) PrepareUpdate() error {
+func (u *SystemUpdater) PrepareUpdate(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	p := u.Progress
 	p.MessagePlain("Preparing for system update...")
 
@@ -386,7 +390,7 @@ func (u *SystemUpdater) PrepareUpdate() error {
 
 // PullImage validates the image reference and checks if it's accessible
 // The actual image pull happens during Extract() to avoid duplicate work
-func (u *SystemUpdater) PullImage() error {
+func (u *SystemUpdater) PullImage(ctx context.Context) error {
 	p := u.Progress
 
 	if u.Config.DryRun {
@@ -407,7 +411,7 @@ func (u *SystemUpdater) PullImage() error {
 	}
 
 	// Try to get image descriptor to verify it exists and is accessible
-	_, err = remote.Head(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+	_, err = remote.Head(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain), remote.WithContext(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to access image: %w (check credentials if private registry)", err)
 	}
@@ -419,7 +423,7 @@ func (u *SystemUpdater) PullImage() error {
 // IsUpdateNeeded checks if the remote image differs from the currently installed image.
 // Returns true if an update is needed, false if the system is already up-to-date.
 // Also returns the remote digest for use during the update process.
-func (u *SystemUpdater) IsUpdateNeeded(short bool) (bool, string, error) {
+func (u *SystemUpdater) IsUpdateNeeded(ctx context.Context, short bool) (bool, string, error) {
 	p := u.Progress
 	if short {
 		u.Config.Verbose = false
@@ -437,7 +441,7 @@ func (u *SystemUpdater) IsUpdateNeeded(short bool) (bool, string, error) {
 			p.Message("Image digest (from cache): %s", remoteDigest)
 		}
 	} else {
-		remoteDigest, err = GetRemoteImageDigest(u.Config.ImageRef)
+		remoteDigest, err = GetRemoteImageDigest(ctx, u.Config.ImageRef)
 		if err != nil {
 			return false, "", fmt.Errorf("failed to get remote image digest: %w", err)
 		}
@@ -489,8 +493,12 @@ func (u *SystemUpdater) IsUpdateNeeded(short bool) (bool, string, error) {
 }
 
 // Update performs the system update
-func (u *SystemUpdater) Update() error {
+func (u *SystemUpdater) Update(ctx context.Context) error {
 	p := u.Progress
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	if u.Config.DryRun {
 		p.MessagePlain("[DRY RUN] Would update to partition: %s", u.Target)
@@ -502,7 +510,7 @@ func (u *SystemUpdater) Update() error {
 	// Ensure critical files (SSH host keys, machine-id) are in overlay upper layer
 	// This must happen before we extract the new container image, so that these
 	// files persist even if the new container image has different versions
-	if err := EnsureCriticalFilesInOverlay(context.Background(), u.Config.DryRun, p); err != nil {
+	if err := EnsureCriticalFilesInOverlay(ctx, u.Config.DryRun, p); err != nil {
 		p.Warning("Failed to preserve critical files in overlay: %v", err)
 		// Continue anyway - this is a best-effort operation
 	}
@@ -526,7 +534,7 @@ func (u *SystemUpdater) Update() error {
 
 			// Try TPM2 auto-unlock first if enabled
 			if u.Encryption.TPM2 {
-				_, tpmErr := TryTPM2Unlock(context.Background(), u.Target, u.TargetMapperName, p)
+				_, tpmErr := TryTPM2Unlock(ctx, u.Target, u.TargetMapperName, p)
 				if tpmErr == nil {
 					p.Message("LUKS container unlocked via TPM2")
 					opened = true
@@ -542,7 +550,7 @@ func (u *SystemUpdater) Update() error {
 					return fmt.Errorf("failed to read passphrase: %w", err)
 				}
 
-				_, err = OpenLUKS(context.Background(), u.Target, u.TargetMapperName, passphrase, p)
+				_, err = OpenLUKS(ctx, u.Target, u.TargetMapperName, passphrase, p)
 				if err != nil {
 					return fmt.Errorf("failed to open LUKS container: %w", err)
 				}
@@ -553,7 +561,9 @@ func (u *SystemUpdater) Update() error {
 
 		mountDevice = u.TargetMapperPath
 
-		// Ensure we close LUKS on cleanup
+		// Ensure we close LUKS on cleanup. Use a background context, not the
+		// update ctx: releasing the dm-crypt mapping must run even if the update
+		// was cancelled, or the mapping leaks.
 		defer func() {
 			if u.TargetMapperName != "" {
 				_ = CloseLUKS(context.Background(), u.TargetMapperName, nil)
@@ -561,7 +571,7 @@ func (u *SystemUpdater) Update() error {
 		}()
 	}
 
-	cmd := exec.Command("mount", mountDevice, u.Config.MountPoint)
+	cmd := exec.CommandContext(ctx, "mount", mountDevice, u.Config.MountPoint)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to mount target partition: %w\nOutput: %s", err, string(output))
 	}
@@ -572,6 +582,10 @@ func (u *SystemUpdater) Update() error {
 	}()
 
 	// Step 2: Clear existing content
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	p.Step(2, 7, "Clearing old content from target partition")
 	entries, err := os.ReadDir(u.Config.MountPoint)
 	if err != nil {
@@ -585,12 +599,20 @@ func (u *SystemUpdater) Update() error {
 	}
 
 	// Step 3: Extract new container filesystem
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	p.Step(3, 7, "Extracting new container filesystem")
-	if err := ExtractAndVerifyContainer(context.Background(), u.Config.ImageRef, u.LocalLayoutPath, u.Config.MountPoint, u.Config.Verbose, u.Config.SkipVerify, u.Config.CosignKeyPath, p); err != nil {
+	if err := ExtractAndVerifyContainer(ctx, u.Config.ImageRef, u.LocalLayoutPath, u.Config.MountPoint, u.Config.Verbose, u.Config.SkipVerify, u.Config.CosignKeyPath, p); err != nil {
 		return fmt.Errorf("%w\n\nThe target partition may be in an inconsistent state.\nThe previous installation is still bootable - do NOT reboot.\nRe-run the update to try again", err)
 	}
 
 	// Step 4: Merge /etc configuration from active system
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	p.Step(4, 7, "Preserving user configuration")
 	activeRoot := u.Scheme.Root1Partition
 	if !u.Active {
@@ -604,7 +626,7 @@ func (u *SystemUpdater) Update() error {
 			activeRoot = "/dev/mapper/root2"
 		}
 	}
-	if err := MergeEtcFromActive(context.Background(), u.Config.MountPoint, activeRoot, u.Config.DryRun, p); err != nil {
+	if err := MergeEtcFromActive(ctx, u.Config.MountPoint, activeRoot, u.Config.DryRun, p); err != nil {
 		return fmt.Errorf("failed to merge /etc: %w", err)
 	}
 
@@ -633,7 +655,7 @@ func (u *SystemUpdater) Update() error {
 
 			// Try TPM2 auto-unlock first if enabled
 			if u.Encryption.TPM2 {
-				_, tpmErr := TryTPM2Unlock(context.Background(), varLUKSDevice, "var", p)
+				_, tpmErr := TryTPM2Unlock(ctx, varLUKSDevice, "var", p)
 				if tpmErr == nil {
 					p.Message("Var LUKS container unlocked via TPM2")
 					opened = true
@@ -649,7 +671,7 @@ func (u *SystemUpdater) Update() error {
 					return fmt.Errorf("failed to read passphrase: %w", err)
 				}
 
-				_, err = OpenLUKS(context.Background(), varLUKSDevice, "var", passphrase, p)
+				_, err = OpenLUKS(ctx, varLUKSDevice, "var", passphrase, p)
 				if err != nil {
 					return fmt.Errorf("failed to open var LUKS container: %w", err)
 				}
@@ -658,6 +680,8 @@ func (u *SystemUpdater) Update() error {
 			// Register the LUKS-close cleanup immediately after opening, BEFORE
 			// the mount below. Otherwise a mount failure returns before this
 			// defer is registered and leaks the /dev/mapper/var dm-crypt mapping.
+			// Use a background context so the close runs even if the update ctx
+			// was cancelled.
 			defer func() {
 				_ = CloseLUKS(context.Background(), "var", nil)
 			}()
@@ -668,7 +692,7 @@ func (u *SystemUpdater) Update() error {
 		varDevice = varMapperPath
 	}
 
-	cmd = exec.Command("mount", varDevice, varMountPoint)
+	cmd = exec.CommandContext(ctx, "mount", varDevice, varMountPoint)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to mount var partition: %w\nOutput: %s", err, string(output))
 	}
@@ -677,8 +701,12 @@ func (u *SystemUpdater) Update() error {
 	}()
 
 	// Step 5: Setup target system (dracut, directories, machine-id, etc.lower, tmpfiles)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	p.Step(5, 7, "Setting up target system")
-	if err := SetupTargetSystem(context.Background(), u.Config.MountPoint, u.Config.DryRun, u.Config.Verbose, p); err != nil {
+	if err := SetupTargetSystem(ctx, u.Config.MountPoint, u.Config.DryRun, u.Config.Verbose, p); err != nil {
 		return err
 	}
 
@@ -710,12 +738,12 @@ func (u *SystemUpdater) Update() error {
 
 			// Write to target's /var partition (already mounted at varMountPoint)
 			// This also handles migration from legacy /etc/nbc location
-			if err := WriteSystemConfigToVar(context.Background(), varMountPoint, existingConfig, false, p); err != nil {
+			if err := WriteSystemConfigToVar(ctx, varMountPoint, existingConfig, false, p); err != nil {
 				p.Warning("failed to write config to target var: %v", err)
 			}
 
 			// Update running system's config (migrates from /etc/nbc if needed)
-			if err := WriteSystemConfig(context.Background(), existingConfig, false, p); err != nil {
+			if err := WriteSystemConfig(ctx, existingConfig, false, p); err != nil {
 				p.Warning("failed to update running system config: %v", err)
 			} else {
 				p.Message("Updated running system config")
@@ -724,21 +752,29 @@ func (u *SystemUpdater) Update() error {
 	}
 
 	// Step 6: Install new kernel and initramfs if present
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	p.Step(6, 7, "Checking for new kernel and initramfs")
-	if err := u.InstallKernelAndInitramfs(); err != nil {
+	if err := u.InstallKernelAndInitramfs(ctx); err != nil {
 		return fmt.Errorf("failed to install kernel/initramfs: %w", err)
 	}
 
 	// Step 7: Update bootloader configuration
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	p.Step(7, 7, "Updating bootloader configuration")
-	if err := u.UpdateBootloader(); err != nil {
+	if err := u.UpdateBootloader(ctx); err != nil {
 		return fmt.Errorf("failed to update bootloader: %w", err)
 	}
 
 	// Prune old kernels only after the bootloader entries reference the current
 	// and previous kernels, so a crash mid-update never leaves the rollback entry
 	// pointing at a deleted kernel.
-	if err := u.PruneOldBootKernels(); err != nil {
+	if err := u.PruneOldBootKernels(ctx); err != nil {
 		return fmt.Errorf("failed to prune old boot kernels: %w", err)
 	}
 
@@ -761,7 +797,7 @@ func (u *SystemUpdater) Update() error {
 
 // InstallKernelAndInitramfs checks for new kernel and initramfs in the updated root
 // and copies them to the boot partition (which is the combined EFI/boot partition)
-func (u *SystemUpdater) InstallKernelAndInitramfs() error {
+func (u *SystemUpdater) InstallKernelAndInitramfs(ctx context.Context) error {
 	p := u.Progress
 	// Look for kernel modules in the new root's /usr/lib/modules directory
 	modulesDir := filepath.Join(u.Config.MountPoint, "usr", "lib", "modules")
@@ -780,7 +816,7 @@ func (u *SystemUpdater) InstallKernelAndInitramfs() error {
 	}
 	defer func() { _ = os.RemoveAll(bootMountPoint) }()
 
-	cmd := exec.Command("mount", u.Scheme.BootPartition, bootMountPoint)
+	cmd := exec.CommandContext(ctx, "mount", u.Scheme.BootPartition, bootMountPoint)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to mount boot partition: %w\nOutput: %s", err, string(output))
 	}
@@ -909,7 +945,7 @@ func (u *SystemUpdater) InstallKernelAndInitramfs() error {
 // been updated: pruning before the rollback (previous) entry is rewritten could
 // delete a kernel that entry still points at, leaving a dangling, unbootable
 // rollback entry if the update is interrupted.
-func (u *SystemUpdater) PruneOldBootKernels() error {
+func (u *SystemUpdater) PruneOldBootKernels(ctx context.Context) error {
 	p := u.Progress
 
 	currentKernelVersion, err := u.getUpdatedRootKernelVersion()
@@ -931,7 +967,7 @@ func (u *SystemUpdater) PruneOldBootKernels() error {
 	}
 	defer func() { _ = os.RemoveAll(bootMountPoint) }()
 
-	cmd := exec.Command("mount", u.Scheme.BootPartition, bootMountPoint)
+	cmd := exec.CommandContext(ctx, "mount", u.Scheme.BootPartition, bootMountPoint)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to mount boot partition: %w\nOutput: %s", err, string(output))
 	}
@@ -1064,13 +1100,13 @@ func (u *SystemUpdater) detectBootloaderTypeFromMount(bootMount string) Bootload
 }
 
 // UpdateBootloader updates the bootloader to boot from the new partition
-func (u *SystemUpdater) UpdateBootloader() error {
+func (u *SystemUpdater) UpdateBootloader(ctx context.Context) error {
 	// Mount boot partition
 	if err := os.MkdirAll(u.Config.BootMountPoint, 0755); err != nil {
 		return fmt.Errorf("failed to create boot mount point: %w", err)
 	}
 
-	cmd := exec.Command("mount", u.Scheme.BootPartition, u.Config.BootMountPoint)
+	cmd := exec.CommandContext(ctx, "mount", u.Scheme.BootPartition, u.Config.BootMountPoint)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to mount boot partition: %w\nOutput: %s", err, string(output))
 	}
@@ -1083,9 +1119,9 @@ func (u *SystemUpdater) UpdateBootloader() error {
 	// Update based on bootloader type
 	switch bootloaderType {
 	case BootloaderGRUB2:
-		return u.updateGRUBBootloader()
+		return u.updateGRUBBootloader(ctx)
 	case BootloaderSystemdBoot:
-		return u.updateSystemdBootBootloader()
+		return u.updateSystemdBootBootloader(ctx)
 	default:
 		return fmt.Errorf("unsupported bootloader type: %s", bootloaderType)
 	}
@@ -1155,15 +1191,15 @@ func getKernelVersionFromRoot(root string) (string, error) {
 }
 
 // updateGRUBBootloader updates GRUB configuration
-func (u *SystemUpdater) updateGRUBBootloader() error {
+func (u *SystemUpdater) updateGRUBBootloader(ctx context.Context) error {
 	// Get UUID of new root partition
-	targetUUID, err := GetPartitionUUID(context.Background(), u.Target)
+	targetUUID, err := GetPartitionUUID(ctx, u.Target)
 	if err != nil {
 		return fmt.Errorf("failed to get target UUID: %w", err)
 	}
 
 	// Get /var UUID for kernel command line mount
-	varUUID, err := GetPartitionUUID(context.Background(), u.Scheme.VarPartition)
+	varUUID, err := GetPartitionUUID(ctx, u.Scheme.VarPartition)
 	if err != nil {
 		return fmt.Errorf("failed to get var UUID: %w", err)
 	}
@@ -1194,7 +1230,7 @@ func (u *SystemUpdater) updateGRUBBootloader() error {
 	}
 
 	// Build kernel command line
-	kernelCmdline, err := u.buildKernelCmdline(targetUUID, varUUID, fsType, true)
+	kernelCmdline, err := u.buildKernelCmdline(ctx, targetUUID, varUUID, fsType, true)
 	if err != nil {
 		return fmt.Errorf("failed to build kernel cmdline: %w", err)
 	}
@@ -1226,10 +1262,13 @@ func (u *SystemUpdater) updateGRUBBootloader() error {
 		activeRoot = u.Scheme.Root2Partition
 	}
 
-	activeUUID, _ := GetPartitionUUID(context.Background(), activeRoot)
+	activeUUID, err := GetPartitionUUID(ctx, activeRoot)
+	if err != nil {
+		return fmt.Errorf("failed to get active root UUID for rollback boot entry: %w", err)
+	}
 
 	// Build previous kernel command line (for the currently active root)
-	previousCmdline, err := u.buildKernelCmdline(activeUUID, varUUID, fsType, false)
+	previousCmdline, err := u.buildKernelCmdline(ctx, activeUUID, varUUID, fsType, false)
 	if err != nil {
 		return fmt.Errorf("failed to build previous kernel cmdline: %w", err)
 	}
@@ -1275,14 +1314,14 @@ menuentry '%s (Previous)' {
 }
 
 // updateSystemdBootBootloader updates systemd-boot configuration
-func (u *SystemUpdater) updateSystemdBootBootloader() error {
+func (u *SystemUpdater) updateSystemdBootBootloader(ctx context.Context) error {
 	// Get UUIDs
-	targetUUID, err := GetPartitionUUID(context.Background(), u.Target)
+	targetUUID, err := GetPartitionUUID(ctx, u.Target)
 	if err != nil {
 		return fmt.Errorf("failed to get target UUID: %w", err)
 	}
 
-	varUUID, err := GetPartitionUUID(context.Background(), u.Scheme.VarPartition)
+	varUUID, err := GetPartitionUUID(ctx, u.Scheme.VarPartition)
 	if err != nil {
 		return fmt.Errorf("failed to get var UUID: %w", err)
 	}
@@ -1291,7 +1330,10 @@ func (u *SystemUpdater) updateSystemdBootBootloader() error {
 	if !u.Active {
 		activeRoot = u.Scheme.Root2Partition
 	}
-	activeUUID, _ := GetPartitionUUID(context.Background(), activeRoot)
+	activeUUID, err := GetPartitionUUID(ctx, activeRoot)
+	if err != nil {
+		return fmt.Errorf("failed to get active root UUID for rollback boot entry: %w", err)
+	}
 
 	// Get kernel version from the updated root's modules directory
 	// This ensures we use the kernel from the newly extracted image, not a stale kernel
@@ -1319,7 +1361,7 @@ func (u *SystemUpdater) updateSystemdBootBootloader() error {
 	}
 
 	// Build kernel command line
-	kernelCmdline, err := u.buildKernelCmdline(targetUUID, varUUID, fsType, true)
+	kernelCmdline, err := u.buildKernelCmdline(ctx, targetUUID, varUUID, fsType, true)
 	if err != nil {
 		return fmt.Errorf("failed to build kernel cmdline: %w", err)
 	}
@@ -1344,7 +1386,7 @@ func (u *SystemUpdater) updateSystemdBootBootloader() error {
 	}
 
 	// Build previous kernel command line (for the currently active root)
-	previousCmdline, err := u.buildKernelCmdline(activeUUID, varUUID, fsType, false)
+	previousCmdline, err := u.buildKernelCmdline(ctx, activeUUID, varUUID, fsType, false)
 	if err != nil {
 		return fmt.Errorf("failed to build previous kernel cmdline: %w", err)
 	}
@@ -1382,7 +1424,11 @@ options %s
 }
 
 // PerformUpdate performs the complete update workflow
-func (u *SystemUpdater) PerformUpdate(skipPull bool) error {
+func (u *SystemUpdater) PerformUpdate(ctx context.Context, skipPull bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// Acquire exclusive lock for system operation
 	lock, err := AcquireSystemLock()
 	if err != nil {
@@ -1393,19 +1439,19 @@ func (u *SystemUpdater) PerformUpdate(skipPull bool) error {
 	p := u.Progress
 
 	// Prepare update
-	if err := u.PrepareUpdate(); err != nil {
+	if err := u.PrepareUpdate(ctx); err != nil {
 		return err
 	}
 
 	// Pull image if not skipped
 	if !skipPull {
-		if err := u.PullImage(); err != nil {
+		if err := u.PullImage(ctx); err != nil {
 			return err
 		}
 	}
 
 	// Check if update is actually needed (compare digests)
-	needed, digest, err := u.IsUpdateNeeded(false)
+	needed, digest, err := u.IsUpdateNeeded(ctx, false)
 	if err != nil {
 		p.Warning("could not check if update needed: %v", err)
 		// Continue with update anyway
@@ -1436,7 +1482,7 @@ func (u *SystemUpdater) PerformUpdate(skipPull bool) error {
 	}
 
 	// Perform update
-	if err := u.Update(); err != nil {
+	if err := u.Update(ctx); err != nil {
 		return err
 	}
 

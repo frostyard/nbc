@@ -40,7 +40,7 @@ func TestSystemUpdater_Update(t *testing.T) {
 	updater.SetForce(true)
 
 	// Skip pull since we're using a local test image
-	if err := updater.PerformUpdate(true); err != nil {
+	if err := updater.PerformUpdate(t.Context(), true); err != nil {
 		t.Fatalf("Update failed: %v", err)
 	}
 
@@ -107,7 +107,7 @@ func TestSystemUpdater_EtcPersistence(t *testing.T) {
 	updater.SetForce(true)
 
 	// Skip pull since we're using a local test image
-	if err := updater.PerformUpdate(true); err != nil {
+	if err := updater.PerformUpdate(t.Context(), true); err != nil {
 		t.Fatalf("Update failed: %v", err)
 	}
 
@@ -196,7 +196,7 @@ func TestSystemUpdater_DeviceFieldPersistence(t *testing.T) {
 	updater.SetDryRun(false)
 	updater.SetForce(true)
 
-	if err := updater.PerformUpdate(true); err != nil {
+	if err := updater.PerformUpdate(t.Context(), true); err != nil {
 		t.Fatalf("Update failed: %v", err)
 	}
 
@@ -493,7 +493,7 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 			Active: true, // root1 is active, so target is root2
 		}
 
-		cmdline, err := updater.buildKernelCmdline(root2UUID, varUUID, "ext4", true)
+		cmdline, err := updater.buildKernelCmdline(t.Context(), root2UUID, varUUID, "ext4", true)
 		if err != nil {
 			t.Fatalf("buildKernelCmdline failed: %v", err)
 		}
@@ -528,7 +528,7 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 			Active: true, // root1 is active
 		}
 
-		cmdline, err := updater.buildKernelCmdline(root1UUID, varUUID, "ext4", false)
+		cmdline, err := updater.buildKernelCmdline(t.Context(), root1UUID, varUUID, "ext4", false)
 		if err != nil {
 			t.Fatalf("buildKernelCmdline failed: %v", err)
 		}
@@ -575,7 +575,7 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 			},
 		}
 
-		cmdline, err := updater.buildKernelCmdline(root2UUID, varUUID, "ext4", true)
+		cmdline, err := updater.buildKernelCmdline(t.Context(), root2UUID, varUUID, "ext4", true)
 		if err != nil {
 			t.Fatalf("buildKernelCmdline failed: %v", err)
 		}
@@ -613,7 +613,7 @@ func TestBuildKernelCmdline_UpdaterWithBootMount(t *testing.T) {
 			Active: true,
 		}
 
-		cmdline, err := updater.buildKernelCmdline(root2UUID, varUUID, "ext4", true)
+		cmdline, err := updater.buildKernelCmdline(t.Context(), root2UUID, varUUID, "ext4", true)
 		if err != nil {
 			t.Fatalf("buildKernelCmdline failed: %v", err)
 		}

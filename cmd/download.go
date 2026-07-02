@@ -111,7 +111,7 @@ func runDownload(cmd *cobra.Command, args []string) error {
 		}
 
 		// Get remote digest of new image
-		remoteDigest, err := pkg.GetRemoteImageDigest(dlFlags.image)
+		remoteDigest, err := pkg.GetRemoteImageDigest(cmd.Context(), dlFlags.image)
 		if err != nil {
 			if clix.JSONOutput {
 				return clix.OutputJSONError("failed to get remote image digest", err)

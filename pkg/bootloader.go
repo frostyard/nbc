@@ -464,6 +464,24 @@ func (b *BootloaderInstaller) installGRUB2(ctx context.Context) error {
 	return nil
 }
 
+// buildGRUBCmdline transforms the base kernel cmdline into the GRUB variant:
+// it forces read-only boot (root=..., ro, console=tty0) and then appends the
+// remaining args with any "ro"/"rw" tokens removed, so "ro" is not duplicated
+// (buildKernelCmdline already places "ro" right after root=...).
+func buildGRUBCmdline(kernelCmdline []string) []string {
+	if len(kernelCmdline) == 0 {
+		return []string{"ro", "console=tty0"}
+	}
+	final := []string{kernelCmdline[0], "ro", "console=tty0"}
+	for _, arg := range kernelCmdline[1:] {
+		if arg == "ro" || arg == "rw" {
+			continue
+		}
+		final = append(final, arg)
+	}
+	return final
+}
+
 // generateGRUBConfig generates GRUB configuration
 func (b *BootloaderInstaller) generateGRUBConfig(ctx context.Context) error {
 	b.Progress.Message("Generating GRUB configuration...")
@@ -498,14 +516,7 @@ func (b *BootloaderInstaller) generateGRUBConfig(ctx context.Context) error {
 	}
 
 	// Build final command line: root=..., ro, console=tty0, then rest of args
-	var finalCmdline []string
-	finalCmdline = append(finalCmdline, kernelCmdline[0]) // root=...
-	finalCmdline = append(finalCmdline, "ro", "console=tty0")
-	for _, arg := range kernelCmdline[1:] {
-		if arg != "rw" { // Skip rw since we use ro for GRUB
-			finalCmdline = append(finalCmdline, arg)
-		}
-	}
+	finalCmdline := buildGRUBCmdline(kernelCmdline)
 
 	// Create GRUB config
 	grubCfg := fmt.Sprintf(`set timeout=5

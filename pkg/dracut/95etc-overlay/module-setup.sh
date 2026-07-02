@@ -15,9 +15,12 @@ check() {
 }
 
 depends() {
-    # We need the crypt module to be loaded first if LUKS is in use,
-    # so that /var can be unlocked before we try to mount the overlay
-    echo "rootfs-block"
+    # Declare the crypt module as a dependency so it is force-included in the
+    # initramfs even for generic (non-hostonly) image builds where the build
+    # host has no LUKS devices for crypt's own check() to auto-detect. Without
+    # this, an encrypted /var could not be unlocked before we mount the overlay.
+    # rootfs-block is kept for block-device setup ordering.
+    echo "crypt rootfs-block"
     return 0
 }
 

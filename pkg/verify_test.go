@@ -74,7 +74,10 @@ func TestVerifyCosignPayload_TamperedPayloadRejected(t *testing.T) {
 
 func TestVerifyCosignPayload_WrongKeyRejected(t *testing.T) {
 	// A different key must not verify the real signature.
-	otherKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	otherKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
 	payload := readFixture(t, "snowloaded.payload.json")
 	sigB64 := strings.TrimSpace(string(readFixture(t, "snowloaded.sig.b64")))
 
@@ -86,7 +89,10 @@ func TestVerifyCosignPayload_WrongKeyRejected(t *testing.T) {
 // TestVerifyCosignPayload_RoundTrip proves the crypto path with a freshly
 // generated key, independent of the fixture.
 func TestVerifyCosignPayload_RoundTrip(t *testing.T) {
-	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
 	digest := "sha256:" + strings.Repeat("ab", 32)
 	payload := []byte(`{"critical":{"image":{"docker-manifest-digest":"` + digest + `"},"type":"cosign container image signature"}}`)
 	h := sha256.Sum256(payload)

@@ -26,10 +26,10 @@ func TestSetupSecureBootChain_GRUB2_DoesNotInstallFbx64(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeFile(filepath.Join("usr", "lib", "shim", "shimx64.efi.signed"))                    // findShimEFI
+	writeFile(filepath.Join("usr", "lib", "shim", "shimx64.efi.signed"))                      // findShimEFI
 	writeFile(filepath.Join("usr", "lib", "grub", "x86_64-efi-signed", "grubx64.efi.signed")) // findSignedGrubEFI
-	writeFile(filepath.Join("usr", "lib", "shim", "mmx64.efi"))                             // findMokManager
-	writeFile(filepath.Join("usr", "lib", "shim", "fbx64.efi"))                             // fallback loader (must be ignored)
+	writeFile(filepath.Join("usr", "lib", "shim", "mmx64.efi"))                               // findMokManager
+	writeFile(filepath.Join("usr", "lib", "shim", "fbx64.efi"))                               // fallback loader (must be ignored)
 
 	b := &BootloaderInstaller{
 		Type:      BootloaderGRUB2,

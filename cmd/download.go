@@ -124,7 +124,7 @@ func runDownload(cmd *cobra.Command, args []string) error {
 			if clix.JSONOutput {
 				return clix.OutputJSONError("no update available", fmt.Errorf("image digest matches installed version"))
 			}
-			return fmt.Errorf("no update available: image digest matches installed version (%s)", remoteDigest[:19]+"...")
+			return fmt.Errorf("no update available: image digest matches installed version (%s)", remoteDigest[:min(19, len(remoteDigest))]+"...")
 		}
 
 		if !clix.JSONOutput {

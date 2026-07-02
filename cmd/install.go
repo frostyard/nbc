@@ -39,7 +39,7 @@ var installCmd = &cobra.Command{
 This command will:
   1. Validate the target disk
   2. Pull the container image (unless --skip-pull is specified)
-  3. Wipe the disk (after confirmation)
+  3. Wipe the disk (prompts for confirmation unless --yes/--force is set)
   4. Create partitions (EFI: 2GB, boot: 1GB, root1: 12GB, root2: 12GB, var: remaining)
   5. Extract container filesystem
   6. Configure system and install bootloader
@@ -61,13 +61,14 @@ Example:
   nbc install --image localhost/myimage --device /dev/nvme0n1 --filesystem ext4
   nbc install --image localhost/myimage --device /dev/nvme0n1 --karg console=ttyS0
   nbc install --image localhost/myimage --device /dev/sda --json
+  nbc install --image localhost/myimage --device /dev/sda --yes  # Skip confirmation for automation
   nbc install --local-image sha256:abc123 --device /dev/sda  # Use staged image
   nbc install --device /dev/sda  # Auto-detect staged image on ISO
 
   # Loopback installation
   nbc install --image quay.io/example/myimage:latest --via-loopback ./disk.img
   nbc install --image localhost/myimage --via-loopback ./disk.img --image-size 50
-  nbc install --image localhost/myimage --via-loopback ./disk.img --force  # Overwrite existing`,
+  nbc install --image localhost/myimage --via-loopback ./disk.img --force  # Overwrite existing image`,
 	RunE: runInstall,
 }
 
@@ -87,8 +88,8 @@ func init() {
 	installCmd.Flags().StringVar(&instFlags.rootPasswordFile, "root-password-file", "", "Path to file containing root password to set during installation")
 	installCmd.Flags().StringVar(&instFlags.viaLoopback, "via-loopback", "", "Path to create a loopback disk image file for installation (instead of --device)")
 	installCmd.Flags().IntVar(&instFlags.imageSize, "image-size", pkg.DefaultLoopbackSizeGB, "Size of loopback image in GB (minimum 35GB, default 35GB)")
-	installCmd.Flags().BoolVar(&instFlags.force, "force", false, "Overwrite existing loopback image file")
-	installCmd.Flags().BoolVar(&instFlags.force, "yes", false, "Overwrite existing loopback image file (alias for --force)")
+	installCmd.Flags().BoolVar(&instFlags.force, "force", false, "Skip destructive-action confirmation and overwrite existing loopback image file")
+	installCmd.Flags().BoolVar(&instFlags.force, "yes", false, "Skip destructive-action confirmation and overwrite existing loopback image file (alias for --force)")
 	installCmd.Flags().Lookup("yes").Hidden = true
 
 	// Don't mark device as required - can use --via-loopback instead
@@ -99,6 +100,12 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	cfg, err := buildInstallConfig(cmd.Context())
 	if err != nil {
 		return err
+	}
+
+	if installNeedsConfirmation(cfg, instFlags.force, clix.DryRun, clix.JSONOutput) {
+		if err := confirmInstall(cfg.Device); err != nil {
+			return err
+		}
 	}
 
 	// Create installer
@@ -136,6 +143,29 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  qemu-img convert -f raw -O vmdk %s disk.vmdk\n", result.LoopbackPath)
 	}
 
+	return nil
+}
+
+func installNeedsConfirmation(cfg *pkg.InstallConfig, force, dryRun, jsonOutput bool) bool {
+	if cfg == nil {
+		return false
+	}
+	return cfg.Device != "" && cfg.Loopback == nil && !dryRun && !jsonOutput && !force
+}
+
+func confirmInstall(device string) error {
+	separator := strings.Repeat("=", 60)
+	fmt.Printf("\n%s\n", separator)
+	fmt.Printf("WARNING: This will ERASE ALL DATA on %s\n", device)
+	fmt.Printf("%s\n", separator)
+	fmt.Print("Type 'yes' to continue: ")
+
+	var response string
+	_, _ = fmt.Scanln(&response)
+	if response != "yes" {
+		return fmt.Errorf("installation cancelled by user")
+	}
+	fmt.Println()
 	return nil
 }
 

@@ -317,6 +317,12 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 		i.progress.Error(err, "Disk validation failed")
 		return result, err
 	}
+	if !i.config.DryRun && i.config.Loopback == nil {
+		if err := checkNotBootDevice(device, i.progress); err != nil {
+			i.progress.Error(err, "Disk validation failed")
+			return result, err
+		}
+	}
 
 	// Check for cancellation
 	if err := ctx.Err(); err != nil {
@@ -337,7 +343,8 @@ func (i *Installer) Install(ctx context.Context) (*InstallResult, error) {
 		return result, err
 	}
 
-	// Wipe disk (in non-dry-run mode, confirmation should be handled by CLI)
+	// Wipe disk. Install does not prompt; flag-driven confirmation is handled by the CLI,
+	// and the interactive wizard confirms before creating the installer.
 	i.progress.Message("Wiping disk %s...", device)
 	if err := WipeDisk(ctx, device, i.config.DryRun, i.progress); err != nil {
 		i.progress.Error(err, "Failed to wipe disk")

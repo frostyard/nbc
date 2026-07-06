@@ -1146,3 +1146,50 @@ func readConfigFromFile(path string) (*SystemConfig, error) {
 
 	return &config, nil
 }
+
+func TestIsNonNBCCmdline(t *testing.T) {
+	tests := []struct {
+		name    string
+		cmdline string
+		want    bool
+	}{
+		{
+			name:    "bootc composefs system",
+			cmdline: `initrd=\EFI\Linux\bootc_composefs-abc123\initrd root=LABEL=root rw composefs=abc123 rhgb quiet rd.luks.name=deadbeef=root`,
+			want:    true,
+		},
+		{
+			name:    "bare composefs flag",
+			cmdline: "root=LABEL=root rw composefs quiet",
+			want:    true,
+		},
+		{
+			name:    "nbc system with root UUID",
+			cmdline: "root=UUID=abc-123 rw systemd.mount-extra=UUID=def-456:/var:ext4:defaults",
+			want:    false,
+		},
+		{
+			name:    "nbc system with device path root",
+			cmdline: "root=/dev/sda2 rw quiet",
+			want:    false,
+		},
+		{
+			name:    "composefs as substring of another param does not match",
+			cmdline: "root=UUID=abc-123 rw rd.composefs.enabled=1",
+			want:    false,
+		},
+		{
+			name:    "empty cmdline",
+			cmdline: "",
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsNonNBCCmdline(tt.cmdline); got != tt.want {
+				t.Errorf("IsNonNBCCmdline(%q) = %v, want %v", tt.cmdline, got, tt.want)
+			}
+		})
+	}
+}

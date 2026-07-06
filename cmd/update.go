@@ -151,6 +151,29 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		// Auto-detect boot device
 		device, err = pkg.GetCurrentBootDeviceInfo(cmd.Context(), clix.Verbose, progress)
 		if err != nil {
+			// If this host is managed by something other than nbc (e.g. a
+			// bootc/composefs install), there is nothing to update — exit
+			// cleanly so scheduled callers don't accumulate failed units.
+			if pkg.IsNonNBCSystem() {
+				const msg = "System is not nbc-managed (bootc/composefs detected), nothing to do"
+				if clix.JSONOutput {
+					if updFlags.checkOnly {
+						clix.OutputJSON(types.UpdateCheckOutput{
+							UpdateNeeded: false,
+							Message:      msg,
+						})
+					} else {
+						clix.OutputJSON(map[string]any{
+							"success": true,
+							"skipped": true,
+							"message": msg,
+						})
+					}
+				} else {
+					fmt.Println(msg)
+				}
+				return nil
+			}
 			if clix.JSONOutput {
 				progress.Error(err, "Failed to auto-detect boot device")
 			}

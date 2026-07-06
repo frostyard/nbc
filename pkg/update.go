@@ -69,6 +69,28 @@ func GetActiveRootPartition() (string, error) {
 	return "", fmt.Errorf("could not determine active root partition from kernel command line")
 }
 
+// IsNonNBCCmdline reports whether a kernel command line indicates a system
+// managed by something other than nbc, such as a bootc/composefs install.
+func IsNonNBCCmdline(cmdline string) bool {
+	for field := range strings.FieldsSeq(cmdline) {
+		if field == "composefs" || strings.HasPrefix(field, "composefs=") {
+			return true
+		}
+	}
+	return false
+}
+
+// IsNonNBCSystem reads /proc/cmdline and reports whether the running system
+// appears to be managed by something other than nbc (e.g. bootc/composefs).
+// Returns false if /proc/cmdline cannot be read.
+func IsNonNBCSystem() bool {
+	cmdline, err := os.ReadFile("/proc/cmdline")
+	if err != nil {
+		return false
+	}
+	return IsNonNBCCmdline(string(cmdline))
+}
+
 // IsRootMountedReadOnly checks if the root partition is mounted read-only
 // Returns "ro" for read-only, "rw" for read-write, or empty string if unable to determine
 func IsRootMountedReadOnly() string {

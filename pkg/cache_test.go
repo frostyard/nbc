@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,11 +59,19 @@ func assertMetadataEqual(t *testing.T, got, want *CachedImageMetadata) {
 func skipIfNoCacheLockPermission(t *testing.T) {
 	t.Helper()
 
-	if err := ensureLockDir(); err != nil {
-		if os.IsPermission(err) || strings.Contains(err.Error(), "permission denied") {
-			t.Skip("Skipping test: no permission to create /var/run/nbc")
+	// Attempt the actual lock acquisition rather than just probing the lock
+	// directory: /var/run/nbc may already exist root-owned (created by a
+	// prior sudo integration-test run), in which case creating the directory
+	// succeeds but opening the lock file as an unprivileged user does not.
+	lock, err := AcquireCacheLockShared()
+	if err != nil {
+		if errors.Is(err, os.ErrPermission) || strings.Contains(err.Error(), "permission denied") {
+			t.Skip("Skipping test: no permission to use cache lock in /var/run/nbc")
 		}
-		t.Fatalf("ensureLockDir failed: %v", err)
+		t.Fatalf("AcquireCacheLockShared failed: %v", err)
+	}
+	if err := lock.Release(); err != nil {
+		t.Fatalf("failed to release cache lock: %v", err)
 	}
 }
 

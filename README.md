@@ -3,6 +3,13 @@
 [![Tests](https://github.com/frostyard/nbc/actions/workflows/test.yml/badge.svg)](https://github.com/frostyard/nbc/actions/workflows/test.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/frostyard/nbc/badge)](https://scorecard.dev/viewer/?uri=github.com/frostyard/nbc)
 
+> **End-of-life notice (2026-09-30):** `nbc` and the systems it installed are
+> deprecated and will be unavailable after **2026-09-30**. These images will
+> no longer receive updates. Please backup and install the bootc variants
+> (`snow`, `snowfield`, `floe`) for continued support. See the
+> [nbc to bootc migration runbook](https://github.com/frostyard/snosi/blob/main/docs/nbc-to-bootc-migration.md)
+> and [snosi ADR-0015](https://github.com/frostyard/snosi/blob/main/docs/adr/0015-retire-native-ab-images-and-nbc-installs.md).
+
 A Go application for installing bootc-compatible containers to physical disks with A/B partitioning and atomic updates.
 
 ## Overview

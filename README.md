@@ -9,6 +9,7 @@
 > (`snow`, `snowfield`, `floe`) for continued support. See the
 > [nbc to bootc migration runbook](https://github.com/frostyard/snosi/blob/main/docs/nbc-to-bootc-migration.md)
 > and [snosi ADR-0015](https://github.com/frostyard/snosi/blob/main/docs/adr/0015-retire-native-ab-images-and-nbc-installs.md).
+> OFFICIALLY RETIRED on 2026-10-1
 
 A Go application for installing bootc-compatible containers to physical disks with A/B partitioning and atomic updates.
 
